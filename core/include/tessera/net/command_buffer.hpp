@@ -24,29 +24,42 @@ struct StructuralCommand {
 
 /// One queue per worker, so workers can queue commands in parallel without locks.
 ///
-/// `ApplyAll` visits the queues in a fixed order (worker 0 first, then worker 1, and so on, each in
-/// the order its commands were queued). The result therefore does not depend on thread timing.
+/// Every command carries an `order_key` chosen by the code that queues it (for example the index of
+/// the item being processed). `ApplyAll` applies commands in key order, so the result does not depend
+/// on which worker handled which item or on thread timing, and it is the same with 1 or 8 workers.
+/// Keys must be unique per source of commands. Commands with the same key from the same worker keep
+/// their enqueue order.
 template <class Command>
 class CommandBuffers {
 public:
     explicit CommandBuffers(uint32_t worker_count) : lanes_(std::max(worker_count, 1u)) {}
 
     /// Queues a command on the lane of `worker`. Safe to call in parallel for different workers.
-    void Push(uint32_t worker, Command command) {
+    void Push(uint32_t worker, uint64_t order_key, Command command) {
         assert(worker < lanes_.size());
-        lanes_[worker].commands.push_back(std::move(command));
+        lanes_[worker].commands.push_back(Entry{order_key, std::move(command)});
     }
 
-    /// Calls `fn(const Command&)` for every queued command in deterministic order, then empties the
-    /// queues. Must run alone (no concurrent `Push`). Returns the number of commands applied.
+    /// Calls `fn(const Command&)` for every queued command in key order, then empties the queues.
+    /// Must run alone (no concurrent `Push`). Returns the number of commands applied.
     template <class F>
     size_t ApplyAll(F&& fn) {
-        size_t applied = 0;
-        for (Lane& lane : lanes_) {
-            for (const Command& command : lane.commands) {
-                fn(command);
-                ++applied;
+        order_.clear();
+        for (uint32_t lane = 0; lane < lanes_.size(); ++lane) {
+            for (uint32_t i = 0; i < lanes_[lane].commands.size(); ++i) {
+                order_.push_back(Ref{lanes_[lane].commands[i].key, lane, i});
             }
+        }
+        std::sort(order_.begin(), order_.end(), [](const Ref& a, const Ref& b) {
+            if (a.key != b.key) return a.key < b.key;
+            if (a.lane != b.lane) return a.lane < b.lane;
+            return a.index < b.index;
+        });
+        for (const Ref& ref : order_) {
+            fn(lanes_[ref.lane].commands[ref.index].command);
+        }
+        const size_t applied = order_.size();
+        for (Lane& lane : lanes_) {
             lane.commands.clear();
         }
         return applied;
@@ -61,18 +74,28 @@ public:
     }
 
 private:
+    struct Entry {
+        uint64_t key;
+        Command command;
+    };
+    struct Ref {
+        uint64_t key;
+        uint32_t lane;
+        uint32_t index;
+    };
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4324)  // padding is intended: one cache line per lane avoids false sharing
 #endif
     struct alignas(64) Lane {
-        std::vector<Command> commands;
+        std::vector<Entry> commands;
     };
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
     std::vector<Lane> lanes_;
+    std::vector<Ref> order_;  // reused between calls, so steady-state use does not allocate
 };
 
 }  // namespace tessera::net
