@@ -131,7 +131,9 @@ int main() {
 ## Measured performance
 
 The acceptance benchmark (`tessera_net_bench`, built with `-DTESSERA_BUILD_BENCH=ON`) checks the
-numbers below with 1,000,000 entities on a desktop CPU (12 cores). Your numbers will differ.
+numbers below with 1,000,000 entities on a desktop CPU (12 cores). Your numbers will differ. More results,
+including comparisons with Godot nodes and with a general-purpose ECS, are on the
+[benchmarks page](../benchmarks.md).
 
 | What | Result |
 |---|---|

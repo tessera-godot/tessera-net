@@ -1,4 +1,4 @@
-# Acceptance benchmark: checks the S1 numbers (see docs/reference/core.md). Enabled with
+# Acceptance benchmark: checks the data core against its limits (see docs/benchmarks.md). Enabled with
 # -DTESSERA_BUILD_BENCH=ON; it is not part of the default build.
 add_executable(tessera_net_bench bench_acceptance.cpp)
 target_link_libraries(tessera_net_bench PRIVATE tessera_net_core)

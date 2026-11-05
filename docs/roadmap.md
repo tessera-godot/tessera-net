@@ -6,7 +6,7 @@ before speed.
 | Step | Deliverable | Status |
 |---|---|---|
 | 0 | Development environment, project skeleton, baseline measurements and targets | Done |
-| 1 | Data core: entities, handles, fixed tick, spatial grid, jobs | Implemented, in review |
+| 1 | Data core: entities, handles, fixed tick, spatial grid, jobs | Done |
 | 2 | Schema and code generation (C++ server side, GDScript client side) | Planned |
 | 3 | Replication: relevancy, dormancy, priority, bandwidth budget, delta, quantization, transport | Planned |
 | 4 | Input, prediction and reconciliation; movement and proxies | Planned |

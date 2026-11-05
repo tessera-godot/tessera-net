@@ -27,6 +27,11 @@ This project builds the missing pieces so Godot developers can make those games:
 
 ![Frame rate of a Godot server using the built-in replication as the entity count grows](docs/images/baseline-godot-replication.svg)
 
+Part of the problem is how entities are stored. A million entities kept as nodes are slow to create, update
+and remove, while the entity table in this project does the same work on plain arrays:
+
+![Time to create, destroy and update one million entities as Godot nodes and in the entity table](docs/images/entities-vs-godot-nodes.svg)
+
 Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchmarks.md).
 
 ## Design goals

@@ -1,0 +1,9 @@
+; Baseline benchmark of Godot's built-in replication (MultiplayerSynchronizer).
+config_version=5
+
+[application]
+config/name="bench-baseline"
+run/main_scene="res://main.tscn"
+
+[debug]
+settings/stdout/print_fps=false

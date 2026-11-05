@@ -10,9 +10,9 @@ right now are feedback on the design, use cases, and measurements.
 - **Small, focused changes.** One concern per pull request.
 - **Tests.** Every behavior change comes with automated tests. Network rules (determinism, reconciliation,
   relevancy) are always tested.
-- **Measure, do not guess.** Performance claims need a reproducible benchmark.
-- **Keep the numbers current.** If a change alters a measurement, update every place it appears (the
-  checklist is in [docs/benchmarks.md](docs/benchmarks.md#keeping-this-page-up-to-date)) in the same pull request.
+- **Measure, do not guess.** Performance numbers in the docs come from the benchmarks in `bench/`. If your
+  change affects them, run the benchmark again and update `docs/benchmarks.md` and the charts
+  (`python tools/make_charts.py`).
 
 ## Code style
 

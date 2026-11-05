@@ -1,0 +1,18 @@
+#!/usr/bin/env python
+# Builds the extension that compares one million Godot nodes with the Tessera Net entity table.
+# Usage: scons godot_cpp_dir=<path to godot-cpp> custom_api_file=<extension_api.json> target=template_release
+import os
+
+godot_cpp_dir = ARGUMENTS.get("godot_cpp_dir", "godot-cpp")
+tessera_include = ARGUMENTS.get("tessera_include", "../../core/include")
+
+env = SConscript(os.path.join(godot_cpp_dir, "SConstruct"))
+env.Append(CPPPATH=["src/", tessera_include])
+if env.get("is_msvc", False):
+    env.Append(CXXFLAGS=["/std:c++20"])
+else:
+    env.Append(CXXFLAGS=["-std=c++20"])
+env.Append(CPPDEFINES=["NDEBUG"])  # the table's debug assertions are not part of what is measured
+
+library = env.SharedLibrary("project/bin/node_bench" + env["suffix"] + env["SHLIBSUFFIX"], source=Glob("src/*.cpp"))
+Default(library)

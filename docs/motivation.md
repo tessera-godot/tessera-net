@@ -14,7 +14,7 @@ open-world games with a dedicated server it runs into limits:
 
 ## What we measured
 
-A throwaway benchmark on a single machine (localhost, one server core, 8 bot clients, every client seeing
+A benchmark on a single machine ([source](../bench/godot-replication/); localhost, one server core, 8 bot clients, every client seeing
 every entity, one position property per entity at 20 Hz):
 
 | Entities | Server frame rate (target 60) | Server CPU (1 core = 100%) | Bandwidth per client |

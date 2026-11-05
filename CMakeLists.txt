@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(TESSERA_BUILD_TESTS "Build the unit tests" ON)
 option(TESSERA_BUILD_BENCH "Build the acceptance benchmark" OFF)
+option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
@@ -22,4 +23,8 @@ endif()
 
 if(TESSERA_BUILD_BENCH)
     add_subdirectory(bench)
+endif()
+
+if(TESSERA_BUILD_ECS_COMPARISON)
+    add_subdirectory(bench/ecs-comparison)
 endif()

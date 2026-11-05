@@ -3,6 +3,7 @@
 Run from the repository root:  python tools/make_charts.py
 Edit the numbers below when new measurements are recorded in docs/benchmarks.md.
 """
+import math
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -96,10 +97,48 @@ def acceptance_chart():
                 "\n".join(parts))
 
 
+def nodes_chart():
+    """One million entities kept as Godot nodes versus in the entity table (same process, log scale)."""
+    rows = [
+        ("Create 1 M entities", 615.0, 12.4),
+        ("Destroy 1 M entities", 557.0, 6.2),
+        ("Update 1 M positions (one pass)", 168.0, 1.0),
+    ]
+    width, height = 720, 380
+    left, plot_w, top, row_h = 250, 400, 100, 66
+    lo, hi = 0.5, 1000.0
+
+    def x_of(value):
+        return left + plot_w * (math.log10(value) - math.log10(lo)) / (math.log10(hi) - math.log10(lo))
+
+    parts = []
+    for tick in (1, 10, 100, 1000):
+        x = x_of(tick)
+        parts.append(f'<line x1="{x:.1f}" y1="{top - 8}" x2="{x:.1f}" y2="{top + row_h * len(rows)}" stroke="{GRID}"/>')
+        parts.append(text(x, top - 14, f"{tick} ms", 11, MUTED, "middle"))
+    for i, (label, node_ms, table_ms) in enumerate(rows):
+        y = top + row_h * i
+        parts.append(text(left - 12, y + 30, label, 13, INK, "end"))
+        parts.append(f'<rect x="{left}" y="{y + 6}" width="{x_of(node_ms) - left:.1f}" height="20" rx="3" fill="{AMBER}"/>')
+        parts.append(text(x_of(node_ms) + 8, y + 21, f"{node_ms:g} ms", 12, INK))
+        parts.append(f'<rect x="{left}" y="{y + 32}" width="{x_of(table_ms) - left:.1f}" height="20" rx="3" fill="{BLUE}"/>')
+        parts.append(text(x_of(table_ms) + 8, y + 47, f"{table_ms:g} ms  ({node_ms / table_ms:.0f}x faster)", 12, INK))
+    legend_y = top + row_h * len(rows) + 28
+    parts.append(f'<rect x="{left}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{AMBER}"/>')
+    parts.append(text(left + 22, legend_y, "Godot Node3D objects", 12, INK))
+    parts.append(f'<rect x="{left + 190}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{BLUE}"/>')
+    parts.append(text(left + 212, legend_y, "Tessera Net entity table", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. Nodes are created and updated through the extension API, so engine-internal code would be faster.", 11, MUTED))
+    return card(width, height, "Entities as Godot nodes vs. the entity table",
+                "1,000,000 entities, same process, same arithmetic, median of 5 runs, one thread. Shorter is better.",
+                "\n".join(parts))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline-godot-replication.svg").write_text(baseline_chart(), encoding="utf-8")
     (OUT / "data-core-acceptance.svg").write_text(acceptance_chart(), encoding="utf-8")
+    (OUT / "entities-vs-godot-nodes.svg").write_text(nodes_chart(), encoding="utf-8")
     print("wrote", OUT)
 
 

@@ -15,20 +15,21 @@ Pages are allocated on demand and never move. A slot keeps its index for the lif
 generation counter, and has an alive bit and a dirty bit in per-page bitsets. Destroyed slots go to a
 free list; a slot whose generation counter runs out is retired.
 
-We measured this layout against a general-purpose ECS library (EnTT 3.16) in a throwaway benchmark with
-1,000,000 entities on one thread:
+We measured this layout against a general-purpose ECS library (EnTT 3.16) with the published benchmark in
+`bench/ecs-comparison`, with 1,000,000 entities on one thread (median of five executions; the full ranges
+are on the [benchmarks page](../benchmarks.md)):
 
 | Operation | Per-type table | General ECS |
 |---|---|---|
-| Create 1 M | 16 ms | 94 ms |
-| Destroy 1 M | 6 ms | 196 ms |
-| Churn (destroy and recreate 10%, ten times) | 208 ms | 1,720 ms |
-| Iterate 1 M | 1.5 ms | 3.2 ms |
-| Serialize the 10% that changed | 0.9 ms | 4.9 ms (19 ms with tag components) |
+| Create 1 M | 14 ms | 102 ms |
+| Destroy 1 M | 14 ms | 201 ms |
+| Churn (destroy and recreate 10%, ten times) | 80 ms | 1,784 ms |
+| Update every position once | 1.6 ms | 3.4 ms |
+| Write the 10% that changed | 0.8 ms | 5.2 ms (19 ms with tag components) |
 
-The comparison favours the table because it does less: it cannot add components to a live entity or
-answer arbitrary queries. The numbers show what that generality costs for this use, not that the other
-library is slow. Memory and the library's grouping features were not measured.
+The comparison favours the table because it does less: it cannot add components to a live entity or answer
+arbitrary queries. The numbers show what that generality costs for this use, not that the other library is
+slow. Memory and the library's grouping features were not measured.
 
 ## Consequences
 - Fast creation, destruction, iteration and dirty scans, with predictable memory.

@@ -23,3 +23,7 @@ out/
 # Secrets and local configuration (never commit)
 *.env
 .secrets/
+
+# SCons
+.sconsign*.dblite
+*.exp

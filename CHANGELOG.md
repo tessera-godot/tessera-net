@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 - Benchmarks page with charts (`docs/benchmarks.md`) and a script to regenerate them (`tools/make_charts.py`).
+- Source of every benchmark in `bench/`: the data core acceptance benchmark, the comparison with a
+  general-purpose ECS, the comparison with Godot nodes, and the baseline of Godot's built-in replication.
 - Data core: `EntityId`, paged `EntityTable`, `TypeRegistry`, `ThreadPoolJobSystem`, `CommandBuffers`,
   `SpatialGrid` and `TickLoop` (see `docs/reference/core.md`).
 - Integration and determinism tests, and an acceptance benchmark (`tessera_net_bench`).
