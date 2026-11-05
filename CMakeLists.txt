@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(TESSERA_BUILD_TESTS "Build the unit tests" ON)
+option(TESSERA_BUILD_BENCH "Build the acceptance benchmark" OFF)
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
@@ -17,4 +18,8 @@ add_subdirectory(core)
 if(TESSERA_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+if(TESSERA_BUILD_BENCH)
+    add_subdirectory(bench)
 endif()
