@@ -25,7 +25,9 @@ This project builds the missing pieces so Godot developers can make those games:
 - **Prediction and reconciliation** for smooth movement under lag.
 - **Editor tools**: configure everything from the Godot editor, no networking PhD required.
 
-Read the full [motivation](docs/motivation.md).
+![Frame rate of a Godot server using the built-in replication as the entity count grows](docs/images/baseline-godot-replication.svg)
+
+Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchmarks.md).
 
 ## Design goals
 
@@ -44,6 +46,10 @@ These are targets, not results. Measured numbers will be published as they exist
 The **data core** (`core/`): entity storage in paged tables, 64-bit entity ids, a fixed-step tick loop with
 five phases, a sparse 3D spatial grid, a thread-pool job system and deterministic command buffers. See the
 [core reference](docs/reference/core.md) for how each part works and a runnable example.
+
+![Measured value versus limit for each data core criterion](docs/images/data-core-acceptance.svg)
+
+All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Quick start
 
@@ -94,6 +100,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Getting started](docs/getting-started.md)
 - [Concepts explained simply](docs/concepts.md)
 - [Core library reference](docs/reference/core.md)
+- [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture decision records](docs/adr/README.md)
