@@ -1,0 +1,25 @@
+# Build output
+build/
+out/
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+*.so
+*.exe
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+
+# Godot
+.godot/
+.import/
+
+# Secrets and local configuration (never commit)
+*.env
+.secrets/
