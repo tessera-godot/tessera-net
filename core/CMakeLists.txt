@@ -2,7 +2,8 @@ find_package(Threads REQUIRED)
 
 add_library(tessera_net_core STATIC
     src/version.cpp
-    src/job_system.cpp)
+    src/job_system.cpp
+    src/spatial_grid.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)
