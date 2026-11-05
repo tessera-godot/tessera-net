@@ -51,6 +51,23 @@ guard: if a change makes the core slower than its limit, the benchmark fails.
 - The jitter test runs the tick loop with no work and no other load on the process.
 - Only Windows has been measured so far. Linux results will be added.
 
+## Keeping this page up to date
+
+Whenever a measurement changes (new code, a new machine, a new platform, or a re-run), update every place
+where the number appears, in the same pull request:
+
+1. `docs/benchmarks.md`: the tables and the "Conditions" section (machine, build, date of the change).
+2. `tools/make_charts.py`: the numbers at the top, then run `python tools/make_charts.py` and commit the
+   regenerated files in `docs/images/`.
+3. `docs/reference/core.md`: the "Measured performance" table.
+4. `docs/motivation.md` and `README.md`: only if the Godot baseline (section 1) was measured again.
+5. `CHANGELOG.md`: a line saying what changed and why.
+
+Architecture decision records (`docs/adr/`) are dated records of why a choice was made. Do not rewrite the
+numbers in them; if new measurements change a decision, add a new record that supersedes the old one.
+
+If a result gets worse, say so here and explain it; do not quietly raise a limit.
+
 ## Reproduce
 
 ```powershell
