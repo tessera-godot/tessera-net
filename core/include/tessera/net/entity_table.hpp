@@ -140,6 +140,10 @@ public:
 
     uint32_t PageCount() const noexcept { return static_cast<uint32_t>(pages_.size()); }
 
+    /// Size in bytes of one page, columns included. Subtract `sizeof(PageColumns)` and divide by
+    /// `kPageSlots` to get the per-entity bookkeeping cost.
+    static constexpr size_t PageBytes() noexcept { return sizeof(Page); }
+
     PageColumns& Columns(uint32_t page) noexcept { return pages_[page]->columns; }
     const PageColumns& Columns(uint32_t page) const noexcept { return pages_[page]->columns; }
 

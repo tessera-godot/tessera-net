@@ -174,3 +174,11 @@ TESSERA_TEST(destroy_clears_dirty_bit) {
     TESSERA_CHECK(reused.index() == id.index());
     TESSERA_CHECK(table.ConsumeDirtyInPage(0, [](uint32_t) {}) == 0);
 }
+
+TESSERA_TEST(per_slot_overhead_is_at_most_eight_bytes) {
+    // Everything a page stores besides the user's columns (generation, alive and dirty bits), per slot.
+    constexpr size_t overhead = (TestTable::PageBytes() - sizeof(TestColumns)) / kPageSlots;
+    static_assert(overhead <= 8);
+    static_assert(overhead >= 4);  // at least the 32-bit generation
+    TESSERA_CHECK(overhead == (TestTable::PageBytes() - sizeof(TestColumns)) / kPageSlots);
+}
