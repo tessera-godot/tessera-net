@@ -71,11 +71,48 @@ public:
             return false;
         }
         Page& page = *pages_[location->page];
-        page.alive[location->slot >> 6] &= ~(1ull << (location->slot & 63));
-        ++page.generation[location->slot];
-        free_slots_.push_back(id.index());
+        const uint64_t bit = 1ull << (location->slot & 63);
+        page.alive[location->slot >> 6] &= ~bit;
+        page.dirty[location->slot >> 6] &= ~bit;
         --alive_count_;
+        const uint32_t next_generation = page.generation[location->slot] + 1;
+        if (next_generation >= EntityId::kRetiredGeneration) {
+            // The generation counter is exhausted: never reuse this slot, so no old id can match it.
+            page.generation[location->slot] = EntityId::kRetiredGeneration;
+            ++retired_count_;
+        } else {
+            page.generation[location->slot] = next_generation;
+            free_slots_.push_back(id.index());
+        }
         return true;
+    }
+
+    /// Number of slots permanently taken out of use because their generation counter ran out.
+    size_t RetiredSlotCount() const noexcept { return retired_count_; }
+
+    /// Flags a live entity as changed. Ignores null, foreign and stale ids.
+    void MarkDirty(EntityId id) {
+        const std::optional<SlotLocation> location = Find(id);
+        if (location) {
+            pages_[location->page]->dirty[location->slot >> 6] |= 1ull << (location->slot & 63);
+        }
+    }
+
+    /// Calls `fn(slot)` for every flagged slot of a page and clears the flags. Returns how many were visited.
+    template <class F>
+    size_t ConsumeDirtyInPage(uint32_t page, F&& fn) {
+        Page& p = *pages_[page];
+        size_t visited = 0;
+        for (uint32_t word = 0; word < kPageSlots / 64; ++word) {
+            uint64_t bits = p.dirty[word];
+            p.dirty[word] = 0;
+            while (bits != 0) {
+                fn(word * 64 + static_cast<uint32_t>(std::countr_zero(bits)));
+                bits &= bits - 1;
+                ++visited;
+            }
+        }
+        return visited;
     }
 
     bool IsAlive(EntityId id) const { return Find(id).has_value(); }
@@ -130,6 +167,7 @@ private:
         PageColumns columns;
         uint32_t generation[kPageSlots];
         uint64_t alive[kPageSlots / 64];
+        uint64_t dirty[kPageSlots / 64];
     };
 
     TableConfig config_;
@@ -137,6 +175,7 @@ private:
     std::vector<uint32_t> free_slots_;
     uint32_t next_new_slot_ = 0;
     size_t alive_count_ = 0;
+    size_t retired_count_ = 0;
 };
 
 }  // namespace tessera::net
