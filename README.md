@@ -4,8 +4,9 @@ High-performance, dedicated-server networking for Godot 4, built for large open 
 
 Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
 
-> **Status: pre-alpha.** The repository currently contains the project skeleton and a design in progress.
-> Nothing here is ready for production yet. Follow the [roadmap](docs/roadmap.md) for progress.
+> **Status: pre-alpha.** The engine-independent data core is implemented and tested (entities, fixed-step
+> tick loop, spatial grid, job system). Replication, the Godot plugin and the dedicated server are not
+> built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -38,6 +39,12 @@ Read the full [motivation](docs/motivation.md).
 
 These are targets, not results. Measured numbers will be published as they exist.
 
+## What exists today
+
+The **data core** (`core/`): entity storage in paged tables, 64-bit entity ids, a fixed-step tick loop with
+five phases, a sparse 3D spatial grid, a thread-pool job system and deterministic command buffers. See the
+[core reference](docs/reference/core.md) for how each part works and a runnable example.
+
 ## Quick start
 
 Not available yet. When the first release is ready you will download a ZIP, copy it into your project and
@@ -59,6 +66,14 @@ Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+):
 ./tools/build.sh
 ```
 
+To also build and run the acceptance benchmark (Release builds only):
+
+```powershell
+cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
+cmake --build --preset windows-msvc-release --target tessera_net_bench
+./build/windows-msvc/bench/Release/tessera_net_bench.exe
+```
+
 ## Repository layout
 
 | Folder | Contents |
@@ -69,6 +84,7 @@ Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+):
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
 | `tests/` | Automated tests |
+| `bench/` | Acceptance benchmark for the data core |
 | `docs/` | Documentation, architecture and decision records |
 | `tools/` | Build and packaging scripts |
 
@@ -77,6 +93,7 @@ Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+):
 - [Documentation home](docs/index.md)
 - [Getting started](docs/getting-started.md)
 - [Concepts explained simply](docs/concepts.md)
+- [Core library reference](docs/reference/core.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture decision records](docs/adr/README.md)

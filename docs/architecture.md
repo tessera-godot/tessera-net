@@ -28,6 +28,13 @@ standalone server. This guarantees client and server agree on the rules.
 6. **Prediction**: input commands, reconciliation, proxies.
 7. **Jobs**: work split across CPU cores.
 
+## The tick
+
+The simulation runs in fixed steps. Each tick has five phases (input, simulate, structure, grid, network).
+Creating and destroying entities is queued during the simulate phase and applied, in a deterministic
+order, in the structure phase, so every other phase can run on many threads without locks. See the
+[core reference](reference/core.md).
+
 ## One schema, two sides
 
 Entities and their replicated properties are described once, in the editor. From that description the
