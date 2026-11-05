@@ -3,10 +3,12 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <vector>
 
 #include "tessera/net/entity_id.hpp"
@@ -38,7 +40,11 @@ struct SlotLocation {
 template <class PageColumns>
 class EntityTable {
 public:
+    /// Throws std::invalid_argument if `type` or `shard` does not fit in an `EntityId`.
     explicit EntityTable(TableConfig config) : config_(config) {
+        if (config.type > EntityId::kMaxType || config.shard > EntityId::kMaxShard) {
+            throw std::invalid_argument("EntityTable: type or shard is out of range for an EntityId");
+        }
         config_.max_slots = std::min(config_.max_slots, EntityId::kMaxIndex + 1);
     }
 
@@ -50,12 +56,15 @@ public:
             free_slots_.pop_back();
         } else {
             if (next_new_slot_ >= config_.max_slots) {
+                ++failed_create_count_;
                 return EntityId::Null();
             }
-            index = next_new_slot_++;
+            index = next_new_slot_;
             if (index / kPageSlots >= pages_.size()) {
+                // Allocate before advancing the counter: if this throws, the table is unchanged.
                 pages_.push_back(std::make_unique<Page>());
             }
+            ++next_new_slot_;
         }
         Page& page = *pages_[index / kPageSlots];
         const uint32_t slot = index % kPageSlots;
@@ -71,6 +80,7 @@ public:
             return false;
         }
         Page& page = *pages_[location->page];
+        assert(alive_count_ > 0);
         const uint64_t bit = 1ull << (location->slot & 63);
         page.alive[location->slot >> 6] &= ~bit;
         page.dirty[location->slot >> 6] &= ~bit;
@@ -86,6 +96,9 @@ public:
         }
         return true;
     }
+
+    /// Number of `Create` calls that failed because the table was full.
+    size_t FailedCreateCount() const noexcept { return failed_create_count_; }
 
     /// Number of slots permanently taken out of use because their generation counter ran out.
     size_t RetiredSlotCount() const noexcept { return retired_count_; }
@@ -149,6 +162,8 @@ public:
 
     /// Id of the occupant of a slot (valid only while that slot is alive).
     EntityId IdOf(uint32_t page, uint32_t slot) const {
+        assert(page < pages_.size() && slot < kPageSlots);
+        assert((pages_[page]->alive[slot >> 6] >> (slot & 63)) & 1ull);
         return EntityId::Make(config_.shard, config_.type, page * kPageSlots + slot,
                               pages_[page]->generation[slot]);
     }
@@ -180,6 +195,7 @@ private:
     uint32_t next_new_slot_ = 0;
     size_t alive_count_ = 0;
     size_t retired_count_ = 0;
+    size_t failed_create_count_ = 0;
 };
 
 }  // namespace tessera::net

@@ -12,4 +12,11 @@ if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 ctest --preset windows-msvc-release
 if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
 
+# Debug build: assertions are enabled here, so invariant violations are caught.
+cmake --build --preset windows-msvc-debug
+if ($LASTEXITCODE -ne 0) { throw "Debug build failed." }
+
+ctest --preset windows-msvc-debug
+if ($LASTEXITCODE -ne 0) { throw "Debug tests failed." }
+
 Write-Host "Build and tests succeeded."

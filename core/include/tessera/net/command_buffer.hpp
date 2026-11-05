@@ -27,8 +27,12 @@ struct StructuralCommand {
 /// Every command carries an `order_key` chosen by the code that queues it (for example the index of
 /// the item being processed). `ApplyAll` applies commands in key order, so the result does not depend
 /// on which worker handled which item or on thread timing, and it is the same with 1 or 8 workers.
-/// Keys must be unique per source of commands. Commands with the same key from the same worker keep
-/// their enqueue order.
+///
+/// Key rule: a key identifies one source of commands (for example one input item) among ALL commands
+/// pushed between two `ApplyAll` calls. Several commands from the same source share its key and keep
+/// their enqueue order. Two different sources must never share a key: ties between workers are broken
+/// by worker index, which depends on timing, and that would make the result vary from run to run.
+/// Do not call `Push` from inside the `ApplyAll` callback.
 template <class Command>
 class CommandBuffers {
 public:
@@ -55,6 +59,10 @@ public:
             if (a.lane != b.lane) return a.lane < b.lane;
             return a.index < b.index;
         });
+        for (size_t i = 1; i < order_.size(); ++i) {
+            // Equal keys must come from one lane (one source); see the key rule above.
+            assert(order_[i].key != order_[i - 1].key || order_[i].lane == order_[i - 1].lane);
+        }
         for (const Ref& ref : order_) {
             fn(lanes_[ref.lane].commands[ref.index].command);
         }

@@ -39,12 +39,13 @@ struct Columns {
     float y[kPageSlots];
 };
 EntityTable<Columns> table(TableConfig{});
-EntityId id = table.Create();          // EntityId::Null() when the table is full
-table.Columns(0).x[table.Find(id)->slot] = 5.0f;
+EntityId id = table.Create();          // EntityId::Null() when the table is full (see FailedCreateCount())
+const SlotLocation where = *table.Find(id);
+table.Columns(where.page).x[where.slot] = 5.0f;
 table.Destroy(id);                     // false for a stale or foreign id
 ```
 
-Slots never move, so an entity keeps its place for its whole life. A slot whose generation counter
+The constructor throws `std::invalid_argument` if the type or shard does not fit in an `EntityId`. Slots never move, so an entity keeps its place for its whole life. A slot whose generation counter
 runs out is retired and never reused. `MarkDirty` and `ConsumeDirtyInPage` track what changed, which
 the replication layer uses to send only differences.
 
@@ -57,14 +58,20 @@ all workers, returning when every block is done. The calling thread is worker 0.
 
 ### `CommandBuffers<Command>` (`command_buffer.hpp`)
 One queue per worker, so many threads can queue create and destroy requests at the same time.
-Every command has an *order key* (for example the index of the item being processed). `ApplyAll`
-applies commands sorted by key, so the result is the same whether you use 1 or 8 workers.
-Keys must be unique per source of commands.
+Every command has an *order key*. `ApplyAll` applies commands sorted by key, so the result is the same
+whether you use 1 or 8 workers. A key identifies one source of commands (for example one input item)
+among all commands pushed between two `ApplyAll` calls: several commands from one source share its key
+and keep their order, but two different sources must never share a key. Do not call `Push` from inside
+the `ApplyAll` callback.
 
 ### `SpatialGrid` (`spatial_grid.hpp`)
 A sparse 3D grid. Cell size is set per axis (Y is vertical). `QueryCell`, `QueryBox` and
 `QuerySphere` answer "who is near here?". `WouldChangeCell` can be called from many threads to find
 the entities that crossed a cell border; `ApplyMoves` then updates the grid in one step.
+
+The grid stores the position of each entity as of the last `ApplyMoves`. `QueryBox` and `QuerySphere`
+filter on those stored positions, so if you need exact answers, pass a `PendingMove` for every entity
+that moved, not only for those that crossed a cell border (`ApplyMoves` reports how many changed cell).
 
 ### `TickLoop` (`tick_loop.hpp`)
 Runs the phases at a fixed rate and records timing (`Metrics()`). If a tick takes longer than its

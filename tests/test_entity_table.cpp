@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <cstdint>
+#include <new>
 #include <set>
+#include <stdexcept>
 #include <vector>
 
 #include "tessera/net/entity_table.hpp"
@@ -181,4 +183,74 @@ TESSERA_TEST(per_slot_overhead_is_at_most_eight_bytes) {
     static_assert(overhead <= 8);
     static_assert(overhead >= 4);  // at least the 32-bit generation
     TESSERA_CHECK(overhead == (TestTable::PageBytes() - sizeof(TestColumns)) / kPageSlots);
+}
+
+TESSERA_TEST(invalid_table_config_throws) {
+    int thrown = 0;
+    TableConfig bad_type;
+    bad_type.type = EntityId::kMaxType + 1;
+    TableConfig bad_shard;
+    bad_shard.shard = EntityId::kMaxShard + 1;
+    for (const TableConfig& config : {bad_type, bad_shard}) {
+        try {
+            TestTable table(config);
+        } catch (const std::invalid_argument&) {
+            ++thrown;
+        }
+    }
+    TESSERA_CHECK(thrown == 2);
+    TableConfig edge;  // the largest valid values are accepted
+    edge.type = EntityId::kMaxType;
+    edge.shard = EntityId::kMaxShard;
+    TestTable table(edge);
+    const EntityId id = table.Create();
+    TESSERA_CHECK(table.IsAlive(id));
+    TESSERA_CHECK(table.Destroy(id));
+}
+
+TESSERA_TEST(capacity_exhaustion_is_counted) {
+    TestTable table(SmallConfig(2));
+    table.Create();
+    table.Create();
+    TESSERA_CHECK(table.FailedCreateCount() == 0);
+    TESSERA_CHECK(table.Create().IsNull());
+    TESSERA_CHECK(table.Create().IsNull());
+    TESSERA_CHECK(table.FailedCreateCount() == 2);
+    TESSERA_CHECK(table.AliveCount() == 2);
+}
+
+namespace {
+
+// Columns whose construction can be made to fail, to stand in for running out of memory when a
+// page is allocated.
+struct FailingColumns {
+    static inline bool fail_next = false;
+    FailingColumns() {
+        if (fail_next) {
+            throw std::bad_alloc();
+        }
+    }
+    float x[kPageSlots];
+};
+
+}  // namespace
+
+TESSERA_TEST(failed_page_allocation_leaves_the_table_consistent) {
+    EntityTable<FailingColumns> table(TableConfig{});
+    FailingColumns::fail_next = true;
+    bool threw = false;
+    try {
+        table.Create();
+    } catch (const std::bad_alloc&) {
+        threw = true;
+    }
+    FailingColumns::fail_next = false;
+    TESSERA_CHECK(threw);
+    TESSERA_CHECK(table.AliveCount() == 0);
+    // Probing an id of the slot that failed must be safe, and that slot must not have been lost.
+    TESSERA_CHECK(!table.IsAlive(EntityId::Make(0, 0, 0, 0)));
+    const EntityId id = table.Create();
+    TESSERA_CHECK(id.index() == 0);
+    TESSERA_CHECK(table.IsAlive(id));
+    TESSERA_CHECK(table.AliveCount() == 1);
 }
