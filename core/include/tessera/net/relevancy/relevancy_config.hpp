@@ -25,9 +25,6 @@ struct TypeRelevancy {
 
 struct RelevancyConfig {
     uint32_t max_connections = 128;
-    /// Each connection recomputes what it sees once every this many ticks (staggered between
-    /// connections). Higher is cheaper but delays the moment an entity appears.
-    uint32_t recalc_interval_ticks = 3;
     uint32_t max_observers_per_connection = 4;
     /// Most entities one connection can see at once. Also the size of its compact id space.
     uint32_t max_visible_per_connection = 65536;

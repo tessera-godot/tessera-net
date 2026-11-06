@@ -30,7 +30,6 @@ TESSERA_TEST(default_relevancy_config_is_valid) {
 TESSERA_TEST(default_relevancy_config_matches_documented_values) {
     const RelevancyConfig config;
     TESSERA_CHECK(config.max_connections == 128);
-    TESSERA_CHECK(config.recalc_interval_ticks == 3);
     TESSERA_CHECK(config.max_observers_per_connection == 4);
     TESSERA_CHECK(config.max_visible_per_connection == 65536);
     TESSERA_CHECK(config.types.size() == 256);
@@ -44,10 +43,6 @@ TESSERA_TEST(zero_range_is_valid) {
 
 TESSERA_TEST(invalid_counts_throw) {
     RelevancyConfig config;
-    config.recalc_interval_ticks = 0;
-    TESSERA_CHECK(Throws(config));
-
-    config = RelevancyConfig{};
     config.max_connections = 0;
     TESSERA_CHECK(Throws(config));
 

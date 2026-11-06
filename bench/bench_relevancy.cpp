@@ -182,7 +182,6 @@ struct World {
 RelevancyConfig MakeConfig(const Scenario& scenario) {
     RelevancyConfig config;
     config.max_connections = scenario.connections;
-    config.recalc_interval_ticks = 3;
     for (uint32_t t = 0; t < 4; ++t) {
         config.types[t] = TypeRelevancy{RelevancyMode::Spatial, kRanges[t], kMargin};
     }
@@ -248,47 +247,45 @@ Measurement Measure(World& world, SpatialGrid& grid, uint32_t workers) {
     return result;
 }
 
-/// Runs a one-thread and an eight-worker engine side by side on the same world and compares events.
-bool EventsMatchAcrossWorkerCounts(World& world, SpatialGrid& grid) {
-    const Scenario& scenario = world.scenario;
-    RelevancyGroups groups_one;
-    RelevancyGroups groups_eight;
-    ThreadPoolJobSystem one(1);
-    ThreadPoolJobSystem eight(8);
-    RelevancyEngine engine_one(MakeConfig(scenario), grid, groups_one, one);
-    RelevancyEngine engine_eight(MakeConfig(scenario), grid, groups_eight, eight);
+/// Runs 30 ticks on a world of its own, so the engine has the grid to itself, and returns a hash of every
+/// event of every connection, in order. Both runs build the same world from the same seed.
+uint64_t EventHash(uint32_t workers) {
+    constexpr uint64_t kFnvPrime = 1099511628211ull;
+    SpatialGrid grid(GridConfig{128.0f, 128.0f, 128.0f});
+    World world(kMain);
+    world.Build(grid);
+    RelevancyGroups groups;
+    ThreadPoolJobSystem jobs(workers);
+    RelevancyEngine engine(MakeConfig(world.scenario), grid, groups, jobs);
     std::vector<Observer> eyes = world.PlaceObservers();
-    for (uint32_t c = 0; c < scenario.connections; ++c) {
-        engine_one.AddConnection(c);
-        engine_eight.AddConnection(c);
-        engine_one.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
-        engine_eight.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
+    for (uint32_t c = 0; c < world.scenario.connections; ++c) {
+        engine.AddConnection(c);
+        engine.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
     }
+    uint64_t hash = 1469598103934665603ull;
+    const auto mix = [&](uint64_t value) { hash = (hash ^ value) * kFnvPrime; };
     for (uint64_t tick = 0; tick < 30; ++tick) {
         world.MoveSome(grid);
         world.StepObservers(eyes);
-        for (uint32_t c = 0; c < scenario.connections; ++c) {
-            engine_one.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
-            engine_eight.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
+        for (uint32_t c = 0; c < world.scenario.connections; ++c) {
+            engine.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
         }
-        engine_one.Update(tick);
-        engine_eight.Update(tick);
-        for (uint32_t c = 0; c < scenario.connections; ++c) {
-            const auto& a = engine_one.Events(c).events;
-            const auto& b = engine_eight.Events(c).events;
-            if (a.size() != b.size()) {
-                return false;
+        engine.Update(tick);
+        for (uint32_t c = 0; c < world.scenario.connections; ++c) {
+            for (const VisibilityEvent& event : engine.Events(c).events) {
+                mix(static_cast<uint64_t>(event.kind));
+                mix(event.id.raw());
+                mix(event.compact_id);
             }
-            for (size_t i = 0; i < a.size(); ++i) {
-                if (a[i].kind != b[i].kind || a[i].id != b[i].id || a[i].compact_id != b[i].compact_id) {
-                    return false;
-                }
-            }
-            engine_one.ClearEvents(c);
-            engine_eight.ClearEvents(c);
+            mix(c);
+            engine.ClearEvents(c);
         }
     }
-    return true;
+    return hash;
+}
+
+bool EventsMatchAcrossWorkerCounts() {
+    return EventHash(1) == EventHash(8);
 }
 
 // Information only: how many entities one observer query returns and what each costs, to show where
@@ -388,7 +385,7 @@ void RunMainScenario() {
     Report("relevancy update, 8 workers, mean per tick", parallel.mean_update_ms, "ms", kLimitEightWorkersMs);
     Report("relevancy memory per connection (resident)", single.bytes_per_connection / (1024.0 * 1024.0),
            "MB", 2.0);
-    ReportBool("relevancy events, 1 vs 8 workers, 30 ticks", EventsMatchAcrossWorkerCounts(world, grid));
+    ReportBool("relevancy events, 1 vs 8 workers, 30 ticks", EventsMatchAcrossWorkerCounts());
 
     // For information: the old movement, with jumps of tens of metres per tick.
     world.stress_movement = true;

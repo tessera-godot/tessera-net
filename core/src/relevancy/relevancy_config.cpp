@@ -23,9 +23,6 @@ void ValidateRelevancyConfig(const RelevancyConfig& config) {
     if (config.max_connections == 0) {
         throw std::invalid_argument("RelevancyConfig: max_connections must be at least 1");
     }
-    if (config.recalc_interval_ticks == 0) {
-        throw std::invalid_argument("RelevancyConfig: recalc_interval_ticks must be at least 1");
-    }
     if (config.max_observers_per_connection == 0) {
         throw std::invalid_argument("RelevancyConfig: max_observers_per_connection must be at least 1");
     }

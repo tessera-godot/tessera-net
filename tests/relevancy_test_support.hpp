@@ -26,9 +26,8 @@ inline EntityId MakeId(uint32_t type, uint32_t index) {
     return EntityId::Make(0, type, index, 0);
 }
 
-inline RelevancyConfig MakeConfig(uint32_t interval_ticks = 3) {
+inline RelevancyConfig MakeConfig() {
     RelevancyConfig config;
-    config.recalc_interval_ticks = interval_ticks;
     config.types[kSpatialType] = TypeRelevancy{RelevancyMode::Spatial, 100.0f, 0.0f};
     config.types[kGlobalType] = TypeRelevancy{RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
     config.types[kOwnedType] = TypeRelevancy{RelevancyMode::OwnerOnly, 0.0f, 0.0f};
