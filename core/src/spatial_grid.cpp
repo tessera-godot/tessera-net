@@ -90,26 +90,32 @@ size_t SpatialGrid::ApplyMoves(const std::vector<PendingMove>& moves) {
             RemoveFromCell(entry);
             AddToCell(target, move.id, entry);
             ++changed;
+        } else {
+            // Same cell: the copy of the position kept in the cell must follow.
+            CellMember& member = cells_.find(entry.cell)->second[entry.index_in_cell];
+            member.x = move.x;
+            member.y = move.y;
+            member.z = move.z;
         }
     }
     return changed;
 }
 
 void SpatialGrid::AddToCell(CellCoord cell, EntityId id, Entry& entry) {
-    std::vector<EntityId>& members = cells_[cell];
+    std::vector<CellMember>& members = cells_[cell];
     entry.cell = cell;
     entry.index_in_cell = static_cast<uint32_t>(members.size());
-    members.push_back(id);
+    members.push_back(CellMember{id, entry.x, entry.y, entry.z});
 }
 
 void SpatialGrid::RemoveFromCell(const Entry& entry) {
     const auto cell_it = cells_.find(entry.cell);
-    std::vector<EntityId>& members = cell_it->second;
-    const EntityId moved = members.back();
+    std::vector<CellMember>& members = cell_it->second;
+    const CellMember moved = members.back();
     members[entry.index_in_cell] = moved;
     members.pop_back();
     if (entry.index_in_cell < members.size()) {
-        entries_.find(moved.raw())->second.index_in_cell = entry.index_in_cell;
+        entries_.find(moved.id.raw())->second.index_in_cell = entry.index_in_cell;
     }
     if (members.empty()) {
         cells_.erase(cell_it);
@@ -119,7 +125,9 @@ void SpatialGrid::RemoveFromCell(const Entry& entry) {
 void SpatialGrid::QueryCell(CellCoord cell, std::vector<EntityId>& out) const {
     const auto it = cells_.find(cell);
     if (it != cells_.end()) {
-        out.insert(out.end(), it->second.begin(), it->second.end());
+        for (const CellMember& member : it->second) {
+            out.push_back(member.id);
+        }
     }
 }
 
@@ -130,10 +138,10 @@ void SpatialGrid::QueryBox(float min_x, float min_y, float min_z, float max_x, f
     }
     ForEachEntryInRange(
         CellOf(min_x, min_y, min_z), CellOf(max_x, max_y, max_z),
-        [&](const Entry& e) {
-            return e.x >= min_x && e.x <= max_x && e.y >= min_y && e.y <= max_y && e.z >= min_z && e.z <= max_z;
+        [&](const CellMember& m) {
+            return m.x >= min_x && m.x <= max_x && m.y >= min_y && m.y <= max_y && m.z >= min_z && m.z <= max_z;
         },
-        [&](EntityId id, const Entry&) { out.push_back(id); });
+        [&](const CellMember& m) { out.push_back(m.id); });
 }
 
 void SpatialGrid::QuerySphere(float cx, float cy, float cz, float radius, std::vector<EntityId>& out) const {

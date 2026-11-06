@@ -109,16 +109,24 @@ public:
         const double limit = static_cast<double>(radius) * static_cast<double>(radius);
         ForEachEntryInRange(
             CellOf(cx - radius, cy - radius, cz - radius), CellOf(cx + radius, cy + radius, cz + radius),
-            [&](const Entry& e) {
-                const double dx = static_cast<double>(e.x) - cx;
-                const double dy = static_cast<double>(e.y) - cy;
-                const double dz = static_cast<double>(e.z) - cz;
+            [&](const CellMember& m) {
+                const double dx = static_cast<double>(m.x) - cx;
+                const double dy = static_cast<double>(m.y) - cy;
+                const double dz = static_cast<double>(m.z) - cz;
                 return dx * dx + dy * dy + dz * dz <= limit;
             },
-            [&](EntityId id, const Entry& e) { fn(id, e.x, e.y, e.z); });
+            [&](const CellMember& m) { fn(m.id, m.x, m.y, m.z); });
     }
 
 private:
+    /// What a cell stores for each of its entities. The position is kept here, next to the id, so a
+    /// query reads cells front to back without looking each entity up in a hash table.
+    struct CellMember {
+        EntityId id;
+        float x, y, z;
+    };
+
+    /// What the grid remembers per entity, to find it again in its cell.
     struct Entry {
         float x, y, z;
         CellCoord cell;
@@ -128,15 +136,14 @@ private:
     void AddToCell(CellCoord cell, EntityId id, Entry& entry);
     void RemoveFromCell(const Entry& entry);
 
-    /// Calls `visit(id, entry)` for each entity in the cells of [low, high] whose entry passes
+    /// Calls `visit(member)` for each entity in the cells of [low, high] whose cell member passes
     /// `accept`. Walks the occupied cells when there are fewer of them than cells in the range.
     template <class Accept, class Visit>
     void ForEachEntryInRange(CellCoord low, CellCoord high, Accept&& accept, Visit&& visit) const {
-        const auto handle = [&](const std::vector<EntityId>& members) {
-            for (const EntityId id : members) {
-                const Entry& entry = entries_.find(id.raw())->second;
-                if (accept(entry)) {
-                    visit(id, entry);
+        const auto handle = [&](const std::vector<CellMember>& members) {
+            for (const CellMember& member : members) {
+                if (accept(member)) {
+                    visit(member);
                 }
             }
         };
@@ -165,7 +172,7 @@ private:
     }
 
     GridConfig config_;
-    std::unordered_map<CellCoord, std::vector<EntityId>> cells_;
+    std::unordered_map<CellCoord, std::vector<CellMember>> cells_;
     std::unordered_map<uint64_t, Entry> entries_;
 };
 
