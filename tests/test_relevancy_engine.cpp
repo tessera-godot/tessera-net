@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <set>
 #include <span>
 #include <stdexcept>
 
@@ -931,4 +932,271 @@ TESSERA_TEST(engine_clears_the_feed_after_each_update_and_stops_recording_when_d
     }
     grid.Insert(MakeId(kSpatialType, 2), 4.0f, 5.0f, 6.0f);
     TESSERA_CHECK(grid.Changes().empty()); // nobody is recording any more
+}
+
+// ---- Evaluating grid changes one by one -------------------------------------------------------------
+
+namespace {
+
+/// A connection with one observer at the origin that has been evaluated, with its events cleared.
+void SettleViewer(Fixture& f, uint64_t& tick) {
+    AddViewer(f, 0);
+    f.engine.Update(tick++);
+    f.engine.ClearEvents(0);
+}
+
+} // namespace
+
+TESSERA_TEST(far_movement_causes_no_full_evaluation) {
+    Fixture f(MakeConfig());
+    const EntityId far_one = MakeId(kSpatialType, 1);
+    f.grid.Insert(far_one, 5000.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    Move(f, far_one, 5010.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+    TESSERA_CHECK(!Sees(f, 0, far_one));
+}
+
+TESSERA_TEST(new_spatial_entity_enters_without_a_full_evaluation) {
+    Fixture f(MakeConfig());
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(Sees(f, 0, e));
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+}
+
+TESSERA_TEST(entity_moving_into_range_enters_in_the_same_update_including_the_border) {
+    Fixture f(MakeConfig()); // range 100
+    const EntityId on_border = MakeId(kSpatialType, 1);
+    const EntityId just_outside = MakeId(kSpatialType, 2);
+    f.grid.Insert(on_border, 150.0f, 0.0f, 0.0f);
+    f.grid.Insert(just_outside, 150.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    Move(f, on_border, 100.0f);
+    Move(f, just_outside, 100.01f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(Sees(f, 0, on_border));
+    TESSERA_CHECK(!Sees(f, 0, just_outside));
+}
+
+TESSERA_TEST(entity_leaves_only_beyond_range_plus_margin_inclusive) {
+    RelevancyConfig config = MakeConfig();
+    config.types[kSpatialType].hysteresis_margin = 10.0f;
+    Fixture f(config);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 50.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    TESSERA_CHECK(Sees(f, 0, e));
+
+    Move(f, e, 110.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick++, &processed);
+    TESSERA_CHECK(processed == 0 && Sees(f, 0, e) && f.engine.Events(0).events.empty());
+
+    Move(f, e, 110.01f);
+    f.engine.Update(tick++, &processed);
+    TESSERA_CHECK(processed == 0 && !Sees(f, 0, e));
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
+}
+
+TESSERA_TEST(entity_inserted_and_removed_in_one_tick_makes_no_event) {
+    Fixture f(MakeConfig());
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    f.grid.Remove(e);
+    f.engine.Update(tick);
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+    TESSERA_CHECK(!Sees(f, 0, e));
+}
+
+TESSERA_TEST(entity_removed_and_inserted_again_in_one_tick_keeps_its_compact_id) {
+    Fixture f(MakeConfig());
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    const uint32_t compact = f.engine.CompactIdOf(0, e);
+    TESSERA_CHECK(compact != kInvalidCompactId);
+    f.grid.Remove(e);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    f.engine.Update(tick);
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == compact);
+}
+
+TESSERA_TEST(entity_removed_from_the_grid_leaves_in_that_update) {
+    Fixture f(MakeConfig());
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    f.grid.Remove(e); // no OnEntityDestroyed
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(!Sees(f, 0, e));
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
+}
+
+TESSERA_TEST(moving_entity_included_by_a_group_stays_visible_after_leaving_range) {
+    Fixture f(MakeConfig());
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Inclusion);
+    f.groups.AddMember(g, e);
+    f.groups.SetStatusForAll(g, true);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    TESSERA_CHECK(Sees(f, 0, e));
+    Move(f, e, 5000.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(Sees(f, 0, e));
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+}
+
+TESSERA_TEST(excluded_entity_moving_into_range_stays_hidden) {
+    Fixture f(MakeConfig());
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 150.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, e);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    Move(f, e, 50.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(!Sees(f, 0, e));
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+}
+
+TESSERA_TEST(global_and_owner_types_in_the_feed_are_ignored) {
+    Fixture f(MakeConfig());
+    const EntityId global = MakeId(kGlobalType, 1);
+    const EntityId owned = MakeId(kOwnedType, 2);
+    f.engine.OnEntityCreated(global);
+    f.engine.OnEntityCreated(owned);
+    f.grid.Insert(global, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(owned, 20.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    TESSERA_CHECK(Sees(f, 0, global) && !Sees(f, 0, owned));
+    Move(f, global, 9000.0f);
+    Move(f, owned, 30.0f);
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(Sees(f, 0, global) && !Sees(f, 0, owned));
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+}
+
+TESSERA_TEST(feed_with_two_observers_uses_the_nearest_anchor) {
+    Fixture f(MakeConfig());
+    f.engine.AddConnection(0);
+    const Observer eyes[] = {{0.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f}};
+    f.engine.SetObservers(0, eyes);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 50.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    f.engine.Update(tick++);
+    f.engine.ClearEvents(0);
+    TESSERA_CHECK(Sees(f, 0, e));
+
+    Move(f, e, 1050.0f); // leaves the first observer's range, enters the second one's
+    uint32_t processed = 99;
+    f.engine.Update(tick++, &processed);
+    TESSERA_CHECK(processed == 0 && Sees(f, 0, e) && f.engine.Events(0).events.empty());
+
+    Move(f, e, 500.0f); // far from both
+    f.engine.Update(tick++, &processed);
+    TESSERA_CHECK(processed == 0 && !Sees(f, 0, e));
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
+}
+
+TESSERA_TEST(a_change_near_one_connection_leaves_the_others_untouched) {
+    Fixture f(MakeConfig());
+    f.engine.AddConnection(0);
+    f.engine.AddConnection(1);
+    SetOneObserver(f, 0, 0.0f);
+    SetOneObserver(f, 1, 5000.0f);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 4000.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    f.engine.ClearEvents(0);
+    f.engine.ClearEvents(1);
+
+    Move(f, e, 10.0f); // now inside the first connection's range
+    f.engine.Update(1);
+    TESSERA_CHECK(Sees(f, 0, e) && !Sees(f, 1, e));
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+    TESSERA_CHECK(f.engine.Events(1).events.empty());
+}
+
+TESSERA_TEST(one_event_per_entity_per_tick) {
+    Fixture f(MakeConfig());
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 5000.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    SetOneObserver(f, 0, 5000.0f); // a full evaluation (the observer jumped) ...
+    Move(f, e, 5005.0f);           // ... and a change to the same entity in the same tick
+    f.engine.Update(tick);
+    TESSERA_CHECK(Sees(f, 0, e));
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
+    TESSERA_CHECK(f.engine.Events(0).events[0].kind == Kind::Enter);
+}
+
+TESSERA_TEST(compact_ids_stay_distinct_when_many_entities_enter_through_the_feed) {
+    Fixture f(MakeConfig());
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    for (uint32_t i = 0; i < 200; ++i) {
+        f.grid.Insert(MakeId(kSpatialType, 100 + i), static_cast<float>(i % 90), 0.0f, 0.0f);
+    }
+    f.engine.Update(tick);
+    std::set<uint32_t> ids;
+    for (const VisibilityEvent& event : f.engine.Events(0).events) {
+        TESSERA_CHECK(event.kind == Kind::Enter);
+        TESSERA_CHECK(ids.insert(event.compact_id).second);
+    }
+    TESSERA_CHECK(ids.size() == 200);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 200);
+}
+
+TESSERA_TEST(entity_moved_twice_in_one_tick_is_judged_from_its_first_and_last_position) {
+    Fixture f(MakeConfig());
+    const EntityId leaving = MakeId(kSpatialType, 1);
+    const EntityId arriving = MakeId(kSpatialType, 2);
+    f.grid.Insert(leaving, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(arriving, 4000.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    TESSERA_CHECK(Sees(f, 0, leaving) && !Sees(f, 0, arriving));
+
+    // Both go through a position on the other side of the world before reaching the final one.
+    f.grid.ApplyMoves({PendingMove{leaving, 5000.0f, 0.0f, 0.0f}, PendingMove{arriving, 3000.0f, 0.0f, 0.0f},
+                       PendingMove{leaving, 5100.0f, 0.0f, 0.0f}, PendingMove{arriving, 20.0f, 0.0f, 0.0f}});
+    uint32_t processed = 99;
+    f.engine.Update(tick, &processed);
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(!Sees(f, 0, leaving));
+    TESSERA_CHECK(Sees(f, 0, arriving));
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 2);
 }

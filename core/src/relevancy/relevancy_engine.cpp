@@ -22,6 +22,24 @@ void SortUnique(std::vector<uint64_t>& values) {
     values.erase(std::unique(values.begin(), values.end()), values.end());
 }
 
+/// Merges the ascending list `extra` into the ascending list `base`, keeping it ascending.
+void MergeSorted(std::vector<uint64_t>& base, const std::vector<uint64_t>& extra,
+                 std::vector<uint64_t>& scratch) {
+    if (extra.empty()) {
+        return;
+    }
+    scratch.resize(base.size() + extra.size());
+    std::merge(base.begin(), base.end(), extra.begin(), extra.end(), scratch.begin());
+    base.swap(scratch);
+}
+
+double DistanceSquared(const Observer& anchor, float x, float y, float z) {
+    const double dx = static_cast<double>(x) - anchor.x;
+    const double dy = static_cast<double>(y) - anchor.y;
+    const double dz = static_cast<double>(z) - anchor.z;
+    return dx * dx + dy * dy + dz * dz;
+}
+
 } // namespace
 
 /// Everything the engine remembers about one connection. A connection's work touches only its own
@@ -48,6 +66,9 @@ struct RelevancyEngine::Connection {
     std::vector<uint64_t> destroy_raws;
     std::vector<uint64_t> enter_raws; // ascending
     std::vector<uint64_t> leave_raws; // ascending
+    std::vector<uint64_t> feed_enter; // ascending, from the grid changes of this tick
+    std::vector<uint64_t> feed_leave; // ascending
+    std::vector<uint64_t> merge_scratch;
     std::vector<VisibleEntry> enter_entries;
 };
 
@@ -56,9 +77,11 @@ RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, SpatialGrid& gri
     : config_(config), grid_(grid), groups_(groups), jobs_(jobs) {
     ValidateRelevancyConfig(config_);
     connections_.resize(config_.max_connections);
+    spatial_index_.fill(-1);
     for (uint32_t type = 0; type < config_.types.size(); ++type) {
         const TypeRelevancy& rule = config_.types[type];
         if (rule.mode == RelevancyMode::Spatial && rule.range > 0.0f) {
+            spatial_index_[type] = static_cast<int16_t>(spatial_types_.size());
             const float radius = rule.range + rule.hysteresis_margin;
             spatial_types_.push_back(SpatialType{type, static_cast<double>(rule.range),
                                                  static_cast<double>(radius), radius,
@@ -202,12 +225,6 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
         MarkAllForFullEvaluation();
         seen_group_version_ = groups_.version();
     }
-    // Until the changes recorded by the grid are evaluated one by one, any change to the grid sends every
-    // connection to a full evaluation. Correct, but slow.
-    if (!grid_.Changes().empty()) {
-        MarkAllForFullEvaluation();
-    }
-
     // Decide, serially and in a way that does not depend on the number of workers, which connections get a
     // full evaluation in this tick: the ones that have waited longest, up to the cap.
     pending_.clear();
@@ -241,6 +258,7 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
     if (connections_processed != nullptr) {
         *connections_processed = static_cast<uint32_t>(chosen);
     }
+    FoldGridChanges();
 
     if (!active_.empty()) {
         jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
@@ -255,6 +273,7 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
                                   if (connection.selected) {
                                       EvaluateInFull(id, connection);
                                   }
+                                  EvaluateChanges(id, connection);
                                   FinishTick(connection);
                               }
                           });
@@ -337,6 +356,91 @@ void RelevancyEngine::EvaluateInFull(ConnectionId id, Connection& connection) co
     }
     connection.needs_full = false;
     connection.pending_since = kNoTick;
+}
+
+// Folds the changes the grid recorded during this tick into one record per entity of a spatial type:
+// where it was before the tick (if it existed) and where it is after (if it still does). An entity that
+// appeared and disappeared within the tick leaves no record.
+void RelevancyEngine::FoldGridChanges() {
+    changed_.clear();
+    const std::span<const GridChange> changes = grid_.Changes();
+    if (changes.empty()) {
+        return;
+    }
+    change_order_.clear();
+    for (size_t i = 0; i < changes.size(); ++i) {
+        if (spatial_index_[changes[i].id.type()] >= 0) {
+            change_order_.emplace_back(changes[i].id.raw(), static_cast<uint32_t>(i));
+        }
+    }
+    std::sort(change_order_.begin(), change_order_.end()); // by entity, then in the order it happened
+    for (size_t first = 0; first < change_order_.size();) {
+        size_t last = first;
+        while (last + 1 < change_order_.size() &&
+               change_order_[last + 1].first == change_order_[first].first) {
+            ++last;
+        }
+        const GridChange& earliest = changes[change_order_[first].second];
+        const GridChange& latest = changes[change_order_[last].second];
+        const bool existed_before = earliest.kind != GridChange::Kind::Inserted;
+        const bool exists_after = latest.kind != GridChange::Kind::Removed;
+        if (existed_before || exists_after) {
+            changed_.push_back(ChangedEntity{change_order_[first].first, existed_before, exists_after,
+                                             earliest.old_x, earliest.old_y, earliest.old_z, latest.new_x,
+                                             latest.new_y, latest.new_z});
+        }
+        first = last + 1;
+    }
+}
+
+// Looks again only at the entities that changed in the grid and are within reach of one of the connection
+// anchors, before or after the change. Everything else cannot change what the connection sees.
+void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) const {
+    connection.feed_enter.clear();
+    connection.feed_leave.clear();
+    if (connection.anchors.empty() || changed_.empty()) {
+        return;
+    }
+    for (const ChangedEntity& change : changed_) {
+        const EntityId entity = EntityId::FromRaw(change.raw);
+        const SpatialType& type = spatial_types_[static_cast<size_t>(spatial_index_[entity.type()])];
+        const double reach_squared = type.reach * type.reach;
+        bool near = false;
+        double nearest_after = std::numeric_limits<double>::infinity();
+        for (const Observer& anchor : connection.anchors) {
+            if (change.existed_before &&
+                DistanceSquared(anchor, change.old_x, change.old_y, change.old_z) <= reach_squared) {
+                near = true;
+            }
+            if (change.exists_after) {
+                const double after = DistanceSquared(anchor, change.new_x, change.new_y, change.new_z);
+                nearest_after = std::min(nearest_after, after);
+                near = near || after <= reach_squared;
+            }
+        }
+        if (!near) {
+            continue;
+        }
+        // What the connection sees of this entity, counting what the full evaluation of this tick decided.
+        const bool listed = connection.visible.Contains(change.raw);
+        const bool leaving =
+            std::binary_search(connection.leave_raws.begin(), connection.leave_raws.end(), change.raw);
+        const bool entering =
+            std::binary_search(connection.enter_raws.begin(), connection.enter_raws.end(), change.raw);
+        const bool visible_now = (listed && !leaving) || entering;
+        const bool by_distance =
+            change.exists_after && (nearest_after <= type.range * type.range ||
+                                    (type.has_margin && visible_now && nearest_after <= reach_squared));
+        const bool wanted =
+            (by_distance || groups_.IsIncludedFor(entity, id)) && !groups_.IsExcluded(entity, id);
+        if (wanted && !visible_now) {
+            connection.feed_enter.push_back(change.raw);
+        } else if (!wanted && visible_now) {
+            connection.feed_leave.push_back(change.raw);
+        }
+    }
+    MergeSorted(connection.enter_raws, connection.feed_enter, connection.merge_scratch);
+    MergeSorted(connection.leave_raws, connection.feed_leave, connection.merge_scratch);
 }
 
 // Turns the decisions of this tick into events and into the new visible set: entities that left first,

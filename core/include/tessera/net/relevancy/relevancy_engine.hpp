@@ -8,6 +8,7 @@
 #include "tessera/net/relevancy/relevancy_types.hpp"
 #include "tessera/net/spatial_grid.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -120,7 +121,19 @@ private:
         bool has_margin;
     };
 
+    /// What one tick's worth of grid changes says about an entity: where it was before the tick and where it
+    /// is after, with several recorded changes folded into one.
+    struct ChangedEntity {
+        uint64_t raw;
+        bool existed_before;
+        bool exists_after;
+        float old_x, old_y, old_z; // meaningful when `existed_before`
+        float new_x, new_y, new_z; // meaningful when `exists_after`
+    };
+
     void MarkAllForFullEvaluation();
+    void FoldGridChanges();
+    void EvaluateChanges(ConnectionId id, Connection& connection) const;
     void ApplyDestructions(Connection& connection) const;
     void EvaluateInFull(ConnectionId id, Connection& connection) const;
     void FinishTick(Connection& connection) const;
@@ -130,6 +143,9 @@ private:
     RelevancyGroups& groups_;
     IJobSystem& jobs_;
     std::vector<SpatialType> spatial_types_;
+    std::array<int16_t, 256> spatial_index_{}; // entity type -> index in spatial_types_, or -1
+    std::vector<ChangedEntity> changed_;       // this tick's folded grid changes, ascending by raw id
+    std::vector<std::pair<uint64_t, uint32_t>> change_order_; // scratch for folding
     uint64_t seen_group_version_ = 0;
     uint32_t deferred_reanchors_ = 0;
 

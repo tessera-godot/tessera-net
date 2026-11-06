@@ -318,6 +318,20 @@ TESSERA_TEST(random_worlds_match_the_naive_model) {
                     g.members.erase(world.ids[i].raw());
                 }
             }
+            if (rng() % 5 == 0) { // a new entity appears
+                const uint32_t spawn_types[] = {kSpatialType,       kFarType,    kTypeSpatialWide,
+                                                kTypeSpatialMedium, kGlobalType, kOwnedType};
+                const EntityId id =
+                    MakeId(spawn_types[RandomIndex(rng, 6)], static_cast<uint32_t>(world.ids.size()));
+                const std::array<float, 3> p{RandomIn(rng, -500.0f, 500.0f), RandomIn(rng, -50.0f, 50.0f),
+                                             RandomIn(rng, -500.0f, 500.0f)};
+                f.grid.Insert(id, p[0], p[1], p[2]);
+                f.engine.OnEntityCreated(id);
+                world.ids.push_back(id);
+                world.position.push_back(p);
+                world.owner.push_back(kOwnerNone);
+                world.alive.push_back(true);
+            }
             if (rng() % 20 == 0) {
                 const ConnectionId c = RandomIndex(rng, kConnections);
                 f.engine.RemoveConnection(c);
