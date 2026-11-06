@@ -35,6 +35,11 @@ inline void Report(const char* name, double value, const char* unit, double limi
                 pass ? "PASS" : "FAIL");
 }
 
+/// A measurement with no pass/fail limit.
+inline void Info(const char* name, double value, const char* unit) {
+    std::printf("%-46s %12.2f %-6s (information only)\n", name, value, unit);
+}
+
 inline void ReportBool(const char* name, bool pass) {
     if (!pass) {
         ++Failures();
