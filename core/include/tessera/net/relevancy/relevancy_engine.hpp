@@ -95,6 +95,7 @@ private:
     const SpatialGrid& grid_;
     RelevancyGroups& groups_;
     IJobSystem& jobs_;
+    float query_radius_ = 0.0f;  // largest range + hysteresis margin among spatial types
 
     std::vector<std::unique_ptr<Connection>> connections_;  // indexed by ConnectionId
     std::vector<ConnectionId> active_;                      // existing connections, ascending

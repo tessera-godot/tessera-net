@@ -2,6 +2,7 @@
 #include "tessera/net/relevancy/relevancy_engine.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "tessera/net/relevancy/compact_ids.hpp"
 
@@ -50,6 +51,11 @@ RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, const SpatialGri
     : config_(config), grid_(grid), groups_(groups), jobs_(jobs) {
     ValidateRelevancyConfig(config_);
     connections_.resize(config_.max_connections);
+    for (const TypeRelevancy& rule : config_.types) {
+        if (rule.mode == RelevancyMode::Spatial && rule.range > 0.0f) {
+            query_radius_ = std::max(query_radius_, rule.range + rule.hysteresis_margin);
+        }
+    }
 }
 
 RelevancyEngine::~RelevancyEngine() = default;
@@ -76,8 +82,14 @@ bool RelevancyEngine::RemoveConnection(ConnectionId connection) {
 }
 
 bool RelevancyEngine::SetObservers(ConnectionId connection, std::span<const Observer> observers) {
-    if (connection >= config_.max_connections || !connections_[connection]) {
+    if (connection >= config_.max_connections || !connections_[connection] ||
+        observers.size() > config_.max_observers_per_connection) {
         return false;
+    }
+    for (const Observer& observer : observers) {
+        if (!std::isfinite(observer.x) || !std::isfinite(observer.y) || !std::isfinite(observer.z)) {
+            return false;
+        }
     }
     connections_[connection]->observers.assign(observers.begin(), observers.end());
     return true;
@@ -147,6 +159,28 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
 
 void RelevancyEngine::Recalculate(ConnectionId, Connection& connection) const {
     connection.wanted.clear();
+    // Spatial types: one query per observer with the widest reach, then each candidate is judged by
+    // its own type. An entity already visible gets the hysteresis margin, so it does not flicker.
+    if (query_radius_ > 0.0f) {
+        for (const Observer& observer : connection.observers) {
+            grid_.ForEachInSphere(observer.x, observer.y, observer.z, query_radius_,
+                                  [&](EntityId id, float x, float y, float z) {
+                                      const TypeRelevancy& rule = config_.types[id.type()];
+                                      if (rule.mode != RelevancyMode::Spatial || !(rule.range > 0.0f)) {
+                                          return;
+                                      }
+                                      const bool seen = connection.visible.contains(id.raw());
+                                      const double reach = seen ? static_cast<double>(rule.range + rule.hysteresis_margin)
+                                                                : static_cast<double>(rule.range);
+                                      const double dx = static_cast<double>(x) - observer.x;
+                                      const double dy = static_cast<double>(y) - observer.y;
+                                      const double dz = static_cast<double>(z) - observer.z;
+                                      if (dx * dx + dy * dy + dz * dz <= reach * reach) {
+                                          connection.wanted.push_back(id.raw());
+                                      }
+                                  });
+        }
+    }
     connection.wanted.insert(connection.wanted.end(), always_.begin(), always_.end());
     connection.wanted.insert(connection.wanted.end(), connection.owned.begin(), connection.owned.end());
     SortUnique(connection.wanted);

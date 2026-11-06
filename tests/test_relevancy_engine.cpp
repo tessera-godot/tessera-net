@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <stdexcept>
 
 #include "relevancy_test_support.hpp"
@@ -136,4 +138,230 @@ TESSERA_TEST(queries_on_unknown_connections_are_safe) {
     TESSERA_CHECK(f.engine.CompactIdOf(3, MakeId(kGlobalType, 1)) == kInvalidCompactId);
     TESSERA_CHECK(f.engine.CompactIdOf(9999, MakeId(kGlobalType, 1)) == kInvalidCompactId);
     f.engine.ClearEvents(3);  // no effect, no crash
+}
+
+// ---- Spatial mode, hysteresis and observers --------------------------------------------------------
+
+namespace {
+
+void Move(Fixture& f, EntityId id, float x, float y = 0.0f, float z = 0.0f) {
+    f.grid.ApplyMoves({PendingMove{id, x, y, z}});
+}
+
+}  // namespace
+
+TESSERA_TEST(spatial_entity_enters_within_range_including_the_border) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId on_border = MakeId(kSpatialType, 1);
+    const EntityId just_outside = MakeId(kSpatialType, 2);
+    f.grid.Insert(on_border, 100.0f, 0.0f, 0.0f);
+    f.grid.Insert(just_outside, 100.01f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, on_border) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, just_outside) == kInvalidCompactId);
+}
+
+TESSERA_TEST(visible_entity_stays_until_range_plus_margin_inclusive) {
+    RelevancyConfig config = MakeConfig(1);
+    config.types[kSpatialType].hysteresis_margin = 10.0f;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 50.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
+
+    Move(f, e, 110.0f);
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);  // exactly range + margin
+
+    Move(f, e, 110.01f);
+    f.engine.Update(2);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+}
+
+TESSERA_TEST(hidden_entity_inside_the_margin_does_not_enter) {
+    RelevancyConfig config = MakeConfig(1);
+    config.types[kSpatialType].hysteresis_margin = 10.0f;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 105.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+}
+
+TESSERA_TEST(entity_vibrating_at_the_border_enters_once_and_never_leaves) {
+    RelevancyConfig config = MakeConfig(1);
+    config.types[kSpatialType].hysteresis_margin = 10.0f;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 95.0f, 0.0f, 0.0f);
+    for (uint64_t tick = 0; tick < 30; ++tick) {
+        Move(f, e, tick % 2 == 0 ? 95.0f : 105.0f);
+        f.engine.Update(tick);
+    }
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 0);
+}
+
+TESSERA_TEST(ranges_are_per_type) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId near_type = MakeId(kSpatialType, 1);  // range 100
+    const EntityId far_type = MakeId(kFarType, 2);       // range 500
+    f.grid.Insert(near_type, 200.0f, 0.0f, 0.0f);
+    f.grid.Insert(far_type, 200.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, near_type) == kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, far_type) != kInvalidCompactId);
+}
+
+TESSERA_TEST(zero_range_type_is_never_visible_even_at_the_observer) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kNoRangeType, 1);
+    f.grid.Insert(e, 0.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+}
+
+TESSERA_TEST(connection_without_observers_sees_global_and_owned_but_not_spatial) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId spatial = MakeId(kSpatialType, 1);
+    const EntityId global = MakeId(kGlobalType, 2);
+    const EntityId owned = MakeId(kOwnedType, 3);
+    f.grid.Insert(spatial, 0.0f, 0.0f, 0.0f);
+    f.engine.OnEntityCreated(global);
+    f.engine.OnEntityCreated(owned);
+    f.engine.SetOwner(owned, 0);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, spatial) == kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, global) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, owned) != kInvalidCompactId);
+}
+
+TESSERA_TEST(setting_an_empty_observer_list_makes_spatial_entities_leave) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
+
+    TESSERA_CHECK(f.engine.SetObservers(0, {}));
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
+}
+
+TESSERA_TEST(observers_are_unioned) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eyes[] = {{0.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f}};
+    f.engine.SetObservers(0, eyes);
+    const EntityId a = MakeId(kSpatialType, 1);
+    const EntityId b = MakeId(kSpatialType, 2);
+    const EntityId c = MakeId(kSpatialType, 3);
+    f.grid.Insert(a, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(b, 1010.0f, 0.0f, 0.0f);
+    f.grid.Insert(c, 500.0f, 0.0f, 0.0f);  // far from both
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, a) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, b) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, c) == kInvalidCompactId);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 2);
+}
+
+TESSERA_TEST(entity_seen_by_two_observers_enters_once) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eyes[] = {{0.0f, 0.0f, 0.0f}, {10.0f, 0.0f, 0.0f}};
+    f.engine.SetObservers(0, eyes);
+    f.grid.Insert(MakeId(kSpatialType, 1), 5.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+}
+
+TESSERA_TEST(set_observers_rejects_bad_input_and_keeps_the_previous_list) {
+    RelevancyConfig config = MakeConfig(1);
+    config.max_observers_per_connection = 2;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    TESSERA_CHECK(f.engine.SetObservers(0, std::span<const Observer>(&eye, 1)));
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    const Observer bad_nan{nan, 0.0f, 0.0f};
+    const Observer bad_inf{0.0f, inf, 0.0f};
+    const Observer too_many[] = {eye, eye, eye};
+    TESSERA_CHECK(!f.engine.SetObservers(0, std::span<const Observer>(&bad_nan, 1)));
+    TESSERA_CHECK(!f.engine.SetObservers(0, std::span<const Observer>(&bad_inf, 1)));
+    TESSERA_CHECK(!f.engine.SetObservers(0, too_many));
+    TESSERA_CHECK(!f.engine.SetObservers(7, std::span<const Observer>(&eye, 1)));
+
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);  // the first list still applies
+}
+
+TESSERA_TEST(spatial_pass_never_shows_owner_only_entities_to_other_connections) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    f.engine.AddConnection(1);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kOwnedType, 1);
+    f.engine.OnEntityCreated(e);
+    f.engine.SetOwner(e, 1);
+    f.grid.Insert(e, 0.0f, 0.0f, 0.0f);  // standing right next to connection 0 observer
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(1, e) != kInvalidCompactId);
+}
+
+TESSERA_TEST(global_entity_in_the_grid_enters_only_once) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    f.grid.Insert(e, 0.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    f.engine.Update(1);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+}
+
+TESSERA_TEST(entity_removed_from_the_grid_without_a_destroy_leaves_on_the_next_recalc) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    f.grid.Remove(e);
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
 }
