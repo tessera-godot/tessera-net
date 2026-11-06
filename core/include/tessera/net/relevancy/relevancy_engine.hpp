@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <cstdint>
-#include <memory>
-#include <span>
-#include <unordered_map>
-#include <vector>
-
 #include "tessera/net/entity_id.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/relevancy/relevancy_config.hpp"
 #include "tessera/net/relevancy/relevancy_groups.hpp"
 #include "tessera/net/relevancy/relevancy_types.hpp"
 #include "tessera/net/spatial_grid.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <unordered_map>
+#include <vector>
 
 namespace tessera::net {
 
@@ -56,7 +56,8 @@ public:
 
     /// Tells the engine an entity no longer exists. Every connection that saw it gets a `Destroy`
     /// event in the next `Update`, whatever its recalculation schedule. The entity is also removed from
-    /// every group. Remove it from the grid first, or a spatial entity would be seen again.
+    /// every group. The entity must no longer be in the grid when `Update` runs: a spatial entity that is
+    /// still there would be reported as destroyed and then seen again.
     void OnEntityDestroyed(EntityId entity);
 
     /// Sets the owner of an owner-only entity. False if the entity is not known to the engine, its
@@ -97,13 +98,13 @@ private:
     const SpatialGrid& grid_;
     RelevancyGroups& groups_;
     IJobSystem& jobs_;
-    float query_radius_ = 0.0f;  // largest range + hysteresis margin among spatial types
+    float query_radius_ = 0.0f; // largest range + hysteresis margin among spatial types
 
-    std::vector<std::unique_ptr<Connection>> connections_;  // indexed by ConnectionId
-    std::vector<ConnectionId> active_;                      // existing connections, ascending
-    std::vector<uint64_t> always_;                          // raw ids of always-relevant entities, ascending
-    std::unordered_map<uint64_t, ConnectionId> owners_;     // owner-only entities and their owner
-    std::vector<uint64_t> destroyed_;                       // destroyed since the last Update
+    std::vector<std::unique_ptr<Connection>> connections_; // indexed by ConnectionId
+    std::vector<ConnectionId> active_;                     // existing connections, ascending
+    std::vector<uint64_t> always_;                         // raw ids of always-relevant entities, ascending
+    std::unordered_map<uint64_t, ConnectionId> owners_;    // owner-only entities and their owner
+    std::vector<uint64_t> destroyed_;                      // destroyed since the last Update
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "relevancy_test_support.hpp"
+#include "test_support.hpp"
+
 #include <cstdint>
 #include <limits>
 #include <span>
 #include <stdexcept>
-
-#include "relevancy_test_support.hpp"
-#include "test_support.hpp"
 
 using namespace relevancy_test;
 using Kind = tessera::net::VisibilityEvent::Kind;
@@ -41,7 +41,7 @@ TESSERA_TEST(always_relevant_entity_enters_only_on_the_connections_due_tick) {
     f.engine.OnEntityCreated(e);
 
     uint32_t processed = 99;
-    f.engine.Update(0, &processed);  // connection 1 is due when tick % 3 == 1
+    f.engine.Update(0, &processed); // connection 1 is due when tick % 3 == 1
     TESSERA_CHECK(processed == 0);
     TESSERA_CHECK(f.engine.Events(1).events.empty());
 
@@ -89,9 +89,9 @@ TESSERA_TEST(set_owner_rejects_unknown_entities_wrong_types_and_inactive_connect
     const EntityId spatial = MakeId(kSpatialType, 2);
     f.engine.OnEntityCreated(owned);
     f.engine.OnEntityCreated(spatial);
-    TESSERA_CHECK(!f.engine.SetOwner(MakeId(kOwnedType, 77), 0));  // never created
-    TESSERA_CHECK(!f.engine.SetOwner(spatial, 0));                 // type is not owner-only
-    TESSERA_CHECK(!f.engine.SetOwner(owned, 5));                   // connection not active
+    TESSERA_CHECK(!f.engine.SetOwner(MakeId(kOwnedType, 77), 0)); // never created
+    TESSERA_CHECK(!f.engine.SetOwner(spatial, 0));                // type is not owner-only
+    TESSERA_CHECK(!f.engine.SetOwner(owned, 5));                  // connection not active
     TESSERA_CHECK(f.engine.SetOwner(owned, 0));
 }
 
@@ -119,7 +119,7 @@ TESSERA_TEST(clear_events_empties_the_list_and_events_accumulate_until_then) {
     f.engine.Update(0);
     f.engine.OnEntityCreated(MakeId(kGlobalType, 2));
     f.engine.Update(1);
-    TESSERA_CHECK(f.engine.Events(0).events.size() == 2);  // not cleared in between
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 2); // not cleared in between
     f.engine.ClearEvents(0);
     TESSERA_CHECK(f.engine.Events(0).events.empty());
 }
@@ -137,7 +137,7 @@ TESSERA_TEST(queries_on_unknown_connections_are_safe) {
     TESSERA_CHECK(f.engine.VisibleOverflow(3) == 0);
     TESSERA_CHECK(f.engine.CompactIdOf(3, MakeId(kGlobalType, 1)) == kInvalidCompactId);
     TESSERA_CHECK(f.engine.CompactIdOf(9999, MakeId(kGlobalType, 1)) == kInvalidCompactId);
-    f.engine.ClearEvents(3);  // no effect, no crash
+    f.engine.ClearEvents(3); // no effect, no crash
 }
 
 // ---- Spatial mode, hysteresis and observers --------------------------------------------------------
@@ -148,7 +148,7 @@ void Move(Fixture& f, EntityId id, float x, float y = 0.0f, float z = 0.0f) {
     f.grid.ApplyMoves({PendingMove{id, x, y, z}});
 }
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(spatial_entity_enters_within_range_including_the_border) {
     Fixture f(MakeConfig(1));
@@ -178,7 +178,7 @@ TESSERA_TEST(visible_entity_stays_until_range_plus_margin_inclusive) {
 
     Move(f, e, 110.0f);
     f.engine.Update(1);
-    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);  // exactly range + margin
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId); // exactly range + margin
 
     Move(f, e, 110.01f);
     f.engine.Update(2);
@@ -220,8 +220,8 @@ TESSERA_TEST(ranges_are_per_type) {
     f.engine.AddConnection(0);
     const Observer eye{0.0f, 0.0f, 0.0f};
     f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
-    const EntityId near_type = MakeId(kSpatialType, 1);  // range 100
-    const EntityId far_type = MakeId(kFarType, 2);       // range 500
+    const EntityId near_type = MakeId(kSpatialType, 1); // range 100
+    const EntityId far_type = MakeId(kFarType, 2);      // range 500
     f.grid.Insert(near_type, 200.0f, 0.0f, 0.0f);
     f.grid.Insert(far_type, 200.0f, 0.0f, 0.0f);
     f.engine.Update(0);
@@ -282,7 +282,7 @@ TESSERA_TEST(observers_are_unioned) {
     const EntityId c = MakeId(kSpatialType, 3);
     f.grid.Insert(a, 10.0f, 0.0f, 0.0f);
     f.grid.Insert(b, 1010.0f, 0.0f, 0.0f);
-    f.grid.Insert(c, 500.0f, 0.0f, 0.0f);  // far from both
+    f.grid.Insert(c, 500.0f, 0.0f, 0.0f); // far from both
     f.engine.Update(0);
     TESSERA_CHECK(f.engine.CompactIdOf(0, a) != kInvalidCompactId);
     TESSERA_CHECK(f.engine.CompactIdOf(0, b) != kInvalidCompactId);
@@ -321,7 +321,7 @@ TESSERA_TEST(set_observers_rejects_bad_input_and_keeps_the_previous_list) {
     const EntityId e = MakeId(kSpatialType, 1);
     f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
     f.engine.Update(0);
-    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);  // the first list still applies
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId); // the first list still applies
 }
 
 TESSERA_TEST(spatial_pass_never_shows_owner_only_entities_to_other_connections) {
@@ -333,7 +333,7 @@ TESSERA_TEST(spatial_pass_never_shows_owner_only_entities_to_other_connections) 
     const EntityId e = MakeId(kOwnedType, 1);
     f.engine.OnEntityCreated(e);
     f.engine.SetOwner(e, 1);
-    f.grid.Insert(e, 0.0f, 0.0f, 0.0f);  // standing right next to connection 0 observer
+    f.grid.Insert(e, 0.0f, 0.0f, 0.0f); // standing right next to connection 0 observer
     f.engine.Update(0);
     TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
     TESSERA_CHECK(f.engine.CompactIdOf(1, e) != kInvalidCompactId);
@@ -377,7 +377,7 @@ void AddViewer(Fixture& f, ConnectionId id) {
     f.engine.SetObservers(id, std::span<const Observer>(&eye, 1));
 }
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(exclusion_hides_a_spatial_entity_and_makes_a_visible_one_leave) {
     Fixture f(MakeConfig(1));
@@ -392,7 +392,7 @@ TESSERA_TEST(exclusion_hides_a_spatial_entity_and_makes_a_visible_one_leave) {
     TESSERA_CHECK(f.engine.CompactIdOf(0, seen) != kInvalidCompactId);
     TESSERA_CHECK(f.engine.CompactIdOf(0, hidden) == kInvalidCompactId);
 
-    f.groups.AddMember(g, seen);  // now an already visible entity is vetoed
+    f.groups.AddMember(g, seen); // now an already visible entity is vetoed
     f.engine.Update(1);
     TESSERA_CHECK(f.engine.CompactIdOf(0, seen) == kInvalidCompactId);
     TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
@@ -489,7 +489,7 @@ TESSERA_TEST(destroying_a_group_restores_the_normal_rules) {
 
 TESSERA_TEST(destroy_is_immediate_even_when_the_connection_is_not_due) {
     Fixture f(MakeConfig(3));
-    f.engine.AddConnection(0);  // due on ticks where tick % 3 == 0
+    f.engine.AddConnection(0); // due on ticks where tick % 3 == 0
     const EntityId e = MakeId(kGlobalType, 1);
     f.engine.OnEntityCreated(e);
     f.engine.Update(0);
@@ -499,7 +499,7 @@ TESSERA_TEST(destroy_is_immediate_even_when_the_connection_is_not_due) {
 
     f.engine.OnEntityDestroyed(e);
     uint32_t processed = 99;
-    f.engine.Update(1, &processed);  // connection 0 is not due now
+    f.engine.Update(1, &processed); // connection 0 is not due now
     TESSERA_CHECK(processed == 0);
     TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
     TESSERA_CHECK(f.engine.Events(0).events[0].kind == Kind::Destroy);
@@ -511,9 +511,56 @@ TESSERA_TEST(destroy_is_immediate_even_when_the_connection_is_not_due) {
 TESSERA_TEST(destroying_an_unknown_id_does_nothing) {
     Fixture f(MakeConfig(1));
     f.engine.AddConnection(0);
-    f.engine.OnEntityDestroyed(MakeId(kSpatialType, 99));
+    const EntityId seen = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(seen);
     f.engine.Update(0);
+    f.engine.ClearEvents(0);
+
+    f.engine.OnEntityDestroyed(MakeId(kSpatialType, 99)); // never existed
+    f.engine.OnEntityDestroyed(MakeId(kGlobalType, 2));   // a type the engine tracks, but never created
+    f.engine.Update(1);
     TESSERA_CHECK(f.engine.Events(0).events.empty());
+    TESSERA_CHECK(f.engine.CompactIdOf(0, seen) != kInvalidCompactId); // an unrelated entity is untouched
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 1);
+}
+
+TESSERA_TEST(events_in_one_update_come_as_destroy_then_leave_then_enter_each_in_id_order) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    constexpr uint32_t kEach = 8;
+    // Everything is created, and made visible, in descending index order, one entity per tick for the
+    // group that will leave. Containers that remember insertion order then hold the entities in
+    // descending order, so ascending output can only come from the engine sorting it.
+    for (uint32_t i = kEach; i-- > 0;) {
+        f.grid.Insert(MakeId(kSpatialType, 100 + i), 10.0f, 0.0f, 0.0f);   // will be destroyed
+        f.grid.Insert(MakeId(kSpatialType, 200 + i), 5000.0f, 0.0f, 0.0f); // will enter, then leave
+        f.grid.Insert(MakeId(kSpatialType, 300 + i), 5000.0f, 0.0f, 0.0f); // will enter at the end
+    }
+    uint64_t tick = 0;
+    f.engine.Update(tick++);
+    for (uint32_t i = kEach; i-- > 0;) {
+        Move(f, MakeId(kSpatialType, 200 + i), 20.0f);
+        f.engine.Update(tick++);
+    }
+    f.engine.ClearEvents(0);
+
+    for (uint32_t i = kEach; i-- > 0;) {
+        f.grid.Remove(MakeId(kSpatialType, 100 + i));
+        f.engine.OnEntityDestroyed(MakeId(kSpatialType, 100 + i));
+        Move(f, MakeId(kSpatialType, 200 + i), 5000.0f);
+        Move(f, MakeId(kSpatialType, 300 + i), 30.0f);
+    }
+    f.engine.Update(tick);
+
+    const auto& events = f.engine.Events(0).events;
+    TESSERA_CHECK(events.size() == 3 * kEach);
+    for (uint32_t i = 0; i < kEach && events.size() == 3 * kEach; ++i) {
+        TESSERA_CHECK(events[i].kind == Kind::Destroy && events[i].id == MakeId(kSpatialType, 100 + i));
+        TESSERA_CHECK(events[kEach + i].kind == Kind::Leave &&
+                      events[kEach + i].id == MakeId(kSpatialType, 200 + i));
+        TESSERA_CHECK(events[2 * kEach + i].kind == Kind::Enter &&
+                      events[2 * kEach + i].id == MakeId(kSpatialType, 300 + i));
+    }
 }
 
 TESSERA_TEST(destroying_the_same_id_twice_emits_one_destroy) {
@@ -526,7 +573,7 @@ TESSERA_TEST(destroying_the_same_id_twice_emits_one_destroy) {
     f.engine.OnEntityDestroyed(e);
     f.engine.OnEntityDestroyed(e);
     f.engine.Update(1);
-    f.engine.OnEntityDestroyed(e);  // again, in a later tick
+    f.engine.OnEntityDestroyed(e); // again, in a later tick
     f.engine.Update(2);
     TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Destroy) == 1);
 }
@@ -575,13 +622,13 @@ TESSERA_TEST(reused_connection_id_starts_clean) {
     TESSERA_CHECK(f.engine.VisibleCount(0) == 1);
 
     TESSERA_CHECK(f.engine.RemoveConnection(0));
-    TESSERA_CHECK(!f.groups.IsAllowed(g, 0));  // the old exception is gone
+    TESSERA_CHECK(!f.groups.IsAllowed(g, 0)); // the old exception is gone
     TESSERA_CHECK(f.engine.AddConnection(0));
     TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
     TESSERA_CHECK(f.engine.Events(0).events.empty());
     f.engine.Update(1);
     TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
-    TESSERA_CHECK(f.engine.Events(0).events[0].compact_id == 0);  // compact ids start over
+    TESSERA_CHECK(f.engine.Events(0).events[0].compact_id == 0); // compact ids start over
 }
 
 TESSERA_TEST(entities_of_a_removed_owner_become_ownerless_and_can_be_given_again) {
@@ -593,7 +640,7 @@ TESSERA_TEST(entities_of_a_removed_owner_become_ownerless_and_can_be_given_again
     f.engine.RemoveConnection(0);
     f.engine.AddConnection(0);
     f.engine.Update(0);
-    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);  // the new connection 0 does not inherit it
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0); // the new connection 0 does not inherit it
     TESSERA_CHECK(f.engine.SetOwner(e, 0));
     f.engine.Update(1);
     TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);

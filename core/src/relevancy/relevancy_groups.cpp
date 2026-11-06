@@ -127,4 +127,4 @@ void RelevancyGroups::RemoveConnection(ConnectionId connection) {
     }
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

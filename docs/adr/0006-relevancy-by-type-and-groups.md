@@ -22,8 +22,8 @@ The rules also have to be easy to understand: a developer should be able to say 
 - **A hysteresis margin per type.** An entity that is already visible stays visible a little beyond its
   range, so entities at the edge do not flicker.
 - **Groups for exceptions.** An exclusion group hides its members from every player except those it allows;
-  an inclusion group shows its members to the players it allows. Exclusion always wins, then the type's
-  mode, then inclusion.
+  an inclusion group shows its members to the players it allows. A player sees what the type allows plus
+  what inclusion adds, minus what exclusion hides, so exclusion always wins.
 - **Several observers per player.** What a player sees is the union of what each of their observers sees
   (a camera, a drone, the map). The common case, one observer, pays nothing extra.
 - **Compact ids per connection.** Each visible entity gets a short id on that connection. A freed id is not

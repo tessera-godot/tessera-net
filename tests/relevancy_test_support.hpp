@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <cstdint>
-#include <vector>
-
 #include "tessera/net/entity_id.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/relevancy/relevancy_config.hpp"
@@ -11,16 +8,19 @@
 #include "tessera/net/relevancy/relevancy_groups.hpp"
 #include "tessera/net/spatial_grid.hpp"
 
+#include <cstdint>
+#include <vector>
+
 namespace relevancy_test {
 
 using namespace tessera::net;
 
 // Entity types used by the tests.
-inline constexpr uint32_t kSpatialType = 0;   // range 100
-inline constexpr uint32_t kGlobalType = 1;    // always relevant
-inline constexpr uint32_t kOwnedType = 2;     // owner only
-inline constexpr uint32_t kFarType = 3;       // spatial, range 500
-inline constexpr uint32_t kNoRangeType = 4;   // spatial, range 0
+inline constexpr uint32_t kSpatialType = 0; // range 100
+inline constexpr uint32_t kGlobalType = 1;  // always relevant
+inline constexpr uint32_t kOwnedType = 2;   // owner only
+inline constexpr uint32_t kFarType = 3;     // spatial, range 500
+inline constexpr uint32_t kNoRangeType = 4; // spatial, range 0
 
 inline EntityId MakeId(uint32_t type, uint32_t index) {
     return EntityId::Make(0, type, index, 0);
@@ -59,4 +59,4 @@ inline size_t CountEvents(const ConnectionEvents& events, VisibilityEvent::Kind 
     return count;
 }
 
-}  // namespace relevancy_test
+} // namespace relevancy_test

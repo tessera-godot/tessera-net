@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <cstdint>
-#include <stdexcept>
-
 #include "tessera/net/relevancy/compact_ids.hpp"
 #include "tessera/net/relevancy/relevancy_types.hpp"
 #include "test_support.hpp"
+
+#include <cstdint>
+#include <stdexcept>
 
 using tessera::net::CompactIdAllocator;
 using tessera::net::kInvalidCompactId;

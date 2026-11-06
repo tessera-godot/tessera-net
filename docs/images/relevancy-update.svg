@@ -22,8 +22,8 @@
 <line x1="485.2" y1="160" x2="485.2" y2="194" stroke="#dc2626" stroke-width="2"/>
 <line x1="346.3" y1="160" x2="346.3" y2="194" stroke="#16a34a" stroke-width="2"/>
 <text x="258" y="236" font-size="13" fill="#1f2937" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">32 players, 250 k entities, 1 thread</text>
-<rect x="270" y="220" width="186.2" height="22" rx="3" fill="#2563eb"/>
-<text x="280" y="236" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">2.95 ms</text>
+<rect x="270" y="220" width="186.4" height="22" rx="3" fill="#2563eb"/>
+<text x="280" y="236" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">2.96 ms</text>
 <text x="258" y="290" font-size="13" fill="#1f2937" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">32 players, 250 k entities, 8 workers</text>
 <rect x="270" y="274" width="98.6" height="22" rx="3" fill="#2563eb"/>
 <text x="280" y="290" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">0.60 ms</text>

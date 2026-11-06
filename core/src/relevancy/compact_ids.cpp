@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/relevancy/compact_ids.hpp"
 
+#include "tessera/net/relevancy/relevancy_types.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <stdexcept>
-
-#include "tessera/net/relevancy/relevancy_types.hpp"
 
 namespace tessera::net {
 
@@ -13,7 +13,7 @@ namespace {
 
 constexpr uint32_t kBitsPerWord = 64;
 
-}  // namespace
+} // namespace
 
 CompactIdAllocator::CompactIdAllocator(uint32_t capacity) : capacity_(capacity) {
     if (capacity == 0) {
@@ -71,4 +71,4 @@ void CompactIdAllocator::BeginTick() {
     released_.clear();
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

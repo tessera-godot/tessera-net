@@ -8,9 +8,9 @@ namespace tessera::net {
 
 /// How an entity type decides who can see it.
 enum class RelevancyMode : uint8_t {
-    Spatial,         ///< Visible to connections with an observer within the type's range.
-    AlwaysRelevant,  ///< Visible to every connection.
-    OwnerOnly,       ///< Visible only to the connection that owns it.
+    Spatial,        ///< Visible to connections with an observer within the type's range.
+    AlwaysRelevant, ///< Visible to every connection.
+    OwnerOnly,      ///< Visible only to the connection that owns it.
 };
 
 /// Visibility settings of one entity type (the type is `EntityId::type()`, 0 to 255).
@@ -37,4 +37,4 @@ struct RelevancyConfig {
 /// Throws std::invalid_argument, naming the field, if the configuration cannot be used.
 void ValidateRelevancyConfig(const RelevancyConfig& config);
 
-}  // namespace tessera::net
+} // namespace tessera::net

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/entity_id.hpp"
+
 #include <cstdint>
 #include <vector>
-
-#include "tessera/net/entity_id.hpp"
 
 namespace tessera::net {
 
@@ -25,9 +25,9 @@ struct Observer {
 /// A change in what a connection can see.
 struct VisibilityEvent {
     enum class Kind : uint8_t {
-        Enter,    ///< The entity became visible. `compact_id` is the id to use on this connection.
-        Leave,    ///< The entity is no longer visible but still exists.
-        Destroy,  ///< The entity no longer exists.
+        Enter,   ///< The entity became visible. `compact_id` is the id to use on this connection.
+        Leave,   ///< The entity is no longer visible but still exists.
+        Destroy, ///< The entity no longer exists.
     };
 
     Kind kind;
@@ -40,4 +40,4 @@ struct ConnectionEvents {
     std::vector<VisibilityEvent> events;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

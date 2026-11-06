@@ -139,7 +139,8 @@ void SpatialGrid::QueryBox(float min_x, float min_y, float min_z, float max_x, f
     ForEachEntryInRange(
         CellOf(min_x, min_y, min_z), CellOf(max_x, max_y, max_z),
         [&](const CellMember& m) {
-            return m.x >= min_x && m.x <= max_x && m.y >= min_y && m.y <= max_y && m.z >= min_z && m.z <= max_z;
+            return m.x >= min_x && m.x <= max_x && m.y >= min_y && m.y <= max_y && m.z >= min_z &&
+                   m.z <= max_z;
         },
         [&](const CellMember& m) { out.push_back(m.id); });
 }

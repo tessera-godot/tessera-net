@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <cstdint>
-#include <limits>
-#include <stdexcept>
-
 #include "tessera/net/relevancy/relevancy_config.hpp"
 #include "tessera/net/relevancy/relevancy_types.hpp"
 #include "test_support.hpp"
+
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
 
 using tessera::net::RelevancyConfig;
 using tessera::net::ValidateRelevancyConfig;
@@ -21,7 +21,7 @@ bool Throws(const RelevancyConfig& config) {
     return false;
 }
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(default_relevancy_config_is_valid) {
     TESSERA_CHECK(!Throws(RelevancyConfig{}));

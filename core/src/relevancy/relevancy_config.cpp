@@ -17,7 +17,7 @@ bool IsNonNegativeFinite(float value) {
     return std::isfinite(value) && value >= 0.0f;
 }
 
-}  // namespace
+} // namespace
 
 void ValidateRelevancyConfig(const RelevancyConfig& config) {
     if (config.max_connections == 0) {
@@ -46,4 +46,4 @@ void ValidateRelevancyConfig(const RelevancyConfig& config) {
     }
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

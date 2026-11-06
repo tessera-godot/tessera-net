@@ -4,6 +4,11 @@
 // visible to each connection. A second, smaller scenario is reported for information.
 #include "bench_relevancy.hpp"
 
+#include "bench_report.hpp"
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/relevancy/relevancy_engine.hpp"
+#include "tessera/net/spatial_grid.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -11,11 +16,6 @@
 #include <random>
 #include <span>
 #include <vector>
-
-#include "bench_report.hpp"
-#include "tessera/net/job_system.hpp"
-#include "tessera/net/relevancy/relevancy_engine.hpp"
-#include "tessera/net/spatial_grid.hpp"
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -52,7 +52,7 @@ constexpr float kMargin = 8.0f;
 struct Scenario {
     uint32_t connections;
     uint32_t entities;
-    float world_size;  // side of the square world, in metres
+    float world_size; // side of the square world, in metres
     uint32_t moving_per_tick;
 };
 
@@ -82,9 +82,13 @@ struct World {
 
     explicit World(Scenario s) : scenario(s) {}
 
-    float Random(float low, float high) { return std::uniform_real_distribution<float>(low, high)(rng); }
+    float Random(float low, float high) {
+        return std::uniform_real_distribution<float>(low, high)(rng);
+    }
 
-    float Clamp(float value) const { return std::min(std::max(value, 0.0f), scenario.world_size); }
+    float Clamp(float value) const {
+        return std::min(std::max(value, 0.0f), scenario.world_size);
+    }
 
     void Build(SpatialGrid& grid) {
         ids.reserve(scenario.entities);
@@ -256,7 +260,8 @@ void PrintGridQueryCost(World& world, const SpatialGrid& grid) {
         grid.ForEachInSphere(cx, 25.0f, cz, radius, [&](EntityId, float, float, float) { ++candidates; });
     }
     const double total_ms = Ms(start, Clock::now());
-    std::printf("grid query at the widest reach (%.0f m): %.0f candidates, %.0f us per query, %.0f ns per candidate\n",
+    std::printf("grid query at the widest reach (%.0f m): %.0f candidates, %.0f us per query, %.0f ns per "
+                "candidate\n",
                 radius, static_cast<double>(candidates) / kQueries, total_ms * 1000.0 / kQueries,
                 total_ms * 1e6 / static_cast<double>(candidates));
 }
@@ -266,7 +271,8 @@ void RunMainScenario() {
     World world(kMain);
     const auto setup_start = Clock::now();
     world.Build(grid);
-    std::printf("main scenario: %u connections, %u entities, %u moving per tick, cells 128 m (world built in %.0f ms)\n",
+    std::printf("main scenario: %u connections, %u entities, %u moving per tick, cells 128 m (world built in "
+                "%.0f ms)\n",
                 kMain.connections, kMain.entities, kMain.moving_per_tick, Ms(setup_start, Clock::now()));
 
     PrintGridQueryCost(world, grid);
@@ -276,7 +282,8 @@ void RunMainScenario() {
     Report("relevancy visible per connection (high bound)", single.average_visible, "ents", 2000.0);
     Report("relevancy update, 1 thread, mean per tick", single.mean_update_ms, "ms", kLimitOneThreadMs);
     Report("relevancy update, 8 workers, mean per tick", parallel.mean_update_ms, "ms", kLimitEightWorkersMs);
-    Report("relevancy memory per connection (resident)", single.bytes_per_connection / (1024.0 * 1024.0), "MB", 2.0);
+    Report("relevancy memory per connection (resident)", single.bytes_per_connection / (1024.0 * 1024.0),
+           "MB", 2.0);
     ReportBool("relevancy events, 1 vs 8 workers, 30 ticks", EventsMatchAcrossWorkerCounts(world, grid));
 }
 
@@ -293,7 +300,7 @@ void RunSmallScenario() {
     Info("relevancy update, 8 workers, mean per tick", parallel.mean_update_ms, "ms");
 }
 
-}  // namespace
+} // namespace
 
 void CheckRelevancy() {
     std::printf("\nRelevancy engine\n");

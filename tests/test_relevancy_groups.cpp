@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <algorithm>
-#include <vector>
-
 #include "tessera/net/entity_id.hpp"
 #include "tessera/net/relevancy/relevancy_groups.hpp"
 #include "test_support.hpp"
+
+#include <algorithm>
+#include <vector>
 
 using tessera::net::ConnectionId;
 using tessera::net::EntityId;
@@ -26,7 +26,7 @@ std::vector<EntityId> Included(const RelevancyGroups& groups, ConnectionId conne
     return out;
 }
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(exclusion_group_blocks_members_for_every_connection_by_default) {
     RelevancyGroups groups;
@@ -124,7 +124,7 @@ TESSERA_TEST(remove_entity_leaves_every_group) {
     TESSERA_CHECK(!groups.IsMember(b, Id(1)));
     TESSERA_CHECK(!groups.IsExcluded(Id(1), 0));
     TESSERA_CHECK(Included(groups, 0).empty());
-    groups.RemoveEntity(Id(77));  // unknown entity: no effect, no crash
+    groups.RemoveEntity(Id(77)); // unknown entity: no effect, no crash
 }
 
 TESSERA_TEST(remove_connection_clears_only_that_connections_exceptions) {

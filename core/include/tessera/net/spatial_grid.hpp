@@ -147,7 +147,8 @@ private:
                 }
             }
         };
-        const double volume = (static_cast<double>(high.x) - low.x + 1) * (static_cast<double>(high.y) - low.y + 1) *
+        const double volume = (static_cast<double>(high.x) - low.x + 1) *
+                              (static_cast<double>(high.y) - low.y + 1) *
                               (static_cast<double>(high.z) - low.z + 1);
         if (volume > static_cast<double>(cells_.size())) {
             for (const auto& [coord, members] : cells_) {

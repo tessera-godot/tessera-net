@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/entity_id.hpp"
+#include "tessera/net/relevancy/relevancy_types.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include "tessera/net/entity_id.hpp"
-#include "tessera/net/relevancy/relevancy_types.hpp"
 
 namespace tessera::net {
 
@@ -72,14 +72,16 @@ public:
     /// a later connection with the same id starts clean).
     void RemoveConnection(ConnectionId connection);
 
-    size_t GroupCount() const noexcept { return groups_.size(); }
+    size_t GroupCount() const noexcept {
+        return groups_.size();
+    }
 
 private:
     struct Group {
         GroupKind kind;
         bool default_allowed = false;
         std::unordered_map<ConnectionId, bool> exceptions;
-        std::unordered_set<uint64_t> members;  // EntityId::raw()
+        std::unordered_set<uint64_t> members; // EntityId::raw()
     };
 
     static bool Allowed(const Group& group, ConnectionId connection);
@@ -90,4 +92,4 @@ private:
     std::unordered_map<uint64_t, std::vector<GroupId>> groups_of_entity_;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

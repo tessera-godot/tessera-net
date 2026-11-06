@@ -27,17 +27,21 @@ public:
     void BeginTick();
 
     /// Ids handed out and not yet available again (ids waiting for `BeginTick` are counted).
-    uint32_t InUse() const noexcept { return in_use_; }
+    uint32_t InUse() const noexcept {
+        return in_use_;
+    }
 
-    uint32_t Capacity() const noexcept { return capacity_; }
+    uint32_t Capacity() const noexcept {
+        return capacity_;
+    }
 
 private:
     uint32_t capacity_;
     uint32_t in_use_ = 0;
-    uint32_t lowest_word_ = 0;       // No word before this one has a free bit.
-    std::vector<uint64_t> used_;     // 1 = handed out and not yet available again.
-    std::vector<uint64_t> pending_;  // 1 = released, waiting for BeginTick.
+    uint32_t lowest_word_ = 0;      // No word before this one has a free bit.
+    std::vector<uint64_t> used_;    // 1 = handed out and not yet available again.
+    std::vector<uint64_t> pending_; // 1 = released, waiting for BeginTick.
     std::vector<uint32_t> released_;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

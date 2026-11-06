@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/relevancy/relevancy_engine.hpp"
 
+#include "tessera/net/relevancy/compact_ids.hpp"
+
 #include <algorithm>
 #include <cmath>
-
-#include "tessera/net/relevancy/compact_ids.hpp"
 
 namespace tessera::net {
 
@@ -19,25 +19,27 @@ void SortUnique(std::vector<uint64_t>& values) {
     values.erase(std::unique(values.begin(), values.end()), values.end());
 }
 
-}  // namespace
+} // namespace
 
 /// Everything the engine remembers about one connection. A connection's work touches only its own
 /// state, which is why connections can be recalculated in parallel without locks.
 struct RelevancyEngine::Connection {
     struct Visible {
         uint32_t compact_id;
-        uint64_t epoch;  // the recalculation that last saw it wanted
+        uint64_t epoch; // the recalculation that last saw it wanted
     };
 
     explicit Connection(uint32_t id_capacity) : ids(id_capacity) {}
 
     CompactIdAllocator ids;
-    std::unordered_map<uint64_t, Visible> visible;  // EntityId::raw() -> state
+    std::unordered_map<uint64_t, Visible> visible; // EntityId::raw() -> state
     ConnectionEvents events;
     std::vector<Observer> observers;
-    std::vector<uint64_t> owned;  // owner-only entities this connection owns
+    std::vector<uint64_t> owned; // owner-only entities this connection owns
 
-    // Scratch space reused every recalculation so the hot path does not allocate.
+    // Scratch vectors reused every recalculation: once they have grown they stop allocating. The `visible`
+    // map above still allocates a node for each entity that enters, which the incremental version should
+    // avoid (docs/adr/0007-relevancy-first-version.md).
     std::vector<uint64_t> wanted;
     std::vector<EntityId> included;
     std::vector<uint64_t> entering;
@@ -47,8 +49,8 @@ struct RelevancyEngine::Connection {
     uint64_t overflow = 0;
 };
 
-RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, const SpatialGrid& grid, RelevancyGroups& groups,
-                                 IJobSystem& jobs)
+RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, const SpatialGrid& grid,
+                                 RelevancyGroups& groups, IJobSystem& jobs)
     : config_(config), grid_(grid), groups_(groups), jobs_(jobs) {
     ValidateRelevancyConfig(config_);
     connections_.resize(config_.max_connections);
@@ -99,18 +101,18 @@ bool RelevancyEngine::SetObservers(ConnectionId connection, std::span<const Obse
 
 void RelevancyEngine::OnEntityCreated(EntityId entity) {
     switch (config_.types[entity.type()].mode) {
-        case RelevancyMode::AlwaysRelevant: {
-            const auto it = std::lower_bound(always_.begin(), always_.end(), entity.raw());
-            if (it == always_.end() || *it != entity.raw()) {
-                always_.insert(it, entity.raw());
-            }
-            break;
+    case RelevancyMode::AlwaysRelevant: {
+        const auto it = std::lower_bound(always_.begin(), always_.end(), entity.raw());
+        if (it == always_.end() || *it != entity.raw()) {
+            always_.insert(it, entity.raw());
         }
-        case RelevancyMode::OwnerOnly:
-            owners_.emplace(entity.raw(), kNoOwner);
-            break;
-        case RelevancyMode::Spatial:
-            break;  // Found through the grid.
+        break;
+    }
+    case RelevancyMode::OwnerOnly:
+        owners_.emplace(entity.raw(), kNoOwner);
+        break;
+    case RelevancyMode::Spatial:
+        break; // Found through the grid.
     }
 }
 
@@ -128,7 +130,7 @@ void RelevancyEngine::OnEntityDestroyed(EntityId entity) {
         owners_.erase(owner);
     }
     groups_.RemoveEntity(entity);
-    destroyed_.push_back(entity.raw());  // the Destroy events are written by the next Update
+    destroyed_.push_back(entity.raw()); // the Destroy events are written by the next Update
 }
 
 bool RelevancyEngine::SetOwner(EntityId entity, ConnectionId owner) {
@@ -159,17 +161,18 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
     }
     SortUnique(destroyed_);
     if (!active_.empty()) {
-        jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
-            for (uint32_t i = begin; i < end; ++i) {
-                const ConnectionId id = active_[i];
-                Connection& connection = *connections_[id];
-                connection.ids.BeginTick();
-                ApplyDestructions(connection);
-                if (id % interval == phase) {
-                    Recalculate(id, connection);
-                }
-            }
-        });
+        jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
+                          [&](uint32_t begin, uint32_t end, uint32_t) {
+                              for (uint32_t i = begin; i < end; ++i) {
+                                  const ConnectionId id = active_[i];
+                                  Connection& connection = *connections_[id];
+                                  connection.ids.BeginTick();
+                                  ApplyDestructions(connection);
+                                  if (id % interval == phase) {
+                                      Recalculate(id, connection);
+                                  }
+                              }
+                          });
     }
     destroyed_.clear();
 }
@@ -195,30 +198,31 @@ void RelevancyEngine::Recalculate(ConnectionId id, Connection& connection) const
     // its own type. An entity already visible gets the hysteresis margin, so it does not flicker.
     if (query_radius_ > 0.0f) {
         for (const Observer& observer : connection.observers) {
-            grid_.ForEachInSphere(observer.x, observer.y, observer.z, query_radius_,
-                                  [&](EntityId id, float x, float y, float z) {
-                                      const TypeRelevancy& rule = config_.types[id.type()];
-                                      if (rule.mode != RelevancyMode::Spatial || !(rule.range > 0.0f)) {
-                                          return;
-                                      }
-                                      const double dx = static_cast<double>(x) - observer.x;
-                                      const double dy = static_cast<double>(y) - observer.y;
-                                      const double dz = static_cast<double>(z) - observer.z;
-                                      const double distance_squared = dx * dx + dy * dy + dz * dz;
-                                      const double range = static_cast<double>(rule.range);
-                                      if (distance_squared <= range * range) {
-                                          connection.wanted.push_back(id.raw());
-                                          return;
-                                      }
-                                      // Outside the range: only an entity that is already visible may stay, up to
-                                      // the margin. Most candidates are far beyond it, so the lookup is rare.
-                                      if (rule.hysteresis_margin > 0.0f) {
-                                          const double reach = static_cast<double>(rule.range + rule.hysteresis_margin);
-                                          if (distance_squared <= reach * reach && connection.visible.contains(id.raw())) {
-                                              connection.wanted.push_back(id.raw());
-                                          }
-                                      }
-                                  });
+            grid_.ForEachInSphere(
+                observer.x, observer.y, observer.z, query_radius_,
+                [&](EntityId id, float x, float y, float z) {
+                    const TypeRelevancy& rule = config_.types[id.type()];
+                    if (rule.mode != RelevancyMode::Spatial || !(rule.range > 0.0f)) {
+                        return;
+                    }
+                    const double dx = static_cast<double>(x) - observer.x;
+                    const double dy = static_cast<double>(y) - observer.y;
+                    const double dz = static_cast<double>(z) - observer.z;
+                    const double distance_squared = dx * dx + dy * dy + dz * dz;
+                    const double range = static_cast<double>(rule.range);
+                    if (distance_squared <= range * range) {
+                        connection.wanted.push_back(id.raw());
+                        return;
+                    }
+                    // Outside the range: only an entity that is already visible may stay, up to
+                    // the margin. Most candidates are far beyond it, so the lookup is rare.
+                    if (rule.hysteresis_margin > 0.0f) {
+                        const double reach = static_cast<double>(rule.range + rule.hysteresis_margin);
+                        if (distance_squared <= reach * reach && connection.visible.contains(id.raw())) {
+                            connection.wanted.push_back(id.raw());
+                        }
+                    }
+                });
         }
     }
     connection.wanted.insert(connection.wanted.end(), always_.begin(), always_.end());
@@ -230,9 +234,10 @@ void RelevancyEngine::Recalculate(ConnectionId id, Connection& connection) const
         connection.wanted.push_back(member.raw());
     }
     SortUnique(connection.wanted);
-    connection.wanted.erase(std::remove_if(connection.wanted.begin(), connection.wanted.end(),
-                                           [&](uint64_t raw) { return groups_.IsExcluded(EntityId::FromRaw(raw), id); }),
-                            connection.wanted.end());
+    connection.wanted.erase(
+        std::remove_if(connection.wanted.begin(), connection.wanted.end(),
+                       [&](uint64_t raw) { return groups_.IsExcluded(EntityId::FromRaw(raw), id); }),
+        connection.wanted.end());
     Reconcile(connection);
 }
 
@@ -270,7 +275,8 @@ void RelevancyEngine::Reconcile(Connection& connection) {
             continue;
         }
         connection.visible.emplace(raw, Connection::Visible{compact_id, connection.epoch});
-        connection.events.events.push_back({VisibilityEvent::Kind::Enter, EntityId::FromRaw(raw), compact_id});
+        connection.events.events.push_back(
+            {VisibilityEvent::Kind::Enter, EntityId::FromRaw(raw), compact_id});
     }
 }
 
@@ -310,4 +316,4 @@ uint64_t RelevancyEngine::VisibleOverflow(ConnectionId connection) const {
     return connections_[connection]->overflow;
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // The code of the example in docs/reference/relevancy.md, kept here so it is compiled and run with
 // every build. If you change one, change the other.
-#include <span>
-
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/relevancy/relevancy_engine.hpp"
 #include "tessera/net/spatial_grid.hpp"
 #include "test_support.hpp"
+
+#include <span>
 
 using namespace tessera::net;
 
@@ -14,9 +14,9 @@ TESSERA_TEST(reference_example_basic_flow) {
     // 1. Say how far each type of entity can be seen.
     RelevancyConfig config;
     config.max_connections = 64;
-    config.types[1] = {RelevancyMode::Spatial, 150.0f, 10.0f};      // type 1: crates, seen from 150 m
-    config.types[2] = {RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};  // type 2: the world clock
-    config.types[3] = {RelevancyMode::OwnerOnly, 0.0f, 0.0f};       // type 3: a player's backpack
+    config.types[1] = {RelevancyMode::Spatial, 150.0f, 10.0f};     // type 1: crates, seen from 150 m
+    config.types[2] = {RelevancyMode::AlwaysRelevant, 0.0f, 0.0f}; // type 2: the world clock
+    config.types[3] = {RelevancyMode::OwnerOnly, 0.0f, 0.0f};      // type 3: a player's backpack
 
     SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
     RelevancyGroups groups;
@@ -40,7 +40,7 @@ TESSERA_TEST(reference_example_basic_flow) {
     size_t entered = 0;
     for (const VisibilityEvent& event : engine.Events(0).events) {
         if (event.kind == VisibilityEvent::Kind::Enter) {
-            ++entered;  // start sending event.id using event.compact_id
+            ++entered; // start sending event.id using event.compact_id
         }
         // Leave and Destroy: stop sending it.
     }
@@ -70,7 +70,7 @@ TESSERA_TEST(reference_example_groups) {
     // Hide the crate from everyone except connection 0.
     const GroupId secret = groups.CreateGroup(GroupKind::Exclusion);
     groups.AddMember(secret, crate);
-    groups.SetStatus(secret, 0, true);  // connection 0 is allowed to see it
+    groups.SetStatus(secret, 0, true); // connection 0 is allowed to see it
 
     engine.Update(0);
     engine.Update(1);

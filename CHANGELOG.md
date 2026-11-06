@@ -28,4 +28,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 - `SpatialGrid` cells now store each entity's position next to its id, so queries no longer look every
   entity up in a hash table. Queries return the same results; a query over 11,600 entities went from about
-  1.9 ms to about 0.1 ms.
+  1.9 ms to about 0.1 ms (measured with the first version of the relevancy benchmark).

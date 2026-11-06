@@ -112,39 +112,54 @@ a few metres per tick. Entities belong to four types that can be seen from 100, 
 25%, 10% and 5% of the entities), with an 8 m hysteresis margin. Each player re-checks every 3 ticks, so
 about 43 players are re-checked per tick.
 
-| Measure | Result (median of 4 runs, range) | Limit | Goal |
+| Measure | Result (median of 4 executions, range) | Limit | Goal |
 |---|---|---|---|
 | Entities visible to a player | 1,789 | between 1,000 and 2,000 | n/a |
 | Time per tick, 1 thread | 13.6 ms (12.5 to 17.6) | 25 ms | 1.5 ms |
 | Time per tick, 8 workers | 2.31 ms (2.16 to 3.48) | 5 ms | 0.4 ms |
-| Memory per player | 0.17 MB (0.16 to 0.18) | 2 MB | n/a |
+| Memory per player | about 0.17 MB | 2 MB | n/a |
 | Same events with 1 and 8 workers | identical | identical | n/a |
 
+Each execution of the program reports the median of 5 runs of 30 ticks, after 9 warm-up ticks. We executed
+the program four times and give the median of those four values and their range. The four values, in
+milliseconds per tick:
+
+| Execution | Main, 1 thread | Main, 8 workers | Smaller, 1 thread | Smaller, 8 workers |
+|---|---|---|---|---|
+| 1 (machine busier) | 17.57 | 3.48 | 4.24 | 0.74 |
+| 2 | 13.47 | 2.32 | 2.63 | 0.59 |
+| 3 | 13.72 | 2.30 | 3.28 | 0.59 |
+| 4 | 12.54 | 2.16 | 2.59 | 0.60 |
+
 The same program also runs a smaller scenario, for information only: 32 players and 250,000 entities at the
-same density, 175 entities moving per tick. A tick takes 2.95 ms on one thread (2.59 to 4.24) and 0.60 ms with
-eight workers (0.59 to 0.74).
+same density, 175 entities moving per tick. The median tick takes 2.96 ms on one thread and 0.60 ms with
+eight workers.
 
 How to read this:
 - **The limits are regression guards, not goals.** They sit above what the engine measures today, so the
   benchmark fails if it gets slower. The goals (1.5 ms and 0.4 ms) are what the next version is built to
-  reach. **They are not met yet.** With eight workers the engine alone uses about two thirds of the 3.3 ms we
-  allow for the whole network phase of a 128-player server.
-- **Where the time goes.** One query to the grid at the widest range returns about 11,600 entities in 91 to
-  119 µs (8 to 10 ns each). A re-check of one player costs about 320 µs in total, so most of it is spent after
-  the query: filtering, ordering and comparing with what the player already sees. We estimate that split; it
-  was not timed separately.
-- **Where it started.** The first measurement, before the changes described in
-  [record 0007](adr/0007-relevancy-first-version.md), was 136 to 147 ms on one thread and 23 to 24 ms with
-  eight workers. Storing positions inside the grid cells and skipping a lookup for most candidates made it
-  about eleven times faster.
+  reach. **They are not met yet.** We allow 3.3 ms on one thread for the whole network phase of a 128-player
+  server ([README](../README.md#design-goals)). On one thread the relevancy engine alone takes about four
+  times that; with eight workers it takes about 70% of it.
+- **Where the time goes.** One query to the grid at the widest range returns about 11,600 entities in about
+  90 to 120 µs (roughly 8 to 10 ns each). A re-check of one player costs about 320 µs in total, so most of it
+  is spent after the query: filtering, ordering and comparing with what the player already sees. We estimate
+  that split; it was not timed separately.
+- **Where it started.** The first measurement, taken with the first version of `bench_relevancy.cpp` before
+  the changes described in [record 0007](adr/0007-relevancy-first-version.md), was 136 to 147 ms on one
+  thread and 23 to 24 ms with eight workers. Storing positions inside the grid cells and skipping a lookup for
+  most candidates made it about ten times faster. That version of the program is in the git history, in the
+  commit before "Keep entity positions inside grid cells".
 - **Scaling.** The cost follows the number of players and how many entities lie within the widest range, not
   the size of the world: the smaller scenario costs about 4.6 times less with a quarter of the players, close
-  to proportional.
-- **Variation.** One run in four was noticeably slower (17.6 and 3.48 ms) while the machine was busy.
+  to proportional. On one thread the smaller scenario takes about 90% of the 3.3 ms budget, and with eight
+  workers about a fifth of it.
+- **Variation.** One execution in four was noticeably slower (17.57 and 3.48 ms) while the machine was busy.
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far. The benchmark uses
 one observer per player and no exclusion or inclusion groups. Memory is the growth of the process's resident
-memory after adding the players and running a few ticks, divided by the number of players.
+memory after adding the players and running a few ticks, divided by the number of players; memory the
+process had already freed can hide part of the growth, so treat it as a lower bound.
 
 ## Reproduce
 
