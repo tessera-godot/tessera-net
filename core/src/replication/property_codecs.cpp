@@ -18,6 +18,45 @@ float LoadFloat(const std::byte* columns, const ColumnRef& column, uint32_t slot
     return value;
 }
 
+// Reads one integer element as an unsigned number (zero-extended).
+uint64_t LoadUnsigned(const std::byte* columns, const ColumnRef& column, uint32_t slot) noexcept {
+    const std::byte* at = columns + column.offset + static_cast<size_t>(slot) * column.element_bytes;
+    switch (column.element_bytes) {
+    case 1:
+        return static_cast<uint8_t>(*at);
+    case 2: {
+        uint16_t value;
+        std::memcpy(&value, at, sizeof(value));
+        return value;
+    }
+    case 4: {
+        uint32_t value;
+        std::memcpy(&value, at, sizeof(value));
+        return value;
+    }
+    default: {
+        uint64_t value;
+        std::memcpy(&value, at, sizeof(value));
+        return value;
+    }
+    }
+}
+
+// Reads one integer element as a signed number (sign-extended).
+int64_t LoadSigned(const std::byte* columns, const ColumnRef& column, uint32_t slot) noexcept {
+    const uint64_t raw = LoadUnsigned(columns, column, slot);
+    switch (column.element_bytes) {
+    case 1:
+        return static_cast<int8_t>(raw);
+    case 2:
+        return static_cast<int16_t>(raw);
+    case 4:
+        return static_cast<int32_t>(raw);
+    default:
+        return static_cast<int64_t>(raw);
+    }
+}
+
 uint32_t QuantizeAxis(float value, const PropertyDescriptor& d) noexcept {
     double x = static_cast<double>(value);
     if (std::isnan(x)) {
@@ -52,6 +91,20 @@ int64_t CircularDifference(uint32_t current, uint32_t base, uint32_t bits) noexc
     return difference;
 }
 
+// Integers and bit masks keep a 64-bit ordinal in two words, low word first.
+uint64_t Join(const uint32_t* words) noexcept {
+    return static_cast<uint64_t>(words[0]) | (static_cast<uint64_t>(words[1]) << 32);
+}
+
+void Split(uint64_t value, uint32_t* words) noexcept {
+    words[0] = static_cast<uint32_t>(value);
+    words[1] = static_cast<uint32_t>(value >> 32);
+}
+
+bool IsWide(PropertyKind kind) noexcept {
+    return kind == PropertyKind::Integer || kind == PropertyKind::Bits;
+}
+
 } // namespace
 
 void QuantizeProperty(const PropertyDescriptor& d, const std::byte* columns, uint32_t slot,
@@ -65,8 +118,25 @@ void QuantizeProperty(const PropertyDescriptor& d, const std::byte* columns, uin
     case PropertyKind::Angle:
         words[0] = QuantizeAngle(LoadFloat(columns, d.source[0], slot), d);
         return;
-    default:
-        assert(false && "this property kind has no codec yet");
+    case PropertyKind::Integer: {
+        int64_t value;
+        if (d.is_signed) {
+            value = LoadSigned(columns, d.source[0], slot);
+        } else {
+            // An unsigned 64-bit value above the largest signed one is simply limited to the maximum.
+            const uint64_t raw = LoadUnsigned(columns, d.source[0], slot);
+            value = raw > static_cast<uint64_t>(INT64_MAX) ? INT64_MAX : static_cast<int64_t>(raw);
+        }
+        value = std::clamp(value, d.min_value, d.max_value);
+        Split(static_cast<uint64_t>(value) - static_cast<uint64_t>(d.min_value), words);
+        return;
+    }
+    case PropertyKind::Bits:
+        Split(LoadUnsigned(columns, d.source[0], slot) & d.max_ordinal, words);
+        return;
+    case PropertyKind::Enum:
+        words[0] = static_cast<uint32_t>(
+            std::min<uint64_t>(LoadUnsigned(columns, d.source[0], slot), d.max_ordinal));
         return;
     }
 }
@@ -79,10 +149,12 @@ void WriteAbsolute(const PropertyDescriptor& d, const uint32_t* words, BitWriter
         }
         return;
     case PropertyKind::Angle:
+    case PropertyKind::Enum:
         writer.WriteBits(words[0], d.absolute_bits);
         return;
-    default:
-        assert(false && "this property kind has no codec yet");
+    case PropertyKind::Integer:
+    case PropertyKind::Bits:
+        writer.WriteBits(Join(words), d.absolute_bits);
         return;
     }
 }
@@ -100,18 +172,26 @@ bool ReadAbsolute(const PropertyDescriptor& d, BitReader& reader, uint32_t* word
         std::copy(read, read + 3, words);
         return true;
     }
-    case PropertyKind::Angle: {
-        const uint32_t read = static_cast<uint32_t>(reader.ReadBits(d.absolute_bits));
-        if (!reader.ok()) {
+    case PropertyKind::Angle:
+    case PropertyKind::Enum: {
+        const uint64_t read = reader.ReadBits(d.absolute_bits);
+        if (!reader.ok() || read > d.max_ordinal) {
             return false;
         }
-        words[0] = read;
+        words[0] = static_cast<uint32_t>(read);
         return true;
     }
-    default:
-        assert(false && "this property kind has no codec yet");
-        return false;
+    case PropertyKind::Integer:
+    case PropertyKind::Bits: {
+        const uint64_t read = reader.ReadBits(d.absolute_bits);
+        if (!reader.ok() || read > d.max_ordinal) {
+            return false;
+        }
+        Split(read, words);
+        return true;
     }
+    }
+    return false;
 }
 
 void WriteDelta(const PropertyDescriptor& d, const uint32_t* base, const uint32_t* current,
@@ -146,13 +226,39 @@ void WriteDelta(const PropertyDescriptor& d, const uint32_t* base, const uint32_
         }
         return;
     }
-    default:
-        assert(false && "this property kind has no codec yet");
+    case PropertyKind::Integer: {
+        // Modular subtraction: the receiver adds it back modulo 2^64, so even the widest range is exact.
+        const int64_t difference = static_cast<int64_t>(Join(current) - Join(base));
+        if (VarIntBits(difference) <= d.absolute_bits) {
+            writer.WriteBool(false);
+            writer.WriteVarInt(difference);
+        } else {
+            writer.WriteBool(true);
+            WriteAbsolute(d, current, writer);
+        }
+        return;
+    }
+    case PropertyKind::Bits: {
+        const uint64_t changed = Join(current) ^ Join(base);
+        if (VarUIntBits(changed) <= d.absolute_bits) {
+            writer.WriteBool(false);
+            writer.WriteVarUInt(changed);
+        } else {
+            writer.WriteBool(true);
+            WriteAbsolute(d, current, writer);
+        }
+        return;
+    }
+    case PropertyKind::Enum:
+        WriteAbsolute(d, current, writer); // a few bits either way: no flag
         return;
     }
 }
 
 bool ReadDelta(const PropertyDescriptor& d, BitReader& reader, const uint32_t* base, uint32_t* words) {
+    if (d.kind == PropertyKind::Enum) {
+        return ReadAbsolute(d, reader, words);
+    }
     const bool absolute = reader.ReadBool();
     if (!reader.ok()) {
         return false;
@@ -186,10 +292,28 @@ bool ReadDelta(const PropertyDescriptor& d, BitReader& reader, const uint32_t* b
             (static_cast<uint64_t>(base[0]) + size + static_cast<uint64_t>(step)) & (size - 1));
         return true;
     }
-    default:
-        assert(false && "this property kind has no codec yet");
-        return false;
+    case PropertyKind::Integer: {
+        const int64_t step = reader.ReadVarInt();
+        const uint64_t result = Join(base) + static_cast<uint64_t>(step);
+        if (!reader.ok() || result > d.max_ordinal) {
+            return false;
+        }
+        Split(result, words);
+        return true;
     }
+    case PropertyKind::Bits: {
+        const uint64_t changed = reader.ReadVarUInt();
+        const uint64_t result = Join(base) ^ changed;
+        if (!reader.ok() || result > d.max_ordinal) {
+            return false;
+        }
+        Split(result, words);
+        return true;
+    }
+    case PropertyKind::Enum:
+        break; // handled above
+    }
+    return false;
 }
 
 void DequantizePosition(const PropertyDescriptor& d, const uint32_t* words, double out[3]) noexcept {
@@ -203,9 +327,9 @@ double DequantizeAngle(const PropertyDescriptor& d, const uint32_t* words) noexc
     return static_cast<double>(words[0]) / static_cast<double>(1ull << d.bits) * kTwoPi;
 }
 
-int64_t IntegerValue(const PropertyDescriptor&, const uint32_t*) noexcept {
-    assert(false && "this property kind has no codec yet");
-    return 0;
+int64_t IntegerValue(const PropertyDescriptor& d, const uint32_t* words) noexcept {
+    assert(IsWide(d.kind));
+    return static_cast<int64_t>(static_cast<uint64_t>(d.min_value) + Join(words));
 }
 
 } // namespace tessera::net
