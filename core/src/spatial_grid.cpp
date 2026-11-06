@@ -123,68 +123,21 @@ void SpatialGrid::QueryCell(CellCoord cell, std::vector<EntityId>& out) const {
     }
 }
 
-template <class Predicate>
-void SpatialGrid::QueryRange(CellCoord low, CellCoord high, Predicate&& accept, std::vector<EntityId>& out) const {
-    const auto collect = [&](const std::vector<EntityId>& members) {
-        for (const EntityId id : members) {
-            const Entry& entry = entries_.find(id.raw())->second;
-            if (accept(entry)) {
-                out.push_back(id);
-            }
-        }
-    };
-    const double volume = (static_cast<double>(high.x) - low.x + 1) * (static_cast<double>(high.y) - low.y + 1) *
-                          (static_cast<double>(high.z) - low.z + 1);
-    if (volume > static_cast<double>(cells_.size())) {
-        // Fewer occupied cells than cells in the range: walk the occupied ones.
-        for (const auto& [coord, members] : cells_) {
-            if (coord.x >= low.x && coord.x <= high.x && coord.y >= low.y && coord.y <= high.y &&
-                coord.z >= low.z && coord.z <= high.z) {
-                collect(members);
-            }
-        }
-        return;
-    }
-    for (int64_t cx = low.x; cx <= high.x; ++cx) {
-        for (int64_t cy = low.y; cy <= high.y; ++cy) {
-            for (int64_t cz = low.z; cz <= high.z; ++cz) {
-                const auto it = cells_.find(CellCoord{static_cast<int32_t>(cx), static_cast<int32_t>(cy),
-                                                      static_cast<int32_t>(cz)});
-                if (it != cells_.end()) {
-                    collect(it->second);
-                }
-            }
-        }
-    }
-}
-
 void SpatialGrid::QueryBox(float min_x, float min_y, float min_z, float max_x, float max_y, float max_z,
                            std::vector<EntityId>& out) const {
     if (!IsFinite(min_x, min_y, min_z) || !IsFinite(max_x, max_y, max_z)) {
         return;
     }
-    QueryRange(
+    ForEachEntryInRange(
         CellOf(min_x, min_y, min_z), CellOf(max_x, max_y, max_z),
         [&](const Entry& e) {
             return e.x >= min_x && e.x <= max_x && e.y >= min_y && e.y <= max_y && e.z >= min_z && e.z <= max_z;
         },
-        out);
+        [&](EntityId id, const Entry&) { out.push_back(id); });
 }
 
 void SpatialGrid::QuerySphere(float cx, float cy, float cz, float radius, std::vector<EntityId>& out) const {
-    if (!IsFinite(cx, cy, cz) || !std::isfinite(radius) || radius < 0.0f) {
-        return;
-    }
-    const double limit = static_cast<double>(radius) * static_cast<double>(radius);
-    QueryRange(
-        CellOf(cx - radius, cy - radius, cz - radius), CellOf(cx + radius, cy + radius, cz + radius),
-        [&](const Entry& e) {
-            const double dx = static_cast<double>(e.x) - cx;
-            const double dy = static_cast<double>(e.y) - cy;
-            const double dz = static_cast<double>(e.z) - cz;
-            return dx * dx + dy * dy + dz * dz <= limit;
-        },
-        out);
+    ForEachInSphere(cx, cy, cz, radius, [&](EntityId id, float, float, float) { out.push_back(id); });
 }
 
 }  // namespace tessera::net

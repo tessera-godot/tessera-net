@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -95,6 +96,28 @@ public:
     /// Appends the entities within `radius` of a point (borders included), using exact distances.
     void QuerySphere(float cx, float cy, float cz, float radius, std::vector<EntityId>& out) const;
 
+    /// Calls `fn(EntityId id, float x, float y, float z)` for every entity within `radius` of a point
+    /// (borders included), using exact distances. Unlike `QuerySphere` it allocates nothing and hands
+    /// over the stored position, so hot loops can filter without a second lookup. A non-finite
+    /// centre or radius, or a negative radius, visits nothing. Safe to call in parallel.
+    template <class F>
+    void ForEachInSphere(float cx, float cy, float cz, float radius, F&& fn) const {
+        if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(cz) || !std::isfinite(radius) ||
+            radius < 0.0f) {
+            return;
+        }
+        const double limit = static_cast<double>(radius) * static_cast<double>(radius);
+        ForEachEntryInRange(
+            CellOf(cx - radius, cy - radius, cz - radius), CellOf(cx + radius, cy + radius, cz + radius),
+            [&](const Entry& e) {
+                const double dx = static_cast<double>(e.x) - cx;
+                const double dy = static_cast<double>(e.y) - cy;
+                const double dz = static_cast<double>(e.z) - cz;
+                return dx * dx + dy * dy + dz * dz <= limit;
+            },
+            [&](EntityId id, const Entry& e) { fn(id, e.x, e.y, e.z); });
+    }
+
 private:
     struct Entry {
         float x, y, z;
@@ -105,8 +128,41 @@ private:
     void AddToCell(CellCoord cell, EntityId id, Entry& entry);
     void RemoveFromCell(const Entry& entry);
 
-    template <class Predicate>
-    void QueryRange(CellCoord low, CellCoord high, Predicate&& accept, std::vector<EntityId>& out) const;
+    /// Calls `visit(id, entry)` for each entity in the cells of [low, high] whose entry passes
+    /// `accept`. Walks the occupied cells when there are fewer of them than cells in the range.
+    template <class Accept, class Visit>
+    void ForEachEntryInRange(CellCoord low, CellCoord high, Accept&& accept, Visit&& visit) const {
+        const auto handle = [&](const std::vector<EntityId>& members) {
+            for (const EntityId id : members) {
+                const Entry& entry = entries_.find(id.raw())->second;
+                if (accept(entry)) {
+                    visit(id, entry);
+                }
+            }
+        };
+        const double volume = (static_cast<double>(high.x) - low.x + 1) * (static_cast<double>(high.y) - low.y + 1) *
+                              (static_cast<double>(high.z) - low.z + 1);
+        if (volume > static_cast<double>(cells_.size())) {
+            for (const auto& [coord, members] : cells_) {
+                if (coord.x >= low.x && coord.x <= high.x && coord.y >= low.y && coord.y <= high.y &&
+                    coord.z >= low.z && coord.z <= high.z) {
+                    handle(members);
+                }
+            }
+            return;
+        }
+        for (int64_t cx = low.x; cx <= high.x; ++cx) {
+            for (int64_t cy = low.y; cy <= high.y; ++cy) {
+                for (int64_t cz = low.z; cz <= high.z; ++cz) {
+                    const auto it = cells_.find(CellCoord{static_cast<int32_t>(cx), static_cast<int32_t>(cy),
+                                                          static_cast<int32_t>(cz)});
+                    if (it != cells_.end()) {
+                        handle(it->second);
+                    }
+                }
+            }
+        }
+    }
 
     GridConfig config_;
     std::unordered_map<CellCoord, std::vector<EntityId>> cells_;

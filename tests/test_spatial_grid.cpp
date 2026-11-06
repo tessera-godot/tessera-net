@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -145,4 +146,67 @@ TESSERA_TEST(single_vertical_layer_behaves_like_2d) {
     grid.Insert(Id(1), 1, 0.0f, 1);
     grid.Insert(Id(2), 2, 500.0f, 2);
     TESSERA_CHECK(grid.CellCount() == 1);
+}
+
+TESSERA_TEST(foreach_in_sphere_matches_query_sphere) {
+    SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<float> coord(-500.0f, 500.0f);
+    for (uint32_t i = 0; i < 1000; ++i) {
+        grid.Insert(Id(i), coord(rng), coord(rng), coord(rng));
+    }
+    std::uniform_real_distribution<float> radius(0.0f, 300.0f);
+    for (int sphere = 0; sphere < 50; ++sphere) {
+        const float cx = coord(rng), cy = coord(rng), cz = coord(rng), r = radius(rng);
+        std::vector<EntityId> expected;
+        grid.QuerySphere(cx, cy, cz, r, expected);
+        std::vector<EntityId> visited;
+        grid.ForEachInSphere(cx, cy, cz, r, [&](EntityId id, float, float, float) { visited.push_back(id); });
+        std::sort(expected.begin(), expected.end());
+        std::sort(visited.begin(), visited.end());
+        TESSERA_CHECK(expected == visited);
+    }
+}
+
+TESSERA_TEST(foreach_in_sphere_reports_exact_positions) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 1.5f, -2.5f, 3.5f);
+    int calls = 0;
+    grid.ForEachInSphere(0.0f, 0.0f, 0.0f, 10.0f, [&](EntityId id, float x, float y, float z) {
+        ++calls;
+        TESSERA_CHECK(id == Id(1));
+        TESSERA_CHECK(x == 1.5f && y == -2.5f && z == 3.5f);
+    });
+    TESSERA_CHECK(calls == 1);
+}
+
+TESSERA_TEST(foreach_in_sphere_includes_the_border) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 10.0f, 0.0f, 0.0f);
+    grid.Insert(Id(2), 10.01f, 0.0f, 0.0f);
+    std::vector<EntityId> visited;
+    grid.ForEachInSphere(0.0f, 0.0f, 0.0f, 10.0f, [&](EntityId id, float, float, float) { visited.push_back(id); });
+    TESSERA_CHECK(Contains(visited, Id(1)));
+    TESSERA_CHECK(!Contains(visited, Id(2)));
+}
+
+TESSERA_TEST(foreach_in_sphere_handles_negative_coordinates_and_cell_boundaries) {
+    SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
+    grid.Insert(Id(1), -64.0f, 0.0f, 0.0f);
+    std::vector<EntityId> visited;
+    grid.ForEachInSphere(-64.0f, 0.0f, 0.0f, 0.0f, [&](EntityId id, float, float, float) { visited.push_back(id); });
+    TESSERA_CHECK(visited.size() == 1 && visited[0] == Id(1));
+}
+
+TESSERA_TEST(foreach_in_sphere_ignores_invalid_arguments) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 0.0f, 0.0f, 0.0f);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    int calls = 0;
+    const auto count = [&](EntityId, float, float, float) { ++calls; };
+    grid.ForEachInSphere(nan, 0.0f, 0.0f, 10.0f, count);
+    grid.ForEachInSphere(0.0f, 0.0f, 0.0f, inf, count);
+    grid.ForEachInSphere(0.0f, 0.0f, 0.0f, -1.0f, count);
+    TESSERA_CHECK(calls == 0);
 }
