@@ -295,3 +295,156 @@ TESSERA_TEST(moving_to_another_cell_keeps_the_position_in_the_new_cell) {
     grid.QuerySphere(2.0f, 0.0f, 0.0f, 1.0f, left_behind);
     TESSERA_CHECK(left_behind.size() == 1 && left_behind[0] == Id(2));
 }
+
+// ---- Queries by entity type ---------------------------------------------------------------------
+
+namespace {
+
+EntityId TypedId(uint32_t type, uint32_t index) {
+    return EntityId::Make(0, type, index, 0);
+}
+
+}  // namespace
+
+TESSERA_TEST(sphere_of_type_matches_a_brute_force_search) {
+    struct Point {
+        EntityId id;
+        float x, y, z;
+    };
+    SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<float> coord(-500.0f, 500.0f);
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 1000; ++i) {
+        const Point p{TypedId(i % 4, i), coord(rng), coord(rng), coord(rng)};
+        grid.Insert(p.id, p.x, p.y, p.z);
+        points.push_back(p);
+    }
+    std::uniform_real_distribution<float> radius(0.0f, 300.0f);
+    for (int sphere = 0; sphere < 50; ++sphere) {
+        const float cx = coord(rng), cy = coord(rng), cz = coord(rng), r = radius(rng);
+        const double limit = static_cast<double>(r) * static_cast<double>(r);
+        for (uint32_t type = 0; type < 4; ++type) {
+            std::vector<EntityId> expected;
+            for (const Point& p : points) {
+                const double dx = static_cast<double>(p.x) - cx;
+                const double dy = static_cast<double>(p.y) - cy;
+                const double dz = static_cast<double>(p.z) - cz;
+                if (p.id.type() == type && dx * dx + dy * dy + dz * dz <= limit) {
+                    expected.push_back(p.id);
+                }
+            }
+            std::vector<EntityId> visited;
+            grid.ForEachInSphereOfType(type, cx, cy, cz, r,
+                                       [&](EntityId id, float, float, float) { visited.push_back(id); });
+            std::sort(expected.begin(), expected.end());
+            std::sort(visited.begin(), visited.end());
+            TESSERA_CHECK(expected == visited);
+        }
+    }
+}
+
+TESSERA_TEST(sphere_of_type_visits_only_that_type) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(TypedId(1, 1), 1.0f, 1.0f, 1.0f);
+    grid.Insert(TypedId(2, 2), 1.0f, 1.0f, 1.0f);
+    std::vector<EntityId> visited;
+    grid.ForEachInSphereOfType(1, 0.0f, 0.0f, 0.0f, 10.0f,
+                               [&](EntityId id, float, float, float) { visited.push_back(id); });
+    TESSERA_CHECK(visited.size() == 1 && visited[0] == TypedId(1, 1));
+}
+
+TESSERA_TEST(sphere_of_type_reports_exact_positions_and_includes_the_border) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(TypedId(1, 1), 1.5f, -2.5f, 3.5f);
+    grid.Insert(TypedId(1, 2), 10.0f, 0.0f, 0.0f);
+    grid.Insert(TypedId(1, 3), 10.01f, 0.0f, 0.0f);
+    int exact = 0;
+    int on_border = 0;
+    int outside = 0;
+    grid.ForEachInSphereOfType(1, 0.0f, 0.0f, 0.0f, 10.0f, [&](EntityId id, float x, float y, float z) {
+        if (id == TypedId(1, 1) && x == 1.5f && y == -2.5f && z == 3.5f) {
+            ++exact;
+        }
+        if (id == TypedId(1, 2)) {
+            ++on_border;
+        }
+        if (id == TypedId(1, 3)) {
+            ++outside;
+        }
+    });
+    TESSERA_CHECK(exact == 1 && on_border == 1 && outside == 0);
+}
+
+TESSERA_TEST(sphere_of_type_ignores_invalid_arguments) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(TypedId(1, 1), 0.0f, 0.0f, 0.0f);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    int calls = 0;
+    const auto count = [&](EntityId, float, float, float) { ++calls; };
+    grid.ForEachInSphereOfType(256, 0.0f, 0.0f, 0.0f, 10.0f, count);
+    grid.ForEachInSphereOfType(1, nan, 0.0f, 0.0f, 10.0f, count);
+    grid.ForEachInSphereOfType(1, 0.0f, 0.0f, 0.0f, inf, count);
+    grid.ForEachInSphereOfType(1, 0.0f, 0.0f, 0.0f, -1.0f, count);
+    TESSERA_CHECK(calls == 0);
+}
+
+TESSERA_TEST(union_of_typed_queries_equals_the_untyped_query) {
+    SpatialGrid grid(GridConfig{32.0f, 32.0f, 32.0f});
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> coord(-200.0f, 200.0f);
+    for (uint32_t i = 0; i < 500; ++i) {
+        grid.Insert(TypedId(i % 5, i), coord(rng), coord(rng), coord(rng));
+    }
+    std::vector<EntityId> untyped;
+    grid.ForEachInSphere(10.0f, -20.0f, 30.0f, 120.0f,
+                         [&](EntityId id, float, float, float) { untyped.push_back(id); });
+    std::vector<EntityId> united;
+    for (uint32_t type = 0; type < 5; ++type) {
+        grid.ForEachInSphereOfType(type, 10.0f, -20.0f, 30.0f, 120.0f,
+                                   [&](EntityId id, float, float, float) { united.push_back(id); });
+    }
+    std::sort(untyped.begin(), untyped.end());
+    std::sort(united.begin(), united.end());
+    TESSERA_CHECK(untyped == united);
+}
+
+TESSERA_TEST(removing_the_only_member_of_a_type_keeps_the_other_types_in_the_cell) {
+    SpatialGrid grid(GridConfig{100.0f, 100.0f, 100.0f});
+    grid.Insert(TypedId(1, 1), 1.0f, 2.0f, 3.0f);
+    grid.Insert(TypedId(2, 2), 4.0f, 5.0f, 6.0f);
+    TESSERA_CHECK(grid.Remove(TypedId(1, 1)));
+    int of_type_1 = 0;
+    grid.ForEachInSphereOfType(1, 0.0f, 0.0f, 0.0f, 50.0f,
+                               [&](EntityId, float, float, float) { ++of_type_1; });
+    TESSERA_CHECK(of_type_1 == 0);
+    float x = 0.0f;
+    grid.ForEachInSphereOfType(2, 0.0f, 0.0f, 0.0f, 50.0f, [&](EntityId, float px, float, float) { x = px; });
+    TESSERA_CHECK(x == 4.0f);
+    TESSERA_CHECK(grid.ApplyMoves({PendingMove{TypedId(2, 2), 9.0f, 5.0f, 6.0f}}) == 0);
+    grid.ForEachInSphereOfType(2, 0.0f, 0.0f, 0.0f, 50.0f, [&](EntityId, float px, float, float) { x = px; });
+    TESSERA_CHECK(x == 9.0f);
+    TESSERA_CHECK(grid.CellCount() == 1);
+    TESSERA_CHECK(grid.Remove(TypedId(2, 2)));
+    TESSERA_CHECK(grid.CellCount() == 0);
+}
+
+TESSERA_TEST(swap_removal_inside_a_type_group_keeps_positions_and_indexes_right) {
+    SpatialGrid grid(GridConfig{100.0f, 100.0f, 100.0f});
+    grid.Insert(TypedId(3, 1), 1.0f, 0.0f, 0.0f);
+    grid.Insert(TypedId(3, 2), 2.0f, 0.0f, 0.0f);
+    grid.Insert(TypedId(3, 3), 3.0f, 0.0f, 0.0f);
+    grid.Insert(TypedId(1, 9), 9.0f, 0.0f, 0.0f);
+    TESSERA_CHECK(grid.Remove(TypedId(3, 1)));  // the last member of the group takes its place
+    TESSERA_CHECK(grid.ApplyMoves({PendingMove{TypedId(3, 3), 30.0f, 0.0f, 0.0f}}) == 0);
+    TESSERA_CHECK(grid.Remove(TypedId(3, 2)));
+    float x = 0.0f;
+    int count = 0;
+    grid.ForEachInSphereOfType(3, 0.0f, 0.0f, 0.0f, 90.0f, [&](EntityId id, float px, float, float) {
+        ++count;
+        TESSERA_CHECK(id == TypedId(3, 3));
+        x = px;
+    });
+    TESSERA_CHECK(count == 1 && x == 30.0f);
+}

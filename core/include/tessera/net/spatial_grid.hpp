@@ -118,6 +118,28 @@ public:
             [&](const CellMember& m) { fn(m.id, m.x, m.y, m.z); });
     }
 
+    /// Like `ForEachInSphere`, but visits only entities whose `EntityId::type()` is `type`, and reads only
+    /// that type's members of each cell. Asking once per type, each with its own radius, is much cheaper
+    /// than one wide query when types have very different reaches. A `type` above `EntityId::kMaxType`
+    /// visits nothing.
+    template <class F>
+    void ForEachInSphereOfType(uint32_t type, float cx, float cy, float cz, float radius, F&& fn) const {
+        if (type > EntityId::kMaxType || !std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(cz) ||
+            !std::isfinite(radius) || radius < 0.0f) {
+            return;
+        }
+        const double limit = static_cast<double>(radius) * static_cast<double>(radius);
+        ForEachEntryInRange(
+            CellOf(cx - radius, cy - radius, cz - radius), CellOf(cx + radius, cy + radius, cz + radius),
+            [&](const CellMember& m) {
+                const double dx = static_cast<double>(m.x) - cx;
+                const double dy = static_cast<double>(m.y) - cy;
+                const double dz = static_cast<double>(m.z) - cz;
+                return dx * dx + dy * dy + dz * dz <= limit;
+            },
+            [&](const CellMember& m) { fn(m.id, m.x, m.y, m.z); }, static_cast<int64_t>(type));
+    }
+
 private:
     /// What a cell stores for each of its entities. The position is kept here, next to the id, so a
     /// query reads cells front to back without looking each entity up in a hash table.
@@ -126,24 +148,49 @@ private:
         float x, y, z;
     };
 
+    /// The members of one cell that share an entity type. Keeping types apart lets a query skip the types
+    /// it does not need.
+    struct TypeGroup {
+        uint32_t type;
+        std::vector<CellMember> members;
+    };
+
+    /// A cell: its type groups, ascending by type (a cell has few types).
+    struct Cell {
+        std::vector<TypeGroup> groups;
+    };
+
     /// What the grid remembers per entity, to find it again in its cell.
     struct Entry {
         float x, y, z;
         CellCoord cell;
-        uint32_t index_in_cell;
+        uint32_t index_in_cell; // index inside the group of the entity's type
     };
 
+    static TypeGroup* FindGroup(Cell& cell, uint32_t type);
     void AddToCell(CellCoord cell, EntityId id, Entry& entry);
-    void RemoveFromCell(const Entry& entry);
+    void RemoveFromCell(EntityId id, const Entry& entry);
 
     /// Calls `visit(member)` for each entity in the cells of [low, high] whose cell member passes
-    /// `accept`. Walks the occupied cells when there are fewer of them than cells in the range.
+    /// `accept`; `only_type` is the entity type to read, or -1 for every type. Walks the occupied cells
+    /// when there are fewer of them than cells in the range.
     template <class Accept, class Visit>
-    void ForEachEntryInRange(CellCoord low, CellCoord high, Accept&& accept, Visit&& visit) const {
-        const auto handle = [&](const std::vector<CellMember>& members) {
+    void ForEachEntryInRange(CellCoord low, CellCoord high, Accept&& accept, Visit&& visit,
+                             int64_t only_type = -1) const {
+        const auto scan = [&](const std::vector<CellMember>& members) {
             for (const CellMember& member : members) {
                 if (accept(member)) {
                     visit(member);
+                }
+            }
+        };
+        const auto handle = [&](const Cell& cell) {
+            for (const TypeGroup& group : cell.groups) {
+                if (only_type < 0 || group.type == static_cast<uint32_t>(only_type)) {
+                    scan(group.members);
+                }
+                if (only_type >= 0 && group.type >= static_cast<uint32_t>(only_type)) {
+                    break; // groups are ascending by type, so the wanted one is behind us
                 }
             }
         };
@@ -173,7 +220,7 @@ private:
     }
 
     GridConfig config_;
-    std::unordered_map<CellCoord, std::vector<CellMember>> cells_;
+    std::unordered_map<CellCoord, Cell> cells_;
     std::unordered_map<uint64_t, Entry> entries_;
 };
 
