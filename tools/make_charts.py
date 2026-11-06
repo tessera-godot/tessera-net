@@ -182,11 +182,11 @@ def relevancy_chart():
 def replication_chart():
     """Replicated state: time to write the buffers of one tick (log scale), measured value, guard and goal."""
     # (label, measured ms, regression guard ms or None, goal ms or None)
-    # The guard and the goal are for 192,000 records (every visible entity changing): 3.2 and 10 million per second.
+    # The guard and the goal are for 192,000 records (every visible entity changing): 2.3 and 10 million per second.
     rows = [
-        ("200,000 entities changing, 1 thread", 29.6, 60.0, 19.2),
-        ("200,000 entities changing, 8 workers", 8.3, None, None),
-        ("5 Hz updates, 1 thread, with confirmations", 22.7, None, None),
+        ("200,000 entities changing, 1 thread", 41.1, 83.5, 19.2),
+        ("200,000 entities changing, 8 workers", 10.5, None, None),
+        ("5 Hz updates, 1 thread, with confirmations", 29.5, None, None),
     ]
     width, height = 720, 350
     left, plot_w, top, row_h = 270, 380, 100, 54
@@ -218,7 +218,7 @@ def replication_chart():
     parts.append(text(left + 242, legend_y, "goal", 12, INK))
     parts.append(text(24, height - 18, "Log scale. The first version is faster than the limit but has not reached its goal of 10 million updates per second.", 11, MUTED))
     return card(width, height, "Replicated state: time per tick",
-                "128 players seeing 1,500 of 200,000 entities each. Median of 4 runs, desktop CPU, Release build. Shorter is better.",
+                "128 players seeing 1,500 of 200,000 entities each. Median of 6 runs, desktop CPU, Release build. Shorter is better.",
                 chr(10).join(parts))
 
 

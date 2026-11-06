@@ -11,7 +11,7 @@
 
 namespace tessera::net {
 
-/// The kinds of replicated property. Values 5 to 255 are reserved for kinds that are planned (vectors,
+/// The kinds of replicated property. Values 5 to 255 are reserved for kinds still to be added (vectors,
 /// quaternions, strings, arrays and so on): adding one later only adds a codec and a value here.
 enum class PropertyKind : uint8_t {
     Position = 0, ///< Three floats, sent as small steps of a fixed size.

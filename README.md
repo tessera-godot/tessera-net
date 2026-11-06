@@ -49,7 +49,7 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 These are targets, not results. Measured numbers are published as they exist, including the ones that miss
 their target. For example, the relevancy engine takes about 1 ms per tick on one thread for 128 players among a
 million entities, against a goal of 1.5 ms; a first version took 15 ms. Replicated state, on the other hand,
-writes about 6.5 million updates per second on one thread against a goal of 10 million. See the
+writes about 4.7 million updates per second on one thread against a goal of 10 million. See the
 [benchmarks](docs/benchmarks.md#5-relevancy).
 
 ## What exists today
@@ -79,8 +79,8 @@ entity that has not changed costs nothing. A position update takes about 4.4 byt
 
 ![Replicated state: time per tick, measured value, regression limit and goal](docs/images/replication-update.svg)
 
-The goals for size and memory are met; the goal for speed is not yet: about 6.5 million updates per second on
-one thread (the goal is 10 million) and about 45% efficiency with eight workers (the goal is 70%). The
+The goals for size and memory are met; the goal for speed is not yet: about 4.7 million updates per second on
+one thread (the goal is 10 million) and about 48% efficiency with eight workers (the goal is 70%). The
 numbers and what is left to improve are in [record 0009](docs/adr/0009-replicated-state.md).
 
 All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).

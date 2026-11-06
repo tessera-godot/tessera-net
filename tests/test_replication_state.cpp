@@ -449,3 +449,58 @@ TESSERA_TEST(buffer_is_held_back_until_the_events_of_its_tick_were_applied) {
     TESSERA_CHECK(strict.Apply(bytes, 5) == DecodeStatus::Ok);
     TESSERA_CHECK(strict.Apply(bytes, 6) == DecodeStatus::EventsMissing);
 }
+
+TESSERA_TEST(returning_to_an_earlier_state_in_a_later_send_keeps_the_entity_pending) {
+    // A, then B, then A again: the client that got A and B and lost the third packet holds B, not A.
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    TESSERA_CHECK(rig.receiver.Apply(rig.Encode(1), 1) == DecodeStatus::Ok); // A
+    rig.MoveX(id, 7.0f);
+    rig.Refresh();
+    TESSERA_CHECK(rig.receiver.Apply(rig.Encode(2), 2) == DecodeStatus::Ok); // B
+    rig.MoveX(id, 1.0f);
+    rig.Refresh();
+    rig.Encode(3); // A again; this packet is lost
+    rig.conn.Confirm(1);
+    TESSERA_CHECK(rig.conn.IsPending(0)); // the confirmed A is not what the client holds now
+    EncodeStats stats;
+    const std::vector<uint8_t> at_four = rig.Encode(4, &stats);
+    TESSERA_CHECK(stats.records == 1);
+    TESSERA_CHECK(rig.receiver.Apply(at_four, 4) == DecodeStatus::Ok && rig.ReceiverMatchesStore(id, 0));
+}
+
+TESSERA_TEST(unchanged_entity_settles_even_when_the_round_trip_is_longer_than_the_remembered_sends) {
+    Rig rig(1000, 32, 4); // four remembered sends
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    for (uint64_t tick = 1; tick <= 12; ++tick) {
+        rig.Encode(tick); // unchanged, and sent again on every tick
+    }
+    rig.conn.Confirm(3); // far older than the last four ticks, but the same state was sent all along
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && !rig.conn.IsPending(0));
+    TESSERA_CHECK(rig.Encode(13).size() == 1);
+}
+
+TESSERA_TEST(moving_entity_beyond_the_remembered_sends_stays_correct_and_a_recent_confirmation_settles_it) {
+    Rig rig(1000, 32, 2); // two remembered sends, and confirmations that come five ticks late
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    for (uint64_t tick = 1; tick <= 10; ++tick) {
+        rig.MoveX(id, 1.0f + static_cast<float>(tick));
+        rig.Refresh();
+        EncodeStats stats;
+        const std::vector<uint8_t> bytes = rig.Encode(tick, &stats);
+        TESSERA_CHECK(stats.records == 1 && stats.complete_records == 1); // never a baseline: always in full
+        TESSERA_CHECK(rig.receiver.Apply(bytes, tick) == DecodeStatus::Ok && rig.ReceiverMatchesStore(id, 0));
+        if (tick > 5) {
+            rig.conn.Confirm(tick - 5); // forgotten: no effect
+        }
+    }
+    TESSERA_CHECK(!rig.conn.HasBaseline(0));
+    rig.conn.Confirm(10);
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && !rig.conn.IsPending(0));
+}

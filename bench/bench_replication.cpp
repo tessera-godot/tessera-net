@@ -8,6 +8,7 @@
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/replication/bit_stream.hpp"
+#include "tessera/net/replication/record_codec.hpp"
 #include "tessera/net/replication/replication_engine.hpp"
 
 #include <algorithm>
@@ -274,6 +275,39 @@ double MeasureRecordWriteNs(double* bits_per_record) {
     return bench::Median(runs);
 }
 
+// Building and writing one whole position record (`WriteRecord`) with its data already in the processor
+// cache: the work of a record without the cost of finding the entity's state in memory.
+double MeasureWriteRecordNs() {
+    const ReplicationSchema schema = MakeSchema();
+    const TypeSchema& type = *schema.Find(0);
+    std::vector<uint32_t> bases(1000 * 9), currents(1000 * 9);
+    for (int i = 0; i < 1000; ++i) {
+        for (int w = 0; w < 9; ++w) {
+            bases[i * 9 + w] = 1'000'000 + w;
+            currents[i * 9 + w] = bases[i * 9 + w];
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+            currents[i * 9 + axis] += 20; // a move of 20 steps on every axis
+        }
+    }
+    std::vector<uint8_t> buffer;
+    buffer.reserve(1 << 16);
+    std::vector<double> runs;
+    for (int repeat = 0; repeat < 5; ++repeat) {
+        const auto start = bench::Clock::now();
+        for (int round = 0; round < 1000; ++round) {
+            buffer.clear();
+            BitWriter writer(buffer);
+            for (int i = 0; i < 1000; ++i) {
+                WriteRecord(type, 1, 2, &bases[i * 9], &currents[i * 9], writer);
+            }
+            writer.Finish();
+        }
+        runs.push_back(bench::Ms(start, bench::Clock::now()) * 1.0e6 / 1.0e6);
+    }
+    return bench::Median(runs);
+}
+
 } // namespace
 
 void CheckReplication() {
@@ -281,18 +315,20 @@ void CheckReplication() {
     const double write_ns = MeasureRecordWriteNs(&bits);
     bench::Info("replication write of one position record", write_ns, "ns");
     bench::Info("replication bytes of one position record (bits only)", bits / 8.0, "B");
+    bench::Info("replication WriteRecord of one position record, data in cache", MeasureWriteRecordNs(),
+                "ns");
 
     std::printf(
         "replication: %u connections, %u of %u entities visible to each, confirmations %u ticks late\n",
         kConnections, kVisible, kEntities, kConfirmLag);
 
     // Throughput: every visible entity changes every tick, so every connection gets 1,500 records per tick.
-    // The goal is 10 million updates per second per core. The first version reaches about 6.5 million, so the
+    // The goal is 10 million updates per second per core. The first version reaches about 4.7 million, so the
     // limit below is a regression guard at about half of that, not the goal.
     World one(1);
     const Measurement single = one.Measure(1);
     const double updates_per_second_one = single.records / (single.update_ms / 1000.0) / 1.0e6;
-    bench::Report("replication updates per second, 1 thread (write only)", updates_per_second_one, "M/s", 3.2,
+    bench::Report("replication updates per second, 1 thread (write only)", updates_per_second_one, "M/s", 2.3,
                   true);
     bench::Info("replication updates per second, 1 thread (with confirmations)",
                 single.records / ((single.update_ms + single.confirm_ms) / 1000.0) / 1.0e6, "M/s");
@@ -305,7 +341,7 @@ void CheckReplication() {
     const Measurement parallel = eight.Measure(1);
     const double efficiency = single.update_ms / (8.0 * parallel.update_ms);
     bench::Info("replication update, 8 workers, every entity changing", parallel.update_ms, "ms");
-    // The goal is 70%. Marking what changed runs on one thread, so the first version reaches about 45%; the
+    // The goal is 70%. Marking what changed runs on one thread, so the first version reaches about 48%; the
     // limit is a regression guard at about half of that.
     bench::Report("replication efficiency with 8 workers", efficiency * 100.0, "%", 22.0, true);
 

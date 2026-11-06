@@ -40,9 +40,9 @@ class ConnectionState {
 public:
     /// `max_visible` is the number of compact ids (as in `RelevancyConfig::max_visible_per_connection`).
     /// `max_baseline_age_ticks` is how old a confirmed state may be before the entity is sent in full.
-    /// `max_unconfirmed_sends` is how many of the most recent sends of one entity are remembered, so that the
-    /// confirmation of any of them can be used even though the entity was sent again in the meantime.
-    /// The schema must outlive this object and must not be moved.
+    /// `max_unconfirmed_sends` is how many of the most recent different sends of one entity are remembered,
+    /// so that the confirmation of any of them can be used even though the entity was sent again in the
+    /// meantime. The schema must outlive this object and must not be moved.
     ConnectionState(const ReplicationSchema& schema, uint32_t max_visible, uint32_t max_baseline_age_ticks,
                     uint32_t max_unconfirmed_sends = 8);
 
@@ -115,6 +115,7 @@ private:
         uint64_t outstanding[kBitWords] = {};  // a state was sent and is not confirmed yet
         std::vector<uint32_t> acked;           // kPageIds * words per entity
         std::vector<uint32_t> sent;            // kPageIds * ring * words: the latest sends, a ring per entity
+        std::vector<uint32_t> sent_runs;       // kPageIds * ring: on how many ticks in a row it was sent
         std::vector<uint64_t> sent_ticks;      // kPageIds * ring: the tick of each of them
     };
 

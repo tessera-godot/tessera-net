@@ -44,7 +44,8 @@ says why if a property cannot work, if the type is out of range, or if it alread
 | `Bits(column, width)` | an integer column | `width`: 1 to 64 flags | the flags that changed, or the whole value when that is shorter |
 | `Enum(column, value_count)` | an integer column | at least 2 values | the value, in as few bits as the count needs |
 
-Values outside the range are limited to the nearest allowed value, and a `float` that is not a number becomes the
+Values outside the range are limited to the nearest allowed value (an enum column holds 0 up to the number of
+values minus 1; anything else, a negative number included, becomes the last value), and a `float` that is not a number becomes the
 property's zero value (the centre of a position, angle 0, the minimum of an integer). The error of a quantized
 value is at most half a step.
 
@@ -58,7 +59,7 @@ Everything in this list belongs to the `Network` phase of the [tick](core.md).
 1. **Flag what changed.** After you write the replicated columns of an entity (and after you create one) call
    `table.MarkDirty(entity)`. An entity that was never flagged has no state and is not replicated.
 2. **`engine.Refresh(table)`**, once for each table. It quantizes the flagged entities, in parallel by page, and
-   remembers which ones really changed (a move smaller than a tenth of a step changes nothing).
+   remembers which ones really changed (a move that stays inside the same step changes nothing).
 3. **`engine.ApplyVisibility(connection, events)`** with the events the relevancy engine produced for that
    player. An entity that enters is sent in full; one that leaves or is destroyed is forgotten.
 4. **`engine.Update(tick)`** writes one buffer for every player, in parallel across players. Read it with
@@ -76,6 +77,11 @@ that arrives after the entity was sent again still counts: confirming tick 7 mak
 confirmed one, and forgets the sends before it. A confirmation for a tick that was never sent, was already
 confirmed, or is older than what is remembered does nothing. If the confirmed state is the same as the newest
 send and nothing changed since, the player is up to date and the entity stops being sent.
+
+Sending the very same state again on the next tick does not take a new place, so an entity that does not change
+is never forgotten, however long the round trip. An entity that changes on every tick needs a place for each
+tick of the round trip: if the round trip is longer than `max_unconfirmed_sends` ticks, no confirmation matches
+and the entity is sent in full every time. Raise the setting for players with a high ping.
 
 If the confirmed state is more than `max_baseline_age_ticks` old (32 by default, about a second at 30 Hz), the
 entity is sent in full instead, because the player's side may have forgotten it.
@@ -144,6 +150,8 @@ The engine's constructor throws `std::invalid_argument`, naming the field, when 
 | `LastStats()` | Records written by the last `Update` (and how many were complete), added up over players. |
 | `SubscriptionCount()` | How many (entity, player) pairs are being tracked. |
 
+Entities are looked up by type and index, so all the tables of one engine must use the same shard.
+
 Every entity that changed is looked up in an index of who sees it, so the cost of marking grows with the players
 who really see it and not with all of them.
 
@@ -169,16 +177,16 @@ Measured numbers, with the machine and the code that produced them, are on the
 [benchmarks page](../benchmarks.md#6-replicated-state). With 128 players who each see 1,500 of 200,000 entities:
 
 - A position update takes about 4.4 bytes, including its id and the property mask.
-- A stored entity takes about 54 bytes, and each player about 0.6 MB.
+- A stored entity takes about 54 bytes, and each player about 0.7 MB.
 - A player who sees only entities that have not changed gets one byte per tick.
-- On one thread the engine writes about 6.5 million updates per second. **This is below the goal of 10 million
-  per second**, and with eight workers it uses about 45% of them, below the goal of 70%. The decisions behind
+- On one thread the engine writes about 4.7 million updates per second. **This is below the goal of 10 million
+  per second**, and with eight workers it uses about 48% of them, below the goal of 70%. The decisions behind
   the design, and what is left to improve, are in [record 0009](../adr/0009-replicated-state.md).
 
 ## Coming next
 
 The format leaves room for more kinds of property, and adding one only adds a codec; records of the kinds above
-do not change. Planned: scalar floats (quantized and full precision), 2D and 3D vectors, quaternions, colours,
+do not change. On the list: scalar floats (quantized and full precision), 2D and 3D vectors, quaternions, colours,
 references to other entities, short strings, byte blobs, arrays and lists, nested structures, optional values
 and composite transforms. Values whose size varies will be compared by a revision number, so each player's saved
 state stays the same size.

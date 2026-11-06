@@ -2,7 +2,7 @@
 <title>Replicated state: time per tick</title>
 <rect x="0.5" y="0.5" width="719" height="349" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
 <text x="24" y="34" font-size="17" fill="#1f2937" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">Replicated state: time per tick</text>
-<text x="24" y="54" font-size="12" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">128 players seeing 1,500 of 200,000 entities each. Median of 4 runs, desktop CPU, Release build. Shorter is better.</text>
+<text x="24" y="54" font-size="12" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">128 players seeing 1,500 of 200,000 entities each. Median of 6 runs, desktop CPU, Release build. Shorter is better.</text>
 <line x1="270.0" y1="92" x2="270.0" y2="262" stroke="#e5e7eb"/>
 <text x="270.0" y="86" font-size="11" fill="#6b7280" text-anchor="middle" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">1 ms</text>
 <line x1="460.0" y1="92" x2="460.0" y2="262" stroke="#e5e7eb"/>
@@ -10,16 +10,16 @@
 <line x1="650.0" y1="92" x2="650.0" y2="262" stroke="#e5e7eb"/>
 <text x="650.0" y="86" font-size="11" fill="#6b7280" text-anchor="middle" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">100 ms</text>
 <text x="258" y="128" font-size="13" fill="#1f2937" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">200,000 entities changing, 1 thread</text>
-<rect x="270" y="112" width="279.5" height="22" rx="3" fill="#2563eb"/>
-<text x="280" y="128" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">29.6 ms</text>
-<line x1="607.8" y1="106" x2="607.8" y2="140" stroke="#dc2626" stroke-width="2"/>
+<rect x="270" y="112" width="306.6" height="22" rx="3" fill="#2563eb"/>
+<text x="280" y="128" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">41.1 ms</text>
+<line x1="635.1" y1="106" x2="635.1" y2="140" stroke="#dc2626" stroke-width="2"/>
 <line x1="513.8" y1="106" x2="513.8" y2="140" stroke="#16a34a" stroke-width="2"/>
 <text x="258" y="182" font-size="13" fill="#1f2937" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">200,000 entities changing, 8 workers</text>
-<rect x="270" y="166" width="174.6" height="22" rx="3" fill="#2563eb"/>
-<text x="280" y="182" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">8.3 ms</text>
+<rect x="270" y="166" width="194.0" height="22" rx="3" fill="#2563eb"/>
+<text x="280" y="182" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">10.5 ms</text>
 <text x="258" y="236" font-size="13" fill="#1f2937" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">5 Hz updates, 1 thread, with confirmations</text>
-<rect x="270" y="220" width="257.6" height="22" rx="3" fill="#2563eb"/>
-<text x="280" y="236" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">22.7 ms</text>
+<rect x="270" y="220" width="279.3" height="22" rx="3" fill="#2563eb"/>
+<text x="280" y="236" font-size="12" fill="#ffffff" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">29.5 ms</text>
 <rect x="270" y="279" width="14" height="14" rx="3" fill="#2563eb"/>
 <text x="292" y="290" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">measured</text>
 <rect x="370" y="279" width="4" height="14" fill="#dc2626"/>

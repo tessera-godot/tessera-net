@@ -33,11 +33,14 @@ struct Params {
     uint32_t entities = 60;
     uint32_t connections = 3;
     uint32_t ticks = 120;
-    double loss = 0.2;      // chance a data packet is lost
-    double duplicate = 0.1; // chance it is delivered twice
-    double ack_loss = 0.2;  // chance a confirmation is lost
-    double toggle = 0.05;   // per entity and connection and tick: chance its visibility flips
-    double destroy = 0.02;  // per tick: chance an entity is destroyed (and another one created)
+    double loss = 0.2;         // chance a data packet is lost
+    double duplicate = 0.1;    // chance it is delivered twice
+    double ack_loss = 0.2;     // chance a confirmation is lost
+    double toggle = 0.05;      // per entity and connection and tick: chance its visibility flips
+    double destroy = 0.02;     // per tick: chance an entity is destroyed (and another one created)
+    uint32_t settle_every = 0; // if set, stop and check convergence after every this many ticks
+    bool few_values =
+        false; // values flip between a couple of states, so an entity often returns to an old one
 };
 
 struct EventPacket {
@@ -110,14 +113,30 @@ public:
 
     Outcome Run() {
         uint64_t tick = 1;
-        for (; tick <= params_.ticks; ++tick) {
-            Step(tick, true, true);
+        bool converged = true;
+        if (params_.settle_every > 0) {
+            // Check along the way, not only at the end: a client left on a wrong state is usually put right
+            // by the next change, so only a quiet stretch with a clean channel shows it.
+            for (uint32_t done = 0; done + params_.settle_every <= params_.ticks;
+                 done += params_.settle_every) {
+                for (uint32_t i = 0; i < params_.settle_every; ++i, ++tick) {
+                    Step(tick, true, true);
+                }
+                for (uint32_t i = 0; i < 20; ++i, ++tick) {
+                    Step(tick, false, false);
+                }
+                converged = CheckConverged() && converged;
+            }
+        } else {
+            for (; tick <= params_.ticks; ++tick) {
+                Step(tick, true, true);
+            }
         }
         const uint64_t drain_until = tick + 40;
         for (; tick <= drain_until; ++tick) {
             Step(tick, false, false);
         }
-        outcome_.converged = CheckConverged();
+        outcome_.converged = CheckConverged() && converged;
         // Everything is confirmed now, so a further tick writes nothing but terminators.
         bool idle = true;
         for (uint32_t extra = 0; extra < 5; ++extra, ++tick) {
@@ -156,6 +175,18 @@ private:
         const auto where = table_.Find(id);
         TestColumns& c = table_.Columns(where->page);
         const uint32_t slot = where->slot;
+        if (params_.few_values) {
+            // A pulsing flag, a health that goes 100, 99, 100, an entity that steps back and forth.
+            c.x[slot] = Chance(0.5) ? 100.0f : 100.5f;
+            c.y[slot] = 0.0f;
+            c.z[slot] = 0.0f;
+            c.yaw[slot] = Chance(0.5) ? 0.0f : 1.0f;
+            c.health[slot] = Chance(0.5) ? 100 : 99;
+            c.flags[slot] = Chance(0.5) ? 0 : 1;
+            c.state[slot] = static_cast<uint8_t>(Roll(2));
+            table_.MarkDirty(id);
+            return;
+        }
         std::uniform_real_distribution<float> position(-9000.0f, 9000.0f);
         if (everything || Chance(0.6)) {
             c.x[slot] = position(random_);
@@ -518,4 +549,25 @@ TESSERA_TEST(destroyed_slot_reuse_sends_a_complete_record) {
     const uint32_t* stored = engine.Store().Find(second);
     TESSERA_CHECK(stored != nullptr && std::equal(stored, stored + 9, receiver.Current(0)));
     TESSERA_CHECK(engine.Store().Find(first) == nullptr);
+}
+
+TESSERA_TEST(states_that_return_to_earlier_values_converge_over_a_lossy_channel) {
+    // Nine entities and few values: the same states come back again and again, which is where a shortcut that
+    // trusts the newest send alone would leave a client on an intermediate state.
+    uint64_t ok = 0;
+    for (uint32_t seed = 400; seed < 420; ++seed) {
+        Params params;
+        params.seed = seed;
+        params.entities = 9;
+        params.connections = 2;
+        params.ticks = 240;
+        params.settle_every = 12;
+        params.loss = 0.6; // heavy loss: every copy of the right state in a stretch can be lost
+        params.few_values = true;
+        World world(params);
+        const Outcome outcome = world.Run();
+        TESSERA_CHECK(outcome.converged && outcome.idle_is_free);
+        ok += outcome.applied_ok;
+    }
+    TESSERA_CHECK(ok > 500);
 }

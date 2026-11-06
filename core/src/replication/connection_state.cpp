@@ -43,6 +43,7 @@ ConnectionState::Page* ConnectionState::PageOf(uint32_t compact_id, bool create)
         slot->acked.assign(static_cast<size_t>(kPageIds) * words_, 0);
         slot->sent.assign(static_cast<size_t>(kPageIds) * ring_ * words_, 0);
         slot->sent_ticks.assign(static_cast<size_t>(kPageIds) * ring_, 0);
+        slot->sent_runs.assign(static_cast<size_t>(kPageIds) * ring_, 0);
     }
     return slot.get();
 }
@@ -261,14 +262,30 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                     ++stats.complete_records;
                 }
                 // Remember this send, so that its confirmation can be used even if the entity is sent again
-                // first.
-                const uint32_t slot = page->sent_head[local];
-                std::memcpy(page->sent.data() + (static_cast<size_t>(local) * ring_ + slot) * words_, current,
-                            type.words * sizeof(uint32_t));
-                page->sent_ticks[static_cast<size_t>(local) * ring_ + slot] = tick;
-                page->sent_head[local] = static_cast<uint8_t>((slot + 1) % ring_);
-                if (page->sent_count[local] < ring_) {
-                    ++page->sent_count[local];
+                // first. Sending the very same state on the very next tick extends the newest remembered send
+                // instead of taking a new place, so an entity that does not change never runs out of room.
+                const size_t ring_base = static_cast<size_t>(local) * ring_;
+                bool extended = false;
+                if (page->sent_count[local] > 0) {
+                    const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
+                    if (page->sent_ticks[ring_base + newest] + 1 == tick &&
+                        std::memcmp(page->sent.data() + (ring_base + newest) * words_, current,
+                                    type.words * sizeof(uint32_t)) == 0) {
+                        page->sent_ticks[ring_base + newest] = tick;
+                        ++page->sent_runs[ring_base + newest];
+                        extended = true;
+                    }
+                }
+                if (!extended) {
+                    const uint32_t slot = page->sent_head[local];
+                    std::memcpy(page->sent.data() + (ring_base + slot) * words_, current,
+                                type.words * sizeof(uint32_t));
+                    page->sent_ticks[ring_base + slot] = tick;
+                    page->sent_runs[ring_base + slot] = 1;
+                    page->sent_head[local] = static_cast<uint8_t>((slot + 1) % ring_);
+                    if (page->sent_count[local] < ring_) {
+                        ++page->sent_count[local];
+                    }
                 }
                 SetBit(page->outstanding, local);
                 ClearBit(page->stale, local);
@@ -298,7 +315,11 @@ void ConnectionState::Confirm(uint64_t tick) {
                 uint32_t found = ring_;
                 for (; newer < count; ++newer) {
                     const uint32_t slot = (page->sent_head[local] + ring_ - 1 - newer) % ring_;
-                    if (page->sent_ticks[static_cast<size_t>(local) * ring_ + slot] == tick) {
+                    // A remembered send covers the ticks from `last - runs + 1` to `last`: the same state,
+                    // sent on every one of them.
+                    const size_t at = static_cast<size_t>(local) * ring_ + slot;
+                    const uint64_t last = page->sent_ticks[at];
+                    if (tick <= last && tick + page->sent_runs[at] > last) {
                         found = slot;
                         break;
                     }
@@ -314,13 +335,19 @@ void ConnectionState::Confirm(uint64_t tick) {
                 SetBit(page->has_baseline, local);
                 uint32_t still_outstanding = newer; // the confirmed send and the older ones are done
                 if (newer > 0 && !TestBit(page->stale, local)) {
-                    // Sent again with the very state the client has now confirmed, and nothing changed since:
-                    // the later sends only repeated it, so the client is up to date.
-                    const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
-                    if (std::memcmp(page->acked.data() + static_cast<size_t>(local) * words_,
-                                    page->sent.data() +
-                                        (static_cast<size_t>(local) * ring_ + newest) * words_,
-                                    type.words * sizeof(uint32_t)) == 0) {
+                    // Every later send carried the very state the client has now confirmed, and nothing
+                    // changed since: they only repeated it, so the client is up to date. Every one of them
+                    // has to match, not only the newest: the client may hold a state in between, such as B in
+                    // A, B, A.
+                    bool all_same = true;
+                    for (uint32_t later = 0; later < newer && all_same; ++later) {
+                        const uint32_t slot = (page->sent_head[local] + ring_ - 1 - later) % ring_;
+                        all_same = std::memcmp(page->acked.data() + static_cast<size_t>(local) * words_,
+                                               page->sent.data() +
+                                                   (static_cast<size_t>(local) * ring_ + slot) * words_,
+                                               type.words * sizeof(uint32_t)) == 0;
+                    }
+                    if (all_same) {
                         still_outstanding = 0;
                     }
                 }
@@ -342,7 +369,8 @@ size_t ConnectionState::MemoryBytes() const noexcept {
     for (const std::unique_ptr<Page>& page : pages_) {
         if (page) {
             bytes += sizeof(Page) + (page->acked.capacity() + page->sent.capacity()) * sizeof(uint32_t) +
-                     page->sent_ticks.capacity() * sizeof(uint64_t);
+                     page->sent_ticks.capacity() * sizeof(uint64_t) +
+                     page->sent_runs.capacity() * sizeof(uint32_t);
         }
     }
     return bytes;
