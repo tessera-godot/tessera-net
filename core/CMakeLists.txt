@@ -19,7 +19,8 @@ add_library(tessera_net_core STATIC
     src/replication/receiver_state.cpp
     src/replication/replication_engine.cpp
     src/replication/subscription_index.cpp
-    src/transport/simulated_network.cpp)
+    src/transport/simulated_network.cpp
+    src/protocol.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)
