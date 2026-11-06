@@ -5,7 +5,7 @@ the programs that produce them.
 
 | Folder | What it measures | Needs |
 |---|---|---|
-| `bench_acceptance.cpp` | The data core against its limits | CMake and a C++20 compiler |
+| `bench_acceptance.cpp`, `bench_relevancy.cpp` | The data core and the relevancy engine against their limits | CMake and a C++20 compiler |
 | [`ecs-comparison/`](ecs-comparison/) | The entity table against a general-purpose ECS (EnTT) | CMake, C++20; downloads EnTT on first configure |
 | [`godot-nodes/`](godot-nodes/) | One million Godot nodes against the entity table | Godot 4.5 or newer, godot-cpp, SCons |
 | [`godot-replication/`](godot-replication/) | Godot's built-in replication as entities grow | Godot 4.x, Python with `psutil` |

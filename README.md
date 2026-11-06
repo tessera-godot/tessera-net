@@ -4,9 +4,10 @@ High-performance, dedicated-server networking for Godot 4, built for large open 
 
 Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
 
-> **Status: pre-alpha.** The engine-independent data core is implemented and tested (entities, fixed-step
-> tick loop, spatial grid, job system). Replication, the Godot plugin and the dedicated server are not
-> built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
+> job system) and a first relevancy engine (deciding what each player sees) are implemented and tested.
+> Sending entity state, the transport, the Godot plugin and the dedicated server are not built yet, so
+> nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -44,7 +45,9 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 | Idle (dormant) entity | zero CPU and zero bytes per tick |
 | Registered entities | 1 million, cost proportional to changes |
 
-These are targets, not results. Measured numbers will be published as they exist.
+These are targets, not results. Measured numbers are published as they exist, including the ones that miss
+their target: the first relevancy engine takes about 14 ms per tick for 128 players among a million entities
+(one thread), and its goal is 1.5 ms. See the [benchmarks](docs/benchmarks.md#5-relevancy).
 
 ## What exists today
 
@@ -53,6 +56,15 @@ five phases, a sparse 3D spatial grid, a thread-pool job system and deterministi
 [core reference](docs/reference/core.md) for how each part works and a runnable example.
 
 ![Measured value versus limit for each data core criterion](docs/images/data-core-acceptance.svg)
+
+The **relevancy engine** (`core/`): for every player, which entities do they need to know about? Each type of
+entity gets a range (or is always visible, or visible only to its owner), groups make exceptions, and every
+visible entity gets a short id on that player's connection. It runs on many threads and gives the same result
+with one worker or many. See the [relevancy reference](docs/reference/relevancy.md).
+
+![Relevancy time per tick: measured value, regression limit and goal](docs/images/relevancy-update.svg)
+
+The relevancy goals are not met yet; the chart shows where it stands and what the next version is for.
 
 All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).
 
@@ -95,7 +107,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
 | `tests/` | Automated tests |
-| `bench/` | Acceptance benchmark for the data core |
+| `bench/` | Benchmarks: the data core, the relevancy engine and the comparisons shown in the docs |
 | `docs/` | Documentation, architecture and decision records |
 | `tools/` | Build and packaging scripts |
 
@@ -105,6 +117,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Getting started](docs/getting-started.md)
 - [Concepts explained simply](docs/concepts.md)
 - [Core library reference](docs/reference/core.md)
+- [Relevancy reference](docs/reference/relevancy.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

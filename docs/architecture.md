@@ -23,7 +23,8 @@ standalone server. This guarantees client and server agree on the rules.
    generation counter and a globally unique id.
 2. **Simulation loop**: fixed tick, decoupled from rendering.
 3. **Spatial grid**: the base for relevancy and, later, for splitting the world across servers.
-4. **Replication**: relevancy, dormancy, priority, bandwidth budget, delta, quantization.
+4. **Replication**: relevancy, dormancy, priority, bandwidth budget, delta, quantization. Relevancy
+   (deciding what each player sees) is implemented; see the [relevancy reference](reference/relevancy.md).
 5. **Transport**: behind an interface, so the network library can be replaced.
 6. **Prediction**: input commands, reconciliation, proxies.
 7. **Jobs**: work split across CPU cores.

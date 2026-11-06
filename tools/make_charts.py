@@ -16,6 +16,7 @@ GRID = "#e5e7eb"
 BLUE = "#2563eb"
 RED = "#dc2626"
 AMBER = "#d97706"
+GREEN = "#16a34a"
 
 
 def text(x, y, content, size=13, fill=INK, anchor="start", weight="normal"):
@@ -134,11 +135,56 @@ def nodes_chart():
                 "\n".join(parts))
 
 
+def relevancy_chart():
+    """Relevancy update cost per tick (log scale): measured value, regression guard and goal."""
+    # (label, measured ms, regression guard ms or None, goal ms or None)
+    rows = [
+        ("128 players, 1 M entities, 1 thread", 13.6, 25.0, 1.5),
+        ("128 players, 1 M entities, 8 workers", 2.31, 5.0, 0.4),
+        ("32 players, 250 k entities, 1 thread", 2.95, None, None),
+        ("32 players, 250 k entities, 8 workers", 0.60, None, None),
+    ]
+    width, height = 720, 400
+    left, plot_w, top, row_h = 270, 380, 100, 54
+    lo, hi = 0.1, 100.0
+
+    def x_of(value):
+        return left + plot_w * (math.log10(value) - math.log10(lo)) / (math.log10(hi) - math.log10(lo))
+
+    parts = []
+    for tick in (0.1, 1, 10, 100):
+        x = x_of(tick)
+        parts.append(f'<line x1="{x:.1f}" y1="{top - 8}" x2="{x:.1f}" y2="{top + row_h * len(rows)}" stroke="{GRID}"/>')
+        parts.append(text(x, top - 14, f"{tick:g} ms", 11, MUTED, "middle"))
+    for i, (label, value, guard, goal) in enumerate(rows):
+        y = top + row_h * i
+        parts.append(text(left - 12, y + 28, label, 13, INK, "end"))
+        parts.append(f'<rect x="{left}" y="{y + 12}" width="{x_of(value) - left:.1f}" height="22" rx="3" fill="{BLUE}"/>')
+        # The value sits inside the bar so it never collides with the limit and goal marks.
+        parts.append(text(left + 10, y + 28, f"{value:.3g} ms" if value >= 1 else f"{value:.2f} ms", 12, "#ffffff", weight="bold"))
+        if guard is not None:
+            parts.append(f'<line x1="{x_of(guard):.1f}" y1="{y + 6}" x2="{x_of(guard):.1f}" y2="{y + 40}" stroke="{RED}" stroke-width="2"/>')
+        if goal is not None:
+            parts.append(f'<line x1="{x_of(goal):.1f}" y1="{y + 6}" x2="{x_of(goal):.1f}" y2="{y + 40}" stroke="{GREEN}" stroke-width="2"/>')
+    legend_y = top + row_h * len(rows) + 28
+    parts.append(f'<rect x="{left}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{BLUE}"/>')
+    parts.append(text(left + 22, legend_y, "measured", 12, INK))
+    parts.append(f'<rect x="{left + 100}" y="{legend_y - 11}" width="4" height="14" fill="{RED}"/>')
+    parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
+    parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
+    parts.append(text(left + 242, legend_y, "goal for the next version", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. The goals are not met yet: the next relevancy version is built to reach them.", 11, MUTED))
+    return card(width, height, "Relevancy: time per tick",
+                "Median of 4 runs, desktop CPU with 12 cores, Release build. Shorter is better.",
+                "\n".join(parts))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline-godot-replication.svg").write_text(baseline_chart(), encoding="utf-8")
     (OUT / "data-core-acceptance.svg").write_text(acceptance_chart(), encoding="utf-8")
     (OUT / "entities-vs-godot-nodes.svg").write_text(nodes_chart(), encoding="utf-8")
+    (OUT / "relevancy-update.svg").write_text(relevancy_chart(), encoding="utf-8")
     print("wrote", OUT)
 
 

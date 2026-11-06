@@ -97,13 +97,62 @@ Conditions: 1,000,000 entities, Release build (MSVC), median of 5 runs inside ea
 efficiency test is pure CPU work (about 100 ns per item), so real workloads that touch more memory will
 scale less well. Only Windows has been measured so far; Linux results will be added.
 
+## 5. Relevancy
+
+How long does it take to decide what each player needs to know about? Source:
+[`bench/bench_relevancy.cpp`](../bench/bench_relevancy.cpp). How the engine works is in the
+[relevancy reference](reference/relevancy.md), and the decisions behind it are in records
+[0006](adr/0006-relevancy-by-type-and-groups.md) and [0007](adr/0007-relevancy-first-version.md).
+
+![Relevancy time per tick: measured value, regression limit and goal](images/relevancy-update.svg)
+
+The main scenario: 128 players and 1,000,000 entities spread evenly over 10 km by 10 km (10,000 per square
+kilometre), grid cells of 128 m, 700 entities moving every tick. Every player has one observer that drifts
+a few metres per tick. Entities belong to four types that can be seen from 100, 250, 400 and 600 m (60%,
+25%, 10% and 5% of the entities), with an 8 m hysteresis margin. Each player re-checks every 3 ticks, so
+about 43 players are re-checked per tick.
+
+| Measure | Result (median of 4 runs, range) | Limit | Goal |
+|---|---|---|---|
+| Entities visible to a player | 1,789 | between 1,000 and 2,000 | n/a |
+| Time per tick, 1 thread | 13.6 ms (12.5 to 17.6) | 25 ms | 1.5 ms |
+| Time per tick, 8 workers | 2.31 ms (2.16 to 3.48) | 5 ms | 0.4 ms |
+| Memory per player | 0.17 MB (0.16 to 0.18) | 2 MB | n/a |
+| Same events with 1 and 8 workers | identical | identical | n/a |
+
+The same program also runs a smaller scenario, for information only: 32 players and 250,000 entities at the
+same density, 175 entities moving per tick. A tick takes 2.95 ms on one thread (2.59 to 4.24) and 0.60 ms with
+eight workers (0.59 to 0.74).
+
+How to read this:
+- **The limits are regression guards, not goals.** They sit above what the engine measures today, so the
+  benchmark fails if it gets slower. The goals (1.5 ms and 0.4 ms) are what the next version is built to
+  reach. **They are not met yet.** With eight workers the engine alone uses about two thirds of the 3.3 ms we
+  allow for the whole network phase of a 128-player server.
+- **Where the time goes.** One query to the grid at the widest range returns about 11,600 entities in 91 to
+  119 µs (8 to 10 ns each). A re-check of one player costs about 320 µs in total, so most of it is spent after
+  the query: filtering, ordering and comparing with what the player already sees. We estimate that split; it
+  was not timed separately.
+- **Where it started.** The first measurement, before the changes described in
+  [record 0007](adr/0007-relevancy-first-version.md), was 136 to 147 ms on one thread and 23 to 24 ms with
+  eight workers. Storing positions inside the grid cells and skipping a lookup for most candidates made it
+  about eleven times faster.
+- **Scaling.** The cost follows the number of players and how many entities lie within the widest range, not
+  the size of the world: the smaller scenario costs about 4.6 times less with a quarter of the players, close
+  to proportional.
+- **Variation.** One run in four was noticeably slower (17.6 and 3.48 ms) while the machine was busy.
+
+Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far. The benchmark uses
+one observer per player and no exclusion or inclusion groups. Memory is the growth of the process's resident
+memory after adding the players and running a few ticks, divided by the number of players.
+
 ## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
 [`bench/README.md`](../bench/README.md)):
 
 ```powershell
-# data core (section 4)
+# data core (section 4) and relevancy (section 5): one program, under a minute on the machine above
 cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
 cmake --build --preset windows-msvc-release --target tessera_net_bench
 ./build/windows-msvc/bench/Release/tessera_net_bench.exe

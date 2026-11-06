@@ -69,8 +69,12 @@ A sparse 3D grid. Cell size is set per axis (Y is vertical). `QueryCell`, `Query
 `QuerySphere` answer "who is near here?". `WouldChangeCell` can be called from many threads to find
 the entities that crossed a cell border; `ApplyMoves` then updates the grid in one step.
 
-The grid stores the position of each entity as of the last `ApplyMoves`. `QueryBox` and `QuerySphere`
-filter on those stored positions, so if you need exact answers, pass a `PendingMove` for every entity
+`ForEachInSphere(cx, cy, cz, radius, fn)` is the allocation-free version of `QuerySphere`: it calls
+`fn(id, x, y, z)` for every entity within the radius (borders included) and hands over the stored position,
+which is what the [relevancy engine](relevancy.md) uses. It can be called from many threads at once.
+
+The grid stores the position of each entity as of the last `ApplyMoves`. `QueryBox`, `QuerySphere` and
+`ForEachInSphere` filter on those stored positions, so if you need exact answers, pass a `PendingMove` for every entity
 that moved, not only for those that crossed a cell border (`ApplyMoves` reports how many changed cell).
 
 ### `TickLoop` (`tick_loop.hpp`)

@@ -17,6 +17,19 @@ A player in the north of the map does not need updates about a tree in the south
 **Area of interest (AOI).** The region around a player in which entities are relevant. Usually a circle or
 a set of grid cells.
 
+**Observer.** A point a player looks from, such as their camera. The server uses observers to decide what
+is nearby. A player can have more than one, for example a camera and a drone.
+
+**Hysteresis.** A small extra distance in which something that is already visible stays visible. Without
+it, an entity standing exactly at the edge of the range would appear and vanish on every update.
+
+**Inclusion and exclusion groups.** Sets of entities the game uses to make exceptions to the normal
+rules: an exclusion group hides its members from the players it does not allow, an inclusion group shows
+its members to the players it allows.
+
+**Compact id.** A short number that stands for an entity on one player's connection. It costs far fewer
+bytes than the entity's full 64-bit id.
+
 **Dormancy.** An entity that is not changing goes to sleep and costs nothing until something changes it.
 
 **Priority and bandwidth budget.** Each player can only receive so much data per second. When there is too
