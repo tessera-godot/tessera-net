@@ -5,7 +5,8 @@ add_library(tessera_net_core STATIC
     src/job_system.cpp
     src/spatial_grid.cpp
     src/tick_loop.cpp
-    src/relevancy/relevancy_config.cpp)
+    src/relevancy/relevancy_config.cpp
+    src/relevancy/compact_ids.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)
