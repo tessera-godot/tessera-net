@@ -254,3 +254,12 @@ TESSERA_TEST(failed_page_allocation_leaves_the_table_consistent) {
     TESSERA_CHECK(table.IsAlive(id));
     TESSERA_CHECK(table.AliveCount() == 1);
 }
+
+TESSERA_TEST(config_reports_the_shard_and_type) {
+    TableConfig config;
+    config.shard = 5;
+    config.type = 7;
+    TestTable table(config);
+    TESSERA_CHECK(table.Config().shard == 5);
+    TESSERA_CHECK(table.Config().type == 7);
+}

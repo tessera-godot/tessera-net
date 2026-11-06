@@ -97,6 +97,9 @@ public:
         return true;
     }
 
+    /// The settings this table was created with (the shard and type written into its ids).
+    const TableConfig& Config() const noexcept { return config_; }
+
     /// Number of `Create` calls that failed because the table was full.
     size_t FailedCreateCount() const noexcept { return failed_create_count_; }
 
