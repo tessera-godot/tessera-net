@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <random>
 #include <span>
 #include <vector>
@@ -310,6 +311,64 @@ void PrintGridQueryCost(World& world, const SpatialGrid& grid) {
                 total_ms * 1e6 / static_cast<double>(candidates));
 }
 
+// Information only: what one re-anchor costs when it is done as the incremental engine will do it. One
+// query per type at that type's own reach, the ids sorted, and the difference with what the player
+// already sees taken in both directions. The observer moves 4 m between measurements, like a tolerance.
+void PrintReanchorCost(World& world, const SpatialGrid& grid) {
+    constexpr int kSamples = 200;
+    constexpr float kStep = 4.0f;
+    std::vector<uint64_t> visible;
+    std::vector<uint64_t> wanted;
+    std::vector<uint64_t> entering;
+    std::vector<uint64_t> leaving;
+
+    const auto collect = [&](float cx, float cz) {
+        wanted.clear();
+        for (uint32_t t = 0; t < 4; ++t) {
+            const double range = kRanges[t];
+            const double reach = range + kMargin;
+            grid.ForEachInSphereOfType(t, cx, 25.0f, cz, static_cast<float>(reach),
+                                       [&](EntityId id, float x, float y, float z) {
+                                           const double dx = static_cast<double>(x) - cx;
+                                           const double dy = static_cast<double>(y) - 25.0;
+                                           const double dz = static_cast<double>(z) - cz;
+                                           const double d2 = dx * dx + dy * dy + dz * dz;
+                                           if (d2 <= range * range ||
+                                               (d2 <= reach * reach &&
+                                                std::binary_search(visible.begin(), visible.end(), id.raw()))) {
+                                               wanted.push_back(id.raw());
+                                           }
+                                       });
+        }
+        std::sort(wanted.begin(), wanted.end());
+        wanted.erase(std::unique(wanted.begin(), wanted.end()), wanted.end());
+    };
+
+    const float edge = world.scenario.world_size / 10.0f;
+    std::vector<double> micros;
+    for (int s = 0; s < kSamples; ++s) {
+        float cx = world.Random(edge, world.scenario.world_size - edge);
+        float cz = world.Random(edge, world.scenario.world_size - edge);
+        visible.clear();
+        collect(cx, cz); // the set the player already sees (untimed)
+        visible = wanted;
+        const float angle = world.Random(0.0f, 2.0f * kPi);
+        cx += std::cos(angle) * kStep;
+        cz += std::sin(angle) * kStep;
+
+        const auto start = Clock::now();
+        collect(cx, cz);
+        entering.clear();
+        leaving.clear();
+        std::set_difference(wanted.begin(), wanted.end(), visible.begin(), visible.end(),
+                            std::back_inserter(entering));
+        std::set_difference(visible.begin(), visible.end(), wanted.begin(), wanted.end(),
+                            std::back_inserter(leaving));
+        micros.push_back(Ms(start, Clock::now()) * 1000.0);
+    }
+    Info("relevancy re-anchor cost (query by type + sort + merge)", Median(micros), "us");
+}
+
 void RunMainScenario() {
     SpatialGrid grid(GridConfig{128.0f, 128.0f, 128.0f});
     World world(kMain);
@@ -320,6 +379,7 @@ void RunMainScenario() {
                 kMain.connections, kMain.entities, kMain.moving_per_tick, Ms(setup_start, Clock::now()));
 
     PrintGridQueryCost(world, grid);
+    PrintReanchorCost(world, grid);
     const Measurement single = Measure(world, grid, 1);
     const Measurement parallel = Measure(world, grid, 8);
     Report("relevancy visible per connection (low bound)", single.average_visible, "ents", 1000.0, true);
