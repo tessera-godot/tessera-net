@@ -37,11 +37,10 @@ using bench::ReportBool;
 
 namespace {
 
-// Limits for the main scenario. They guard against regressions: they sit above what this version
-// measures, with room for run-to-run variation. They are not the performance goals of the relevancy
-// engine (1.5 ms with one thread and 0.4 ms with eight workers), which need an incremental design.
-constexpr double kLimitOneThreadMs = 25.0;
-constexpr double kLimitEightWorkersMs = 5.0;
+// The cost goals of the relevancy engine in the main scenario: one tick with one thread, and with eight
+// workers.
+constexpr double kLimitOneThreadMs = 1.5;
+constexpr double kLimitEightWorkersMs = 0.4;
 
 constexpr int kWarmupTicks = 9;
 constexpr int kRuns = 5;
@@ -190,6 +189,7 @@ RelevancyConfig MakeConfig(const Scenario& scenario) {
 
 struct Measurement {
     double mean_update_ms = 0.0;
+    double full_evaluations_per_tick = 0.0; // connections evaluated in full per tick, on average
     double average_visible = 0.0;
     double bytes_per_connection = 0.0;
 };
@@ -220,6 +220,7 @@ Measurement Measure(World& world, SpatialGrid& grid, uint32_t workers) {
     const size_t after = ResidentBytes();
 
     std::vector<double> run_means;
+    uint64_t full_evaluations = 0;
     for (int run = 0; run < kRuns; ++run) {
         double total = 0.0;
         for (int i = 0; i < kTicksPerRun; ++i, ++tick) {
@@ -228,9 +229,11 @@ Measurement Measure(World& world, SpatialGrid& grid, uint32_t workers) {
             for (uint32_t c = 0; c < scenario.connections; ++c) {
                 engine.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
             }
+            uint32_t evaluated = 0;
             const auto start = Clock::now();
-            engine.Update(tick);
+            engine.Update(tick, &evaluated);
             total += Ms(start, Clock::now());
+            full_evaluations += evaluated;
             clear_events();
         }
         run_means.push_back(total / kTicksPerRun);
@@ -238,6 +241,7 @@ Measurement Measure(World& world, SpatialGrid& grid, uint32_t workers) {
 
     Measurement result;
     result.mean_update_ms = Median(run_means);
+    result.full_evaluations_per_tick = static_cast<double>(full_evaluations) / (kRuns * kTicksPerRun);
     double visible = 0.0;
     for (uint32_t c = 0; c < scenario.connections; ++c) {
         visible += engine.VisibleCount(c);
@@ -381,6 +385,7 @@ void RunMainScenario() {
     const Measurement parallel = Measure(world, grid, 8);
     Report("relevancy visible per connection (low bound)", single.average_visible, "ents", 1000.0, true);
     Report("relevancy visible per connection (high bound)", single.average_visible, "ents", 2000.0);
+    Info("relevancy full evaluations per tick (mean)", single.full_evaluations_per_tick, "conn");
     Report("relevancy update, 1 thread, mean per tick", single.mean_update_ms, "ms", kLimitOneThreadMs);
     Report("relevancy update, 8 workers, mean per tick", parallel.mean_update_ms, "ms", kLimitEightWorkersMs);
     Report("relevancy memory per connection (resident)", single.bytes_per_connection / (1024.0 * 1024.0),
@@ -394,6 +399,14 @@ void RunMainScenario() {
     world.stress_movement = false;
     Info("relevancy update, 1 thread, stress movement", stress_single.mean_update_ms, "ms");
     Info("relevancy update, 8 workers, stress movement", stress_parallel.mean_update_ms, "ms");
+
+    // For information: half of the observers drive at vehicle speed instead of one in ten.
+    world.fast_fraction = 0.5f;
+    const Measurement fast_single = Measure(world, grid, 1);
+    const Measurement fast_parallel = Measure(world, grid, 8);
+    world.fast_fraction = 0.1f;
+    Info("relevancy update, 1 thread, half of the observers driving", fast_single.mean_update_ms, "ms");
+    Info("relevancy update, 8 workers, half of the observers driving", fast_parallel.mean_update_ms, "ms");
 }
 
 void RunSmallScenario() {
