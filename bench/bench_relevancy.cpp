@@ -10,6 +10,7 @@
 #include "tessera/net/spatial_grid.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -49,6 +50,13 @@ constexpr int kTicksPerRun = 30;
 constexpr float kRanges[4] = {100.0f, 250.0f, 400.0f, 600.0f};
 constexpr float kMargin = 8.0f;
 
+// Movement at 30 ticks per second. Observers walk at 5 m/s, and a share of them drive at 25 m/s;
+// the entities that move each tick take a step of 0.2 m (about 6 m/s).
+constexpr float kPi = 3.14159265f;
+constexpr float kWalkStep = 5.0f / 30.0f;
+constexpr float kFastStep = 25.0f / 30.0f;
+constexpr float kEntityStep = 0.2f;
+
 struct Scenario {
     uint32_t connections;
     uint32_t entities;
@@ -79,6 +87,13 @@ struct World {
     std::vector<EntityId> ids;
     std::vector<float> x, y, z;
     std::mt19937 rng{2024};
+
+    // The old movement, kept for information: entities and observers jump tens of metres per tick, far
+    // more than any game does, which makes every visible set change a lot.
+    bool stress_movement = false;
+    float fast_fraction = 0.1f; // share of observers that move at vehicle speed
+    std::vector<float> heading; // per observer, in radians
+    std::vector<float> step;    // per observer, metres per tick
 
     explicit World(Scenario s) : scenario(s) {}
 
@@ -111,8 +126,14 @@ struct World {
         moves.reserve(scenario.moving_per_tick);
         for (uint32_t m = 0; m < scenario.moving_per_tick; ++m) {
             const uint32_t i = static_cast<uint32_t>(rng() % scenario.entities);
-            x[i] = Clamp(x[i] + Random(-30.0f, 30.0f));
-            z[i] = Clamp(z[i] + Random(-30.0f, 30.0f));
+            if (stress_movement) {
+                x[i] = Clamp(x[i] + Random(-30.0f, 30.0f));
+                z[i] = Clamp(z[i] + Random(-30.0f, 30.0f));
+            } else {
+                const float angle = Random(0.0f, 2.0f * kPi);
+                x[i] = Clamp(x[i] + std::cos(angle) * kEntityStep);
+                z[i] = Clamp(z[i] + std::sin(angle) * kEntityStep);
+            }
             moves.push_back(PendingMove{ids[i], x[i], y[i], z[i]});
         }
         grid.ApplyMoves(moves);
@@ -125,14 +146,34 @@ struct World {
             eye = Observer{Random(margin, scenario.world_size - margin), 25.0f,
                            Random(margin, scenario.world_size - margin)};
         }
+        heading.resize(eyes.size());
+        step.resize(eyes.size());
+        for (size_t c = 0; c < eyes.size(); ++c) {
+            heading[c] = Random(0.0f, 2.0f * kPi);
+            step[c] = Random(0.0f, 1.0f) < fast_fraction ? kFastStep : kWalkStep;
+        }
         return eyes;
     }
 
-    void JitterObservers(std::vector<Observer>& eyes, RelevancyEngine& engine) {
-        for (uint32_t c = 0; c < scenario.connections; ++c) {
-            eyes[c].x = Clamp(eyes[c].x + Random(-10.0f, 10.0f));
-            eyes[c].z = Clamp(eyes[c].z + Random(-10.0f, 10.0f));
-            engine.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
+    // Moves every observer by one tick. Walkers and drivers keep a heading that turns a few degrees per
+    // tick and turn around at the edge of the world.
+    void StepObservers(std::vector<Observer>& eyes) {
+        for (size_t c = 0; c < eyes.size(); ++c) {
+            if (stress_movement) {
+                eyes[c].x = Clamp(eyes[c].x + Random(-10.0f, 10.0f));
+                eyes[c].z = Clamp(eyes[c].z + Random(-10.0f, 10.0f));
+                continue;
+            }
+            heading[c] += Random(-0.05f, 0.05f);
+            float nx = eyes[c].x + std::cos(heading[c]) * step[c];
+            float nz = eyes[c].z + std::sin(heading[c]) * step[c];
+            if (nx < 0.0f || nx > scenario.world_size || nz < 0.0f || nz > scenario.world_size) {
+                heading[c] += kPi;
+                nx = Clamp(nx);
+                nz = Clamp(nz);
+            }
+            eyes[c].x = nx;
+            eyes[c].z = nz;
         }
     }
 };
@@ -183,7 +224,10 @@ Measurement Measure(World& world, SpatialGrid& grid, uint32_t workers) {
         double total = 0.0;
         for (int i = 0; i < kTicksPerRun; ++i, ++tick) {
             world.MoveSome(grid);
-            world.JitterObservers(eyes, engine);
+            world.StepObservers(eyes);
+            for (uint32_t c = 0; c < scenario.connections; ++c) {
+                engine.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
+            }
             const auto start = Clock::now();
             engine.Update(tick);
             total += Ms(start, Clock::now());
@@ -221,8 +265,8 @@ bool EventsMatchAcrossWorkerCounts(World& world, SpatialGrid& grid) {
     }
     for (uint64_t tick = 0; tick < 30; ++tick) {
         world.MoveSome(grid);
+        world.StepObservers(eyes);
         for (uint32_t c = 0; c < scenario.connections; ++c) {
-            eyes[c].x = world.Clamp(eyes[c].x + world.Random(-10.0f, 10.0f));
             engine_one.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
             engine_eight.SetObservers(c, std::span<const Observer>(&eyes[c], 1));
         }
@@ -285,6 +329,14 @@ void RunMainScenario() {
     Report("relevancy memory per connection (resident)", single.bytes_per_connection / (1024.0 * 1024.0),
            "MB", 2.0);
     ReportBool("relevancy events, 1 vs 8 workers, 30 ticks", EventsMatchAcrossWorkerCounts(world, grid));
+
+    // For information: the old movement, with jumps of tens of metres per tick.
+    world.stress_movement = true;
+    const Measurement stress_single = Measure(world, grid, 1);
+    const Measurement stress_parallel = Measure(world, grid, 8);
+    world.stress_movement = false;
+    Info("relevancy update, 1 thread, stress movement", stress_single.mean_update_ms, "ms");
+    Info("relevancy update, 8 workers, stress movement", stress_parallel.mean_update_ms, "ms");
 }
 
 void RunSmallScenario() {
