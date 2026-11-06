@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+#include "bench_relevancy.hpp"
+#include "bench_report.hpp"
 #include "simulation_harness.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
@@ -32,14 +34,10 @@ struct Columns {
 };
 using Table = EntityTable<Columns>;
 
-double Ms(Clock::time_point a, Clock::time_point b) {
-    return std::chrono::duration<double, std::milli>(b - a).count();
-}
-
-double Median(std::vector<double> values) {
-    std::sort(values.begin(), values.end());
-    return values[values.size() / 2];
-}
+using bench::Median;
+using bench::Ms;
+using bench::Report;
+using bench::ReportBool;
 
 std::vector<uint32_t> Permutation(uint32_t n, uint32_t seed) {
     std::vector<uint32_t> v(n);
@@ -47,24 +45,6 @@ std::vector<uint32_t> Permutation(uint32_t n, uint32_t seed) {
     std::mt19937 rng(seed);
     std::shuffle(v.begin(), v.end(), rng);
     return v;
-}
-
-int failures = 0;
-
-void Report(const char* name, double value, const char* unit, double limit, bool higher_is_better = false) {
-    const bool pass = higher_is_better ? value >= limit : value <= limit;
-    if (!pass) {
-        ++failures;
-    }
-    std::printf("%-46s %12.2f %-6s limit %s%-10.2f %s\n", name, value, unit, higher_is_better ? ">= " : "<= ", limit,
-                pass ? "PASS" : "FAIL");
-}
-
-void ReportBool(const char* name, bool pass) {
-    if (!pass) {
-        ++failures;
-    }
-    std::printf("%-46s %12s %-6s %-22s %s\n", name, pass ? "equal" : "DIFFERENT", "", "", pass ? "PASS" : "FAIL");
 }
 
 // Work that costs on the order of 100 ns per item, so the pool overhead is not what is measured.
@@ -229,6 +209,8 @@ int main() {
     CheckScaling();
     CheckTickJitter();
     CheckDeterminism();
+    CheckRelevancy();
+    const int failures = bench::Failures();
     std::printf("\n%s (%d criteria failed)\n", failures == 0 ? "ALL CRITERIA PASSED" : "SOME CRITERIA FAILED", failures);
     return failures == 0 ? 0 : 1;
 }
