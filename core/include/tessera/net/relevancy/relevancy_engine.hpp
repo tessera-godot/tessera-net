@@ -133,6 +133,8 @@ private:
 
     void MarkAllForFullEvaluation();
     void FoldGridChanges();
+    void BuildChangeIndex();
+    void GatherNearbyChanges(const Observer& anchor, std::vector<uint32_t>& out) const;
     void EvaluateChanges(ConnectionId id, Connection& connection) const;
     void ApplyDestructions(Connection& connection) const;
     void EvaluateInFull(ConnectionId id, Connection& connection) const;
@@ -146,6 +148,15 @@ private:
     std::array<int16_t, 256> spatial_index_{}; // entity type -> index in spatial_types_, or -1
     std::vector<ChangedEntity> changed_;       // this tick's folded grid changes, ascending by raw id
     std::vector<std::pair<uint64_t, uint32_t>> change_order_; // scratch for folding
+
+    // A coarse grid of this engine's own over the folded changes (each change is filed under the cell it came
+    // from and the cell it went to), so a connection finds the few changes near its anchors without reading
+    // them all. Cells are as large as the widest reach. It is a chain per hash bucket; two cells that share a
+    // bucket only add candidates, which are checked by distance anyway.
+    float index_cell_ = 0.0f;
+    std::vector<uint32_t> index_head_;  // bucket -> first entry, or none
+    std::vector<uint32_t> index_next_;  // entry -> next entry in the same bucket, or none
+    std::vector<uint32_t> index_entry_; // entry -> index into changed_
     uint64_t seen_group_version_ = 0;
     uint32_t deferred_reanchors_ = 0;
 

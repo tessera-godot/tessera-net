@@ -14,6 +14,7 @@ namespace {
 
 constexpr ConnectionId kNoOwner = 0xFFFFFFFFu;
 constexpr uint64_t kNoTick = std::numeric_limits<uint64_t>::max();
+constexpr uint32_t kNoEntry = 0xFFFFFFFFu;
 
 const ConnectionEvents kNoEvents{};
 
@@ -31,6 +32,13 @@ void MergeSorted(std::vector<uint64_t>& base, const std::vector<uint64_t>& extra
     scratch.resize(base.size() + extra.size());
     std::merge(base.begin(), base.end(), extra.begin(), extra.end(), scratch.begin());
     base.swap(scratch);
+}
+
+int32_t IndexCellOf(double position, double cell) {
+    const double index = std::floor(position / cell);
+    constexpr double kLow = static_cast<double>(std::numeric_limits<int32_t>::min());
+    constexpr double kHigh = static_cast<double>(std::numeric_limits<int32_t>::max());
+    return static_cast<int32_t>(std::clamp(index, kLow, kHigh));
 }
 
 double DistanceSquared(const Observer& anchor, float x, float y, float z) {
@@ -69,6 +77,7 @@ struct RelevancyEngine::Connection {
     std::vector<uint64_t> feed_enter; // ascending, from the grid changes of this tick
     std::vector<uint64_t> feed_leave; // ascending
     std::vector<uint64_t> merge_scratch;
+    std::vector<uint32_t> candidates; // indexes into changed_ of the changes near the anchors
     std::vector<VisibleEntry> enter_entries;
 };
 
@@ -87,6 +96,9 @@ RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, SpatialGrid& gri
                                                  static_cast<double>(radius), radius,
                                                  rule.hysteresis_margin > 0.0f});
         }
+    }
+    for (const SpatialType& type : spatial_types_) {
+        index_cell_ = std::max(index_cell_, type.radius);
     }
     seen_group_version_ = groups_.version();
     grid_.ClearChanges(); // start from now: what was in the grid before is found by the first evaluations
@@ -259,6 +271,7 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
         *connections_processed = static_cast<uint32_t>(chosen);
     }
     FoldGridChanges();
+    BuildChangeIndex();
 
     if (!active_.empty()) {
         jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
@@ -393,6 +406,74 @@ void RelevancyEngine::FoldGridChanges() {
     }
 }
 
+// Files every folded change under the index cell it came from and the one it went to.
+void RelevancyEngine::BuildChangeIndex() {
+    index_entry_.clear();
+    index_next_.clear();
+    if (changed_.empty() || index_cell_ <= 0.0f) {
+        index_head_.clear();
+        return;
+    }
+    size_t buckets = 16;
+    while (buckets < changed_.size() * 4) {
+        buckets <<= 1;
+    }
+    index_head_.assign(buckets, kNoEntry);
+    const double cell = static_cast<double>(index_cell_);
+    const auto file_under = [&](float x, float y, float z, uint32_t change) {
+        const CellCoord coord{IndexCellOf(x, cell), IndexCellOf(y, cell), IndexCellOf(z, cell)};
+        const size_t bucket = std::hash<CellCoord>{}(coord) & (buckets - 1);
+        index_entry_.push_back(change);
+        index_next_.push_back(index_head_[bucket]);
+        index_head_[bucket] = static_cast<uint32_t>(index_entry_.size() - 1);
+    };
+    for (uint32_t i = 0; i < changed_.size(); ++i) {
+        const ChangedEntity& change = changed_[i];
+        if (change.exists_after) {
+            file_under(change.new_x, change.new_y, change.new_z, i);
+        }
+        if (change.existed_before) {
+            const bool same_cell = change.exists_after &&
+                                   IndexCellOf(change.old_x, cell) == IndexCellOf(change.new_x, cell) &&
+                                   IndexCellOf(change.old_y, cell) == IndexCellOf(change.new_y, cell) &&
+                                   IndexCellOf(change.old_z, cell) == IndexCellOf(change.new_z, cell);
+            if (!same_cell) {
+                file_under(change.old_x, change.old_y, change.old_z, i);
+            }
+        }
+    }
+}
+
+// Appends the changes filed in the cells that the widest reach around the anchor can touch. A change may be
+// appended more than once, and some of the changes are out of reach; the caller sorts, removes duplicates
+// and checks distances.
+void RelevancyEngine::GatherNearbyChanges(const Observer& anchor, std::vector<uint32_t>& out) const {
+    if (index_head_.empty()) {
+        return;
+    }
+    const double cell = static_cast<double>(index_cell_);
+    const double reach = cell * (1.0 + 1e-7); // a hair more, so rounding cannot drop a boundary cell
+    const int32_t low_x = IndexCellOf(static_cast<double>(anchor.x) - reach, cell);
+    const int32_t high_x = IndexCellOf(static_cast<double>(anchor.x) + reach, cell);
+    const int32_t low_y = IndexCellOf(static_cast<double>(anchor.y) - reach, cell);
+    const int32_t high_y = IndexCellOf(static_cast<double>(anchor.y) + reach, cell);
+    const int32_t low_z = IndexCellOf(static_cast<double>(anchor.z) - reach, cell);
+    const int32_t high_z = IndexCellOf(static_cast<double>(anchor.z) + reach, cell);
+    const size_t mask = index_head_.size() - 1;
+    for (int64_t cx = low_x; cx <= high_x; ++cx) {
+        for (int64_t cy = low_y; cy <= high_y; ++cy) {
+            for (int64_t cz = low_z; cz <= high_z; ++cz) {
+                const CellCoord coord{static_cast<int32_t>(cx), static_cast<int32_t>(cy),
+                                      static_cast<int32_t>(cz)};
+                for (uint32_t entry = index_head_[std::hash<CellCoord>{}(coord)&mask]; entry != kNoEntry;
+                     entry = index_next_[entry]) {
+                    out.push_back(index_entry_[entry]);
+                }
+            }
+        }
+    }
+}
+
 // Looks again only at the entities that changed in the grid and are within reach of one of the connection
 // anchors, before or after the change. Everything else cannot change what the connection sees.
 void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) const {
@@ -401,7 +482,16 @@ void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) c
     if (connection.anchors.empty() || changed_.empty()) {
         return;
     }
-    for (const ChangedEntity& change : changed_) {
+    connection.candidates.clear();
+    for (const Observer& anchor : connection.anchors) {
+        GatherNearbyChanges(anchor, connection.candidates);
+    }
+    // The changes are ordered by entity id, so ordering their indexes keeps the results in id order.
+    std::sort(connection.candidates.begin(), connection.candidates.end());
+    connection.candidates.erase(std::unique(connection.candidates.begin(), connection.candidates.end()),
+                                connection.candidates.end());
+    for (const uint32_t index : connection.candidates) {
+        const ChangedEntity& change = changed_[index];
         const EntityId entity = EntityId::FromRaw(change.raw);
         const SpatialType& type = spatial_types_[static_cast<size_t>(spatial_index_[entity.type()])];
         const double reach_squared = type.reach * type.reach;

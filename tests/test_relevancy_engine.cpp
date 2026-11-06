@@ -2,8 +2,11 @@
 #include "relevancy_test_support.hpp"
 #include "test_support.hpp"
 
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <random>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -1199,4 +1202,74 @@ TESSERA_TEST(entity_moved_twice_in_one_tick_is_judged_from_its_first_and_last_po
     TESSERA_CHECK(!Sees(f, 0, leaving));
     TESSERA_CHECK(Sees(f, 0, arriving));
     TESSERA_CHECK(f.engine.Events(0).events.size() == 2);
+}
+
+// ---- Guards for finding the nearby changes quickly --------------------------------------------------
+
+TESSERA_TEST(feed_finds_changes_on_both_sides_of_the_index_cell_boundaries) {
+    // The engine looks changes up in a coarse grid whose cells are as large as the widest reach (500 m
+    // here). Anchors and entities straddle the cell edges and the distance limit.
+    const float anchors[] = {-250.0f, -0.01f, 0.0f, 0.01f, 250.0f, 499.99f, 500.0f, 500.01f, 750.0f, 1000.0f};
+    const float offsets[] = {-500.01f, -500.0f, -499.99f, 499.99f, 500.0f, 500.01f};
+    for (const float anchor : anchors) {
+        for (const float offset : offsets) {
+            Fixture f(MakeConfig());
+            f.engine.AddConnection(0);
+            SetOneObserver(f, 0, anchor);
+            f.engine.Update(0);
+            f.engine.ClearEvents(0);
+            const float x = anchor + offset;
+            const EntityId e = MakeId(kFarType, 1);
+            f.grid.Insert(e, x, 0.0f, 0.0f);
+            f.engine.Update(1);
+            const bool expected = std::fabs(static_cast<double>(x) - static_cast<double>(anchor)) <= 500.0;
+            TESSERA_CHECK(Sees(f, 0, e) == expected);
+        }
+    }
+}
+
+TESSERA_TEST(entity_moving_across_an_index_cell_boundary_is_followed) {
+    Fixture f(MakeConfig());
+    f.engine.AddConnection(0);
+    SetOneObserver(f, 0, 0.0f);
+    const EntityId e = MakeId(kFarType, 1);
+    f.grid.Insert(e, 600.0f, 0.0f, 0.0f); // outside the 500 m range, in the next index cell
+    f.engine.Update(0);
+    f.engine.ClearEvents(0);
+    TESSERA_CHECK(!Sees(f, 0, e));
+    Move(f, e, 499.0f); // crosses the cell edge at 500 and enters
+    f.engine.Update(1);
+    TESSERA_CHECK(Sees(f, 0, e));
+    f.engine.ClearEvents(0);
+    Move(f, e, 501.0f); // crosses back and leaves
+    f.engine.Update(2);
+    TESSERA_CHECK(!Sees(f, 0, e));
+}
+
+TESSERA_TEST(a_large_batch_of_changes_is_evaluated_correctly) {
+    Fixture f(MakeConfig()); // spatial range 100 m
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    std::mt19937 rng(5);
+    std::uniform_real_distribution<float> coordinate(-700.0f, 700.0f);
+    std::vector<EntityId> ids;
+    std::vector<std::array<float, 2>> positions;
+    for (uint32_t i = 0; i < 3000; ++i) {
+        const EntityId id = MakeId(kSpatialType, i);
+        const std::array<float, 2> p{coordinate(rng), coordinate(rng)};
+        f.grid.Insert(id, p[0], 0.0f, p[1]);
+        ids.push_back(id);
+        positions.push_back(p);
+    }
+    f.engine.Update(tick);
+    size_t expected_count = 0;
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const double dx = positions[i][0];
+        const double dz = positions[i][1];
+        const bool expected = dx * dx + dz * dz <= 100.0 * 100.0;
+        expected_count += expected ? 1 : 0;
+        TESSERA_CHECK(Sees(f, 0, ids[i]) == expected);
+    }
+    TESSERA_CHECK(expected_count > 0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == expected_count);
 }
