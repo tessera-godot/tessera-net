@@ -187,8 +187,8 @@ sixth tick (five times a second at 30 Hz).
 
 | Measure | Result (median of 6 executions, range) | Limit | Goal |
 |---|---|---|---|
-| Updates written per second, 1 thread | 4.7 million (4.5 to 5.4) | 2.3 million | 10 million |
-| Efficiency with 8 workers | 48% (44% to 51%) | 22% | 70% |
+| Updates written per second, 1 thread | 5.8 million (5.4 to 6.0) | 2.9 million | 10 million |
+| Efficiency with 8 workers | 44% (40% to 48%) | 22% | 70% |
 | Bytes per position update | 4.4 | 8 | 8 |
 | Memory per entity (stored state) | 54 B | 128 B | 128 B |
 | Memory per player | 0.69 MB | 4 MB | 4 MB |
@@ -202,38 +202,39 @@ The six values behind the first two rows, and the main times, per tick (millisec
 
 | Execution | Updates per second, 1 thread | `Update`, 1 thread | `Update`, 8 workers | Efficiency | Typical case, 1 thread |
 |---|---|---|---|---|---|
-| 1 | 4.59 million | 41.9 | 10.6 | 49% | 30.3 |
-| 2 | 4.78 million | 40.1 | 10.8 | 47% | 27.8 |
-| 3 | 4.76 million | 40.4 | 11.4 | 44% | 28.7 |
-| 4 | 4.47 million | 42.9 | 10.5 | 51% | 30.4 |
-| 5 | 4.56 million | 42.1 | 10.3 | 51% | 31.1 |
-| 6 | 5.36 million | 35.9 | 9.9 | 45% | 25.6 |
+| 1 | 5.75 million | 33.4 | 9.5 | 44% | 25.5 |
+| 2 | 6.02 million | 31.9 | 10.0 | 40% | 24.7 |
+| 3 | 5.99 million | 32.1 | 9.3 | 43% | 23.5 |
+| 4 | 5.50 million | 34.9 | 9.8 | 44% | 24.6 |
+| 5 | 5.42 million | 35.4 | 9.3 | 48% | 30.5 |
+| 6 | 5.81 million | 33.1 | 10.0 | 41% | 23.2 |
 
 Other numbers from the same runs (medians, in milliseconds per tick unless marked):
 
 | Case | Time |
 |---|---|
-| Quantizing the 200,000 entities that changed | 10.8 |
-| Confirmations of one tick, all 128 players | 7.7 |
-| Typical case: `Update` and confirmations, 1 thread | 29.5, for 96,000 records |
-| Typical case: quantizing the entities that changed | 2.6 |
-| Building and writing one whole position record on its own, data in the processor cache | 59 nanoseconds (51 to 70) |
-| Writing only the bits of one position record, data in the processor cache | 30 nanoseconds (28 to 40) |
+| Quantizing the 200,000 entities that changed | 10.4 |
+| Confirmations of one tick, all 128 players | 6.1 |
+| Typical case: `Update` and confirmations, 1 thread | 24.6, for 96,000 records |
+| Typical case: quantizing the entities that changed | 2.2 |
+| Building and writing one whole position record on its own, data in the processor cache | 48 nanoseconds (47 to 51) |
+| Writing only the bits of one position record, data in the processor cache | 28 nanoseconds (27 to 33) |
 
 How to read this:
-- **The machine was busier than in our earlier measurements.** Other programs were running, and the quantizing
-  step, which did not change, took 23% longer than when we measured before. An earlier version of this code,
-  before a review found and fixed two defects (a confirmation shortcut that could leave a player on an
-  intermediate state, and entities that never settled when the round trip was longer than the remembered sends),
-  measured 6.5 million updates per second and 46% efficiency on a quieter machine. We do not know how much of
-  the difference is the machine and how much is the extra bookkeeping of the fix. The numbers above are the ones
-  for the code as it is; we will measure again on a quiet machine.
+- **Two sets of measurements, and what changed between them.** A first set of six executions, taken while the
+  machine was compiling another large project, gave 4.7 million updates per second and 48% efficiency; the
+  numbers here were taken after that finished. An earlier version of this code, before a review found and fixed
+  two defects (a confirmation shortcut that could leave a player on an intermediate state, and entities that
+  never settled when the round trip was longer than the remembered sends), measured 6.5 million updates per
+  second and 46% efficiency. Quantizing the entities, which did not change, took 18% longer now than then, so
+  the real cost of the fix is less than the 11% difference in throughput. We will measure again on a quiet
+  machine.
 - **Where the time goes.** Before the engine kept an index of who sees what, it looked every changed entity up in
   every player's visible set: 25.6 million searches a tick, about 330 ms in all (the benchmark of that version
-  is in the git history). With the index the same tick takes 41 ms here, and 29 to 30 ms on the quieter machine.
+  is in the git history). With the index the same tick takes 33 ms.
   What remains is about 6 ms to mark who needs what, on one thread (estimated from the difference between one
-  thread and eight), and about 214 nanoseconds per record in all (41 ms for 192,000 records, marking included),
-  against 59 for building and writing one record alone with the data in cache.
+  thread and eight), and about 173 nanoseconds per record in all (33 ms for 192,000 records, marking included),
+  against 48 for building and writing one record alone with the data in cache.
 - **What did not help.** Fetching the state of the entities ahead of use into the cache made no difference to the
   throughput in our test. We think the per-player state, about 90 MB for 128 players, is what does not fit in
   the cache, but we have not shown it with a profiler.
@@ -246,7 +247,7 @@ How to read this:
   The 0.69 MB per player includes an equal part of the index of who sees what.
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far, one observer per player
-and no exclusion or inclusion groups. The machine was running other programs, and the variation between executions
+and no exclusion or inclusion groups. The machine was also running other programs, and the variation between executions
 is large.
 
 ## Reproduce

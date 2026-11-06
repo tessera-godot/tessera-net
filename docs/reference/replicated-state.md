@@ -179,8 +179,8 @@ Measured numbers, with the machine and the code that produced them, are on the
 - A position update takes about 4.4 bytes, including its id and the property mask.
 - A stored entity takes about 54 bytes, and each player about 0.7 MB.
 - A player who sees only entities that have not changed gets one byte per tick.
-- On one thread the engine writes about 4.7 million updates per second. **This is below the goal of 10 million
-  per second**, and with eight workers it uses about 48% of them, below the goal of 70%. The decisions behind
+- On one thread the engine writes about 5.8 million updates per second. **This is below the goal of 10 million
+  per second**, and with eight workers it uses about 44% of them, below the goal of 70%. The decisions behind
   the design, and what is left to improve, are in [record 0009](../adr/0009-replicated-state.md).
 
 ## Coming next

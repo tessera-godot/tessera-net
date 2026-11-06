@@ -49,16 +49,15 @@ workers.
 - With 128 players seeing 1,500 of 200,000 entities each, a position update takes about 4.4 bytes, an entity
   about 54 bytes of stored state, a player about 0.7 MB, and a player who sees nothing that changed gets one
   byte per tick. Those goals are met.
-- **Two goals are not.** On one thread the engine writes about 4.7 million updates per second (the goal is 10
-  million), and with eight workers it reaches about 48% efficiency (the goal is 70%), because marking what
+- **Two goals are not.** On one thread the engine writes about 5.8 million updates per second (the goal is 10
+  million), and with eight workers it reaches about 44% efficiency (the goal is 70%), because marking what
   changed runs on one thread. The benchmark limits are regression guards at about half of these values. The
   numbers and the machine are on the [benchmarks page](../benchmarks.md#6-replicated-state).
-- About 214 nanoseconds in all go to each record on one thread (41 ms for 192,000 records, marking included),
-  against 59 for building and writing one record alone with the data in cache. We tried fetching the states
+- About 173 nanoseconds in all go to each record on one thread (33 ms for 192,000 records, marking included),
+  against 48 for building and writing one record alone with the data in cache. We tried fetching the states
   ahead of use and it changed nothing; we think the per-player state (about 0.7 MB each, 90 MB for 128
-  players) does not fit in the processor cache, but we have not shown it with a profiler. These numbers come
-  from a busier machine than an earlier, faster measurement of the version before two defects were fixed;
-  see the benchmarks page.
+  players) does not fit in the processor cache, but we have not shown it with a profiler. An earlier
+  measurement of the version before two defects were fixed gave 6.5 million; see the benchmarks page.
 - An entity is sent again on every tick until a send of it is confirmed, which triples the records in the typical
   case (three ticks until the confirmation of a two-tick round trip). Waiting before a repeat brought the
   typical tick from about 22 ms to between 11 and 15 ms in an experiment we did not keep. How often to repeat

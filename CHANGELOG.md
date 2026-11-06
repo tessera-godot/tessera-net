@@ -12,7 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   state the player confirmed. A position update takes about 4.4 bytes. See
   `docs/reference/replicated-state.md`.
 - Replicated state benchmark and a chart for it, and a section 6 on the benchmarks page. It does not reach its
-  speed goals yet (about 4.7 million updates per second on one thread against 10 million); the numbers and
+  speed goals yet (about 5.8 million updates per second on one thread against 10 million); the numbers and
   what is left are in record 0009.
 - Architecture decision record 0009 (replicated state).
 - `EntityTable::Config()`.
