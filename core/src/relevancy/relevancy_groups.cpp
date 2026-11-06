@@ -8,6 +8,7 @@ namespace tessera::net {
 GroupId RelevancyGroups::CreateGroup(GroupKind kind) {
     const GroupId id = next_id_++;
     groups_[id].kind = kind;
+    ++version_;
     return id;
 }
 
@@ -25,6 +26,7 @@ bool RelevancyGroups::DestroyGroup(GroupId group) {
         }
     }
     groups_.erase(it);
+    ++version_;
     return true;
 }
 
@@ -34,6 +36,7 @@ bool RelevancyGroups::AddMember(GroupId group, EntityId entity) {
         return false;
     }
     groups_of_entity_[entity.raw()].push_back(group);
+    ++version_;
     return true;
 }
 
@@ -48,6 +51,7 @@ bool RelevancyGroups::RemoveMember(GroupId group, EntityId entity) {
     if (list.empty()) {
         groups_of_entity_.erase(entity_it);
     }
+    ++version_;
     return true;
 }
 
@@ -62,6 +66,7 @@ bool RelevancyGroups::SetStatus(GroupId group, ConnectionId connection, bool all
         return false;
     }
     it->second.exceptions[connection] = allowed;
+    ++version_;
     return true;
 }
 
@@ -72,6 +77,7 @@ bool RelevancyGroups::SetStatusForAll(GroupId group, bool allowed) {
     }
     it->second.default_allowed = allowed;
     it->second.exceptions.clear();
+    ++version_;
     return true;
 }
 
@@ -99,6 +105,20 @@ bool RelevancyGroups::IsExcluded(EntityId entity, ConnectionId connection) const
     return false;
 }
 
+bool RelevancyGroups::IsIncludedFor(EntityId entity, ConnectionId connection) const {
+    const auto entity_it = groups_of_entity_.find(entity.raw());
+    if (entity_it == groups_of_entity_.end()) {
+        return false;
+    }
+    for (const GroupId id : entity_it->second) {
+        const Group& group = groups_.find(id)->second;
+        if (group.kind == GroupKind::Inclusion && Allowed(group, connection)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void RelevancyGroups::AppendIncluded(ConnectionId connection, std::vector<EntityId>& out) const {
     for (const auto& [id, group] : groups_) {
         if (group.kind != GroupKind::Inclusion || !Allowed(group, connection)) {
@@ -119,11 +139,16 @@ void RelevancyGroups::RemoveEntity(EntityId entity) {
         groups_.find(id)->second.members.erase(entity.raw());
     }
     groups_of_entity_.erase(entity_it);
+    ++version_;
 }
 
 void RelevancyGroups::RemoveConnection(ConnectionId connection) {
+    bool erased = false;
     for (auto& [id, group] : groups_) {
-        group.exceptions.erase(connection);
+        erased |= group.exceptions.erase(connection) != 0;
+    }
+    if (erased) {
+        ++version_;
     }
 }
 

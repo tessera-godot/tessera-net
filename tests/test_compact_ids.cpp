@@ -83,3 +83,16 @@ TESSERA_TEST(compact_id_allocator_rejects_zero_capacity) {
     }
     TESSERA_CHECK(threw);
 }
+
+TESSERA_TEST(pending_release_counts_ids_waiting_for_the_next_tick) {
+    CompactIdAllocator ids(10);
+    ids.Acquire();
+    ids.Acquire();
+    ids.Acquire();
+    TESSERA_CHECK(ids.PendingRelease() == 0);
+    ids.Release(0);
+    ids.Release(2);
+    TESSERA_CHECK(ids.PendingRelease() == 2);
+    ids.BeginTick();
+    TESSERA_CHECK(ids.PendingRelease() == 0);
+}

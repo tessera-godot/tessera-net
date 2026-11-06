@@ -31,6 +31,11 @@ public:
         return in_use_;
     }
 
+    /// Ids given back and still waiting for `BeginTick` before they can be handed out again.
+    uint32_t PendingRelease() const noexcept {
+        return static_cast<uint32_t>(released_.size());
+    }
+
     uint32_t Capacity() const noexcept {
         return capacity_;
     }
