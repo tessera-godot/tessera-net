@@ -5,7 +5,9 @@
 
 #include "replication_test_support.hpp"
 #include "tessera/net/client_replica.hpp"
+#include "tessera/net/job_system.hpp"
 #include "tessera/net/protocol.hpp"
+#include "tessera/net/replication/replication_engine.hpp"
 #include "tessera/net/transport/simulated_network.hpp"
 
 #include <cstdint>
@@ -105,6 +107,72 @@ struct ClientHarness {
         return count;
     }
 };
+
+/// Produces real state buffers for one client, with the replication engine, so that tests of the client can
+/// feed it what a server would send.
+struct ReplicationSource {
+    const ReplicationSchema& schema;
+    ThreadPoolJobSystem jobs{1};
+    ReplicationEngine engine;
+    EntityTable<TestColumns> table{TableConfig{0, kMobType}};
+
+    explicit ReplicationSource(const ReplicationSchema& s, uint32_t max_visible = 1000)
+        : schema(s), engine(s, Config(max_visible), jobs) {
+        engine.AddConnection(0);
+    }
+
+    static ReplicationConfig Config(uint32_t max_visible) {
+        ReplicationConfig config;
+        config.max_connections = 1;
+        config.max_visible_per_connection = max_visible;
+        return config;
+    }
+
+    EntityId Spawn(float x, float y, float z) {
+        const EntityId id = table.Create();
+        const auto where = table.Find(id);
+        TestColumns& columns = table.Columns(where->page);
+        columns.x[where->slot] = x;
+        columns.y[where->slot] = y;
+        columns.z[where->slot] = z;
+        table.MarkDirty(id);
+        return id;
+    }
+
+    void MoveX(EntityId id, float x) {
+        const auto where = table.Find(id);
+        table.Columns(where->page).x[where->slot] = x;
+        table.MarkDirty(id);
+    }
+
+    void Show(const std::vector<VisibilityEvent>& events) {
+        engine.ApplyVisibility(0, events);
+    }
+
+    // The buffer for this tick.
+    std::vector<uint8_t> Write(uint64_t tick) {
+        engine.Refresh(table);
+        engine.Update(tick);
+        const std::span<const uint8_t> output = engine.Output(0);
+        return std::vector<uint8_t>(output.begin(), output.end());
+    }
+
+    const uint32_t* Words(EntityId id) const {
+        return engine.Store().Find(id);
+    }
+};
+
+inline bool SameWords(const uint32_t* a, const uint32_t* b, size_t count = 9) {
+    if (a == nullptr || b == nullptr) {
+        return a == b;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 inline VisibilityEvent Enter(EntityId id, uint32_t compact_id) {
     return VisibilityEvent{VisibilityEvent::Kind::Enter, id, compact_id};

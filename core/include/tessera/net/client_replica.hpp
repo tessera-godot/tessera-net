@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -70,10 +71,41 @@ public:
         return stats_;
     }
 
+    /// The newest tick of which a state buffer has been applied (0 before any).
+    uint64_t LatestTick() const noexcept {
+        return applied_latest_;
+    }
+
+    /// The newest quantized state of a visible entity (`words` of its type), or nullptr if it is not visible
+    /// or no state has arrived yet. Use the schema to read the values.
+    const uint32_t* WordsOf(EntityId id) const noexcept;
+
+    /// Calls `fn(EntityId, const uint32_t* words)` for every visible entity that has state.
+    template <class F> void ForEachEntity(F&& fn) const {
+        if (!receiver_) {
+            return;
+        }
+        for (uint32_t compact_id = 0; compact_id < entity_of_.size(); ++compact_id) {
+            if (entity_of_[compact_id].IsNull()) {
+                continue;
+            }
+            if (const uint32_t* words = receiver_->Current(compact_id)) {
+                fn(entity_of_[compact_id], words);
+            }
+        }
+    }
+
 private:
     void HandleMessage(const TransportEvent& event);
     void HandleServerHello(const ServerHello& hello);
     void HandleEventBatch(const EventBatch& batch);
+    void HandleStateBuffer(const TransportEvent& event);
+    void Hold(const StateBufferHeader& header, std::span<const uint8_t> payload);
+    void ReleaseHeld();
+    void ApplyBuffer(uint64_t tick, std::span<const uint8_t> payload);
+    bool WasApplied(uint64_t tick) const noexcept;
+    void MarkApplied(uint64_t tick) noexcept;
+    void SendAck();
     void Malformed(Channel channel);
     void Fail();
     void ResetVisible();
@@ -87,6 +119,18 @@ private:
     uint64_t batches_applied_ = 0;
     std::vector<EntityId> entity_of_;                   // by compact id; Null when the id is free
     std::unordered_map<uint64_t, uint32_t> compact_of_; // entity -> compact id
+    // State buffers that cite event batches that have not been applied yet, ascending by tick.
+    struct HeldBuffer {
+        uint64_t tick;
+        uint64_t batches_sent;
+        std::vector<uint8_t> payload;
+    };
+    static constexpr size_t kMaxHeld = 64;
+    std::vector<HeldBuffer> held_;
+    bool any_applied_ = false;
+    uint64_t applied_latest_ = 0;
+    uint64_t applied_bits_ = 0;   // bit i: the tick applied_latest_ - i was applied
+    bool apply_happened_ = false; // a buffer was applied since the last ack
     ClientStats stats_;
     std::vector<TransportEvent> events_; // scratch
 };

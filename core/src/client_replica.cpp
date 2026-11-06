@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/client_replica.hpp"
 
+#include <algorithm>
+
 namespace tessera::net {
 
 namespace {
@@ -42,6 +44,10 @@ void ClientReplica::Poll() {
             break;
         }
     }
+    if (apply_happened_ && state_ == ClientState::Connected) {
+        SendAck(); // one confirmation for everything applied in this call
+    }
+    apply_happened_ = false;
 }
 
 void ClientReplica::Malformed(Channel channel) {
@@ -60,6 +66,7 @@ void ClientReplica::Fail() {
 }
 
 void ClientReplica::ResetVisible() {
+    held_.clear();
     receiver_.reset();
     entity_of_.clear();
     compact_of_.clear();
@@ -108,7 +115,11 @@ void ClientReplica::HandleMessage(const TransportEvent& event) {
         return;
     }
     case MessageKind::StateBuffer:
-        ++stats_.messages_ignored;
+        if (state_ != ClientState::Connected) {
+            ++stats_.messages_ignored;
+            return;
+        }
+        HandleStateBuffer(event);
         return;
     default:
         Malformed(event.channel);
@@ -134,6 +145,10 @@ void ClientReplica::HandleServerHello(const ServerHello& hello) {
     entity_of_.assign(hello.max_visible, EntityId::Null());
     compact_of_.clear();
     batches_applied_ = 0;
+    held_.clear();
+    any_applied_ = false;
+    applied_latest_ = 0;
+    applied_bits_ = 0;
     state_ = ClientState::Connected;
 }
 
@@ -175,6 +190,103 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
     }
     receiver_->AdvanceEvents(batch.tick);
     ++batches_applied_;
+    ReleaseHeld();
+}
+
+const uint32_t* ClientReplica::WordsOf(EntityId id) const noexcept {
+    if (!receiver_) {
+        return nullptr;
+    }
+    const auto known = compact_of_.find(id.raw());
+    return known == compact_of_.end() ? nullptr : receiver_->Current(known->second);
+}
+
+bool ClientReplica::WasApplied(uint64_t tick) const noexcept {
+    if (!any_applied_ || tick > applied_latest_ || applied_latest_ - tick >= 64) {
+        return false;
+    }
+    return ((applied_bits_ >> (applied_latest_ - tick)) & 1ull) != 0;
+}
+
+void ClientReplica::MarkApplied(uint64_t tick) noexcept {
+    if (!any_applied_ || tick > applied_latest_) {
+        const uint64_t shift = any_applied_ ? tick - applied_latest_ : 0;
+        applied_bits_ = shift >= 64 ? 0 : applied_bits_ << shift;
+        applied_latest_ = tick;
+        any_applied_ = true;
+    }
+    const uint64_t offset = applied_latest_ - tick;
+    if (offset < 64) {
+        applied_bits_ |= 1ull << offset;
+    }
+}
+
+void ClientReplica::SendAck() {
+    // Bit i of the mask is the tick before the newest by i + 1, which is bit i + 1 of the window.
+    const uint32_t mask = static_cast<uint32_t>((applied_bits_ >> 1) & 0xFFFFFFFFull);
+    std::vector<uint8_t> bytes;
+    Encode(Ack{applied_latest_, mask}, bytes);
+    transport_.Send(0, Channel::Unreliable, bytes);
+    ++stats_.acks_sent;
+}
+
+void ClientReplica::HandleStateBuffer(const TransportEvent& event) {
+    StateBufferHeader header{};
+    std::span<const uint8_t> payload;
+    if (!DecodeStateBuffer(event.data, &header, &payload)) {
+        Malformed(event.channel);
+        return;
+    }
+    if (WasApplied(header.tick)) {
+        return; // a repeat of a tick that is already in
+    }
+    if (header.batches_sent > batches_applied_) {
+        Hold(header, payload); // its events have not all arrived: they may change what its compact ids mean
+        return;
+    }
+    ApplyBuffer(header.tick, payload);
+}
+
+void ClientReplica::Hold(const StateBufferHeader& header, std::span<const uint8_t> payload) {
+    ++stats_.buffers_held;
+    auto position = std::lower_bound(held_.begin(), held_.end(), header.tick,
+                                     [](const HeldBuffer& held, uint64_t tick) { return held.tick < tick; });
+    if (position != held_.end() && position->tick == header.tick) {
+        return; // the same tick twice: one copy is enough
+    }
+    held_.insert(position, HeldBuffer{header.tick, header.batches_sent,
+                                      std::vector<uint8_t>(payload.begin(), payload.end())});
+    if (held_.size() > kMaxHeld) {
+        held_.erase(held_.begin()); // the oldest is the least useful
+        ++stats_.buffers_dropped;
+    }
+}
+
+void ClientReplica::ReleaseHeld() {
+    std::vector<HeldBuffer> waiting;
+    std::vector<HeldBuffer> ready;
+    for (HeldBuffer& held : held_) {
+        (held.batches_sent <= batches_applied_ ? ready : waiting).push_back(std::move(held));
+    }
+    held_ = std::move(waiting);
+    for (const HeldBuffer& held : ready) {
+        if (!WasApplied(held.tick)) {
+            ApplyBuffer(held.tick, held.payload);
+        }
+    }
+}
+
+void ClientReplica::ApplyBuffer(uint64_t tick, std::span<const uint8_t> payload) {
+    // Every event batch the buffer cites has been applied, so the events up to its tick are in.
+    receiver_->AdvanceEvents(tick);
+    size_t applied = 0;
+    if (receiver_->Apply(payload, tick, &applied) == DecodeStatus::Ok) {
+        ++stats_.buffers_applied;
+        MarkApplied(tick);
+        apply_happened_ = true;
+    } else {
+        ++stats_.buffers_refused; // not confirmed: the server will send it again
+    }
 }
 
 } // namespace tessera::net
