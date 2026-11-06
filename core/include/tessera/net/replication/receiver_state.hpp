@@ -19,6 +19,7 @@ enum class DecodeStatus : uint8_t {
     UnknownEntity,   ///< A record named a compact id the receiver was not told about.
     MissingBaseline, ///< A partial record is written against a state the receiver does not have.
     StaleRecord,     ///< The buffer is from before the entity under that compact id became visible.
+    EventsMissing,   ///< The visibility events of the buffer's tick have not all been applied yet.
 };
 
 /// The receiving side of replicated state, and the reference decoder: it keeps, for each compact id, the
@@ -42,6 +43,14 @@ public:
     bool OnEnter(uint32_t compact_id, EntityId entity, uint64_t tick = 0);
     /// The entity using this compact id is no longer visible or no longer exists.
     void OnLeave(uint32_t compact_id);
+
+    /// Every visibility event the server produced up to and including `tick` has now been applied (call it
+    /// after each batch, empty ones included). A buffer for a tick that is ahead of this mark is refused with
+    /// `EventsMissing`: its compact ids may already stand for other entities on the server. The mark only
+    /// moves forward.
+    void AdvanceEvents(uint64_t tick) noexcept {
+        events_tick_ = tick > events_tick_ ? tick : events_tick_;
+    }
 
     /// Applies a buffer produced for `tick`. Stops at the first bad record, leaving it and later ones
     /// unapplied; `applied` (if given) receives how many records were applied.
@@ -68,6 +77,7 @@ private:
 
     const ReplicationSchema& schema_;
     uint32_t history_ticks_;
+    uint64_t events_tick_ = 0;
     std::vector<Slot> slots_;
 };
 

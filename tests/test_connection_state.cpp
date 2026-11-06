@@ -164,12 +164,12 @@ TESSERA_TEST(memory_scales_with_the_ids_in_use_not_the_maximum) {
         events.push_back(Enter(MakeEntity(kMobType, i), i));
     }
     connection.ApplyEvents(events);
-    TESSERA_CHECK(connection.MemoryBytes() < 64 * 1024);
+    TESSERA_CHECK(connection.MemoryBytes() < 128 * 1024); // one page of 256 ids, not the 65,536 allowed
     const size_t before = connection.MemoryBytes();
     const VisibilityEvent far[] = {Enter(MakeEntity(kMobType, 100'000), 60'000)};
     connection.ApplyEvents(far);
     TESSERA_CHECK(connection.MemoryBytes() > before); // a second page of records
-    TESSERA_CHECK(connection.MemoryBytes() < 128 * 1024);
+    TESSERA_CHECK(connection.MemoryBytes() < 256 * 1024);
 }
 
 TESSERA_TEST(compact_id_of_and_entity_of_are_inverse) {

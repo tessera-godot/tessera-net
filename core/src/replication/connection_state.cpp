@@ -27,8 +27,9 @@ void ClearBit(uint64_t* words, uint32_t index) noexcept {
 } // namespace
 
 ConnectionState::ConnectionState(const ReplicationSchema& schema, uint32_t max_visible,
-                                 uint32_t max_baseline_age_ticks)
+                                 uint32_t max_baseline_age_ticks, uint32_t max_unconfirmed_sends)
     : schema_(schema), max_visible_(max_visible), max_baseline_age_(max_baseline_age_ticks),
+      ring_(max_unconfirmed_sends < 1 ? 1 : (max_unconfirmed_sends > 255 ? 255 : max_unconfirmed_sends)),
       words_(schema.MaxWords()) {
     pages_.resize((static_cast<size_t>(max_visible) + kPageIds - 1) / kPageIds);
 }
@@ -38,10 +39,10 @@ ConnectionState::Page* ConnectionState::PageOf(uint32_t compact_id, bool create)
     if (!slot && create) {
         slot = std::make_unique<Page>();
         std::fill(std::begin(slot->entity), std::end(slot->entity), kNoEntity);
-        std::fill(std::begin(slot->sent_tick), std::end(slot->sent_tick), 0);
         std::fill(std::begin(slot->acked_tick), std::end(slot->acked_tick), 0);
         slot->acked.assign(static_cast<size_t>(kPageIds) * words_, 0);
-        slot->sent.assign(static_cast<size_t>(kPageIds) * words_, 0);
+        slot->sent.assign(static_cast<size_t>(kPageIds) * ring_ * words_, 0);
+        slot->sent_ticks.assign(static_cast<size_t>(kPageIds) * ring_, 0);
     }
     return slot.get();
 }
@@ -65,6 +66,8 @@ void ConnectionState::Release(uint32_t compact_id) {
     }
     const uint32_t local = compact_id % kPageIds;
     page->entity[local] = kNoEntity;
+    page->sent_count[local] = 0;
+    page->sent_head[local] = 0;
     ClearBit(page->in_use, local);
     ClearBit(page->pending, local);
     ClearBit(page->stale, local);
@@ -76,7 +79,8 @@ void ConnectionState::EnterOne(uint64_t raw, uint32_t compact_id) {
     Page* page = PageOf(compact_id, true);
     const uint32_t local = compact_id % kPageIds;
     page->entity[local] = raw;
-    page->sent_tick[local] = 0;
+    page->sent_count[local] = 0;
+    page->sent_head[local] = 0;
     page->acked_tick[local] = 0;
     SetBit(page->in_use, local);
     SetBit(page->pending, local); // no confirmed state yet, so the entity is sent in full
@@ -221,7 +225,6 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                 }
                 const TypeSchema& type = *schema_.Find(id.type());
                 uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
-                uint32_t* sent = page->sent.data() + static_cast<size_t>(local) * words_;
                 const bool has_baseline = TestBit(page->has_baseline, local);
                 const bool outstanding = TestBit(page->outstanding, local);
                 if (!outstanding && has_baseline &&
@@ -240,8 +243,16 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                 if (!use_baseline) {
                     ++stats.complete_records;
                 }
-                std::memcpy(sent, current, type.words * sizeof(uint32_t));
-                page->sent_tick[local] = tick;
+                // Remember this send, so that its confirmation can be used even if the entity is sent again
+                // first.
+                const uint32_t slot = page->sent_head[local];
+                std::memcpy(page->sent.data() + (static_cast<size_t>(local) * ring_ + slot) * words_, current,
+                            type.words * sizeof(uint32_t));
+                page->sent_ticks[static_cast<size_t>(local) * ring_ + slot] = tick;
+                page->sent_head[local] = static_cast<uint8_t>((slot + 1) % ring_);
+                if (page->sent_count[local] < ring_) {
+                    ++page->sent_count[local];
+                }
                 SetBit(page->outstanding, local);
                 ClearBit(page->stale, local);
                 previous = compact_id;
@@ -264,18 +275,44 @@ void ConnectionState::Confirm(uint64_t tick) {
             while (bits != 0) {
                 const uint32_t local = word * 64 + static_cast<uint32_t>(std::countr_zero(bits));
                 bits &= bits - 1;
-                if (page->sent_tick[local] != tick) {
-                    continue; // sent again since, or sent in another buffer
+                // Find the send made at this tick, newest first. Everything sent after it stays outstanding.
+                const uint32_t count = page->sent_count[local];
+                uint32_t newer = 0;
+                uint32_t found = ring_;
+                for (; newer < count; ++newer) {
+                    const uint32_t slot = (page->sent_head[local] + ring_ - 1 - newer) % ring_;
+                    if (page->sent_ticks[static_cast<size_t>(local) * ring_ + slot] == tick) {
+                        found = slot;
+                        break;
+                    }
+                }
+                if (found == ring_) {
+                    continue; // not sent at that tick, or forgotten since
                 }
                 const TypeSchema& type = *schema_.Find(EntityId::FromRaw(page->entity[local]).type());
                 std::memcpy(page->acked.data() + static_cast<size_t>(local) * words_,
-                            page->sent.data() + static_cast<size_t>(local) * words_,
+                            page->sent.data() + (static_cast<size_t>(local) * ring_ + found) * words_,
                             type.words * sizeof(uint32_t));
                 page->acked_tick[local] = tick;
                 SetBit(page->has_baseline, local);
-                ClearBit(page->outstanding, local);
-                if (!TestBit(page->stale, local)) {
-                    ClearBit(page->pending, local);
+                uint32_t still_outstanding = newer; // the confirmed send and the older ones are done
+                if (newer > 0 && !TestBit(page->stale, local)) {
+                    // Sent again with the very state the client has now confirmed, and nothing changed since:
+                    // the later sends only repeated it, so the client is up to date.
+                    const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
+                    if (std::memcmp(page->acked.data() + static_cast<size_t>(local) * words_,
+                                    page->sent.data() +
+                                        (static_cast<size_t>(local) * ring_ + newest) * words_,
+                                    type.words * sizeof(uint32_t)) == 0) {
+                        still_outstanding = 0;
+                    }
+                }
+                page->sent_count[local] = static_cast<uint8_t>(still_outstanding);
+                if (still_outstanding == 0) {
+                    ClearBit(page->outstanding, local);
+                    if (!TestBit(page->stale, local)) {
+                        ClearBit(page->pending, local);
+                    }
                 }
             }
         }
@@ -287,7 +324,8 @@ size_t ConnectionState::MemoryBytes() const noexcept {
         pages_.capacity() * sizeof(std::unique_ptr<Page>) + visible_.Entries().size() * sizeof(VisibleEntry);
     for (const std::unique_ptr<Page>& page : pages_) {
         if (page) {
-            bytes += sizeof(Page) + (page->acked.capacity() + page->sent.capacity()) * sizeof(uint32_t);
+            bytes += sizeof(Page) + (page->acked.capacity() + page->sent.capacity()) * sizeof(uint32_t) +
+                     page->sent_ticks.capacity() * sizeof(uint64_t);
         }
     }
     return bytes;

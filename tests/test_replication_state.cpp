@@ -89,23 +89,102 @@ TESSERA_TEST(stopped_and_confirmed_entity_writes_only_the_terminator) {
     TESSERA_CHECK(bytes.size() == 1); // just the 4-bit terminator, padded to a byte
 }
 
-TESSERA_TEST(confirm_promotes_only_the_exact_tick) {
+TESSERA_TEST(confirm_promotes_the_state_sent_at_that_tick) {
     Rig rig;
     const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
     rig.Refresh();
     rig.Enter(id, 0);
-    rig.Encode(5);
-    rig.Encode(6); // the same state is sent again, now tagged with tick 6
-    rig.conn.Confirm(5);
-    TESSERA_CHECK(!rig.conn.HasBaseline(0) && rig.conn.IsPending(0)); // 5 was superseded by the send at 6
-    rig.conn.Confirm(6);
-    TESSERA_CHECK(rig.conn.HasBaseline(0) && !rig.conn.IsPending(0));
+    rig.Encode(5); // state A
     rig.MoveX(id, 9.0f);
     rig.Refresh();
+    rig.Encode(6); // state B, sent before the confirmation of tick 5 came back
+    rig.conn.Confirm(5);
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && rig.conn.IsPending(0)); // A is confirmed, B is still on its way
     EncodeStats stats;
-    rig.Encode(7, &stats);
+    const std::vector<uint8_t> at_seven = rig.Encode(7, &stats);
     TESSERA_CHECK(stats.records == 1 &&
-                  stats.complete_records == 0); // partial, against the state confirmed at 6
+                  stats.complete_records == 0); // partial, against A (sent at 5, so age 2)
+    BitReader reader(at_seven);
+    uint32_t gap = 0, age = 0;
+    bool complete = true;
+    TESSERA_CHECK(ReadRecordHead(reader, &gap, &complete, &age) && !complete && age == 2);
+    rig.conn.Confirm(7); // the newest send
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && !rig.conn.IsPending(0));
+}
+
+TESSERA_TEST(continuously_moving_entity_is_confirmed_even_when_acks_lag) {
+    // The confirmation of tick t arrives two ticks later, while the entity is sent again every tick.
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    uint32_t complete_records = 0;
+    for (uint64_t tick = 1; tick <= 12; ++tick) {
+        rig.MoveX(id, 1.0f + static_cast<float>(tick));
+        rig.Refresh();
+        EncodeStats stats;
+        const std::vector<uint8_t> bytes = rig.Encode(tick, &stats);
+        complete_records += stats.complete_records;
+        TESSERA_CHECK(rig.receiver.Apply(bytes, tick) == DecodeStatus::Ok);
+        if (tick >= 3) {
+            rig.conn.Confirm(tick - 2);
+        }
+    }
+    TESSERA_CHECK(complete_records == 3); // ticks 1 to 3, before the first confirmation was back
+    TESSERA_CHECK(rig.conn.HasBaseline(0));
+    TESSERA_CHECK(rig.ReceiverMatchesStore(id, 0));
+}
+
+TESSERA_TEST(unchanged_entity_is_free_as_soon_as_one_of_its_sends_is_confirmed) {
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    rig.Encode(1);
+    rig.Encode(2);
+    rig.Encode(3); // unchanged, but sent each tick until one send is confirmed
+    TESSERA_CHECK(rig.conn.IsPending(0));
+    rig.conn.Confirm(1); // the client has this state, and the later sends only repeated it
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && !rig.conn.IsPending(0));
+    TESSERA_CHECK(rig.Encode(4).size() == 1);
+}
+
+TESSERA_TEST(changed_entity_stays_pending_until_its_newest_state_is_confirmed) {
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    rig.Encode(1);
+    rig.MoveX(id, 7.0f);
+    rig.Refresh();
+    rig.Encode(2);
+    rig.conn.Confirm(1); // confirms the old state: the newer one is still on its way
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && rig.conn.IsPending(0));
+    rig.MoveX(id, 8.0f); // and it changes again after being sent
+    rig.Refresh();
+    rig.conn.Confirm(2);
+    TESSERA_CHECK(rig.conn.IsPending(0)); // the state sent at 2 is no longer the current one
+    rig.Encode(3);
+    rig.conn.Confirm(3);
+    TESSERA_CHECK(!rig.conn.IsPending(0));
+}
+
+TESSERA_TEST(only_the_most_recent_sends_can_be_confirmed) {
+    Rig rig(1000, 32, 4); // room for 4 unconfirmed sends
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.Enter(id, 0);
+    for (uint64_t tick = 1; tick <= 10; ++tick) {
+        rig.MoveX(id, 1.0f + static_cast<float>(tick)); // every send carries a different state
+        rig.Refresh();
+        rig.Encode(tick);
+    }
+    rig.conn.Confirm(3); // forgotten long ago: no effect
+    TESSERA_CHECK(!rig.conn.HasBaseline(0));
+    rig.conn.Confirm(7);
+    TESSERA_CHECK(rig.conn.HasBaseline(0) && rig.conn.IsPending(0)); // 8, 9 and 10 are still outstanding
+    rig.conn.Confirm(10);
+    TESSERA_CHECK(!rig.conn.IsPending(0));
 }
 
 TESSERA_TEST(unknown_or_repeated_confirm_has_no_effect) {
@@ -348,4 +427,25 @@ TESSERA_TEST(record_for_an_entity_that_entered_later_is_rejected_as_stale) {
     TESSERA_CHECK(rig.receiver.Current(0) == nullptr);
     TESSERA_CHECK(rig.receiver.Apply(bytes, 10, &applied) == DecodeStatus::Ok && applied == 1);
     TESSERA_CHECK(rig.receiver.CurrentTick(0) == 10);
+}
+
+TESSERA_TEST(buffer_is_held_back_until_the_events_of_its_tick_were_applied) {
+    // A buffer can arrive before the visibility events of its tick: the compact ids in it may already mean
+    // other entities on the server, so the receiver refuses to decode it until it has caught up.
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.conn.ApplyEvents(std::vector<VisibilityEvent>{{VisibilityEvent::Kind::Enter, id, 0}});
+    const std::vector<uint8_t> bytes = rig.Encode(5);
+    ReceiverState strict(rig.schema, 1000, 32); // unlike the rig's receiver, this one follows the events
+    TESSERA_CHECK(strict.OnEnter(0, id, 4));
+    strict.AdvanceEvents(4);
+    size_t applied = 99;
+    TESSERA_CHECK(strict.Apply(bytes, 5, &applied) == DecodeStatus::EventsMissing && applied == 0);
+    TESSERA_CHECK(strict.Current(0) == nullptr);
+    strict.AdvanceEvents(5);
+    TESSERA_CHECK(strict.Apply(bytes, 5, &applied) == DecodeStatus::Ok && applied == 1);
+    strict.AdvanceEvents(3); // the mark never goes back
+    TESSERA_CHECK(strict.Apply(bytes, 5) == DecodeStatus::Ok);
+    TESSERA_CHECK(strict.Apply(bytes, 6) == DecodeStatus::EventsMissing);
 }

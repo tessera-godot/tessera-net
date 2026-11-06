@@ -33,8 +33,11 @@ class ConnectionState {
 public:
     /// `max_visible` is the number of compact ids (as in `RelevancyConfig::max_visible_per_connection`).
     /// `max_baseline_age_ticks` is how old a confirmed state may be before the entity is sent in full.
+    /// `max_unconfirmed_sends` is how many of the most recent sends of one entity are remembered, so that the
+    /// confirmation of any of them can be used even though the entity was sent again in the meantime.
     /// The schema must outlive this object and must not be moved.
-    ConnectionState(const ReplicationSchema& schema, uint32_t max_visible, uint32_t max_baseline_age_ticks);
+    ConnectionState(const ReplicationSchema& schema, uint32_t max_visible, uint32_t max_baseline_age_ticks,
+                    uint32_t max_unconfirmed_sends = 8);
 
     /// Applies the visibility events of one relevancy `Update`. An entity that enters is tracked with no
     /// confirmed state and is pending, so it is sent in full; one that leaves or is destroyed is forgotten.
@@ -51,9 +54,9 @@ public:
     /// pending.
     EncodeStats Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out);
 
-    /// The client confirmed it received the buffer written for `tick`: every entity whose latest send was in
-    /// that buffer now has the sent state as its confirmed state. Unknown, repeated or superseded ticks have
-    /// no effect.
+    /// The client confirmed it received the buffer written for `tick`: every entity that was sent in that
+    /// buffer (and whose send is still remembered) now has the state sent then as its confirmed state, and
+    /// the sends before it are forgotten. Unknown, repeated or forgotten ticks have no effect.
     void Confirm(uint64_t tick);
 
     /// The compact id of a tracked entity, or `kInvalidCompactId`.
@@ -79,15 +82,17 @@ private:
     // The records of 256 compact ids, allocated when the first id of the range is used.
     struct Page {
         uint64_t entity[kPageIds];
-        uint64_t sent_tick[kPageIds];
         uint64_t acked_tick[kPageIds];
+        uint8_t sent_count[kPageIds] = {}; // how many of the remembered sends are valid
+        uint8_t sent_head[kPageIds] = {};  // where the next send is written
         uint64_t in_use[kBitWords] = {};
         uint64_t pending[kBitWords] = {};      // the client may not have the current state
         uint64_t stale[kBitWords] = {};        // changed since it was last sent
         uint64_t has_baseline[kBitWords] = {}; // the client has confirmed a state
         uint64_t outstanding[kBitWords] = {};  // a state was sent and is not confirmed yet
         std::vector<uint32_t> acked;           // kPageIds * words per entity
-        std::vector<uint32_t> sent;
+        std::vector<uint32_t> sent;            // kPageIds * ring * words: the latest sends, a ring per entity
+        std::vector<uint64_t> sent_ticks;      // kPageIds * ring: the tick of each of them
     };
 
     Page* PageOf(uint32_t compact_id, bool create);
@@ -99,6 +104,7 @@ private:
     const ReplicationSchema& schema_;
     uint32_t max_visible_;
     uint32_t max_baseline_age_;
+    uint32_t ring_;
     uint32_t words_;
     VisibleSet visible_;
     std::vector<std::unique_ptr<Page>> pages_;

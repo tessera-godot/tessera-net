@@ -17,6 +17,9 @@ ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const Repl
     if (config.max_baseline_age_ticks == 0) {
         throw std::invalid_argument("ReplicationConfig::max_baseline_age_ticks must be at least 1");
     }
+    if (config.max_unconfirmed_sends == 0 || config.max_unconfirmed_sends > 255) {
+        throw std::invalid_argument("ReplicationConfig::max_unconfirmed_sends must be 1 to 255");
+    }
     connections_.resize(config.max_connections);
 }
 
@@ -24,8 +27,7 @@ bool ReplicationEngine::AddConnection(ConnectionId connection) {
     if (connection >= connections_.size() || connections_[connection]) {
         return false;
     }
-    connections_[connection] =
-        std::make_unique<Entry>(schema_, config_.max_visible_per_connection, config_.max_baseline_age_ticks);
+    connections_[connection] = std::make_unique<Entry>(schema_, config_);
     return true;
 }
 

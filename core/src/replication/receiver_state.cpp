@@ -31,6 +31,12 @@ void ReceiverState::OnLeave(uint32_t compact_id) {
 }
 
 DecodeStatus ReceiverState::Apply(std::span<const uint8_t> buffer, uint64_t tick, size_t* applied) {
+    if (tick > events_tick_) {
+        if (applied != nullptr) {
+            *applied = 0;
+        }
+        return DecodeStatus::EventsMissing;
+    }
     BitReader reader(buffer);
     int64_t previous = -1;
     size_t count = 0;

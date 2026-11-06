@@ -24,6 +24,10 @@ struct ReplicationConfig {
     /// A confirmed state older than this many ticks is not used as a baseline, the entity is sent in full
     /// instead. The receiving side must keep at least this many ticks of history.
     uint32_t max_baseline_age_ticks = 32;
+    /// How many of the most recent sends of one entity are remembered per connection (1 to 255), so that the
+    /// confirmation of a send can still be used after the entity was sent again. It should cover the
+    /// round-trip time in ticks.
+    uint32_t max_unconfirmed_sends = 8;
 };
 
 /// Runs replicated state for all connections: quantizes what changed in the entity tables, tells each
@@ -75,8 +79,9 @@ public:
 
 private:
     struct Entry {
-        Entry(const ReplicationSchema& schema, uint32_t max_visible, uint32_t max_age)
-            : state(schema, max_visible, max_age) {}
+        Entry(const ReplicationSchema& schema, const ReplicationConfig& config)
+            : state(schema, config.max_visible_per_connection, config.max_baseline_age_ticks,
+                    config.max_unconfirmed_sends) {}
         ConnectionState state;
         std::vector<uint8_t> output;
         EncodeStats stats;

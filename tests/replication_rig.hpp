@@ -23,8 +23,11 @@ struct Rig {
     ConnectionState conn;
     ReceiverState receiver;
 
-    explicit Rig(uint32_t max_visible = 1000, uint32_t max_age = 32)
-        : conn(schema, max_visible, max_age), receiver(schema, max_visible, max_age) {}
+    explicit Rig(uint32_t max_visible = 1000, uint32_t max_age = 32, uint32_t max_unconfirmed = 8)
+        : conn(schema, max_visible, max_age, max_unconfirmed), receiver(schema, max_visible, max_age) {
+        // These tests hand buffers to the receiver directly and do not model the delivery of events.
+        receiver.AdvanceEvents(~0ull);
+    }
 
     Rig(const Rig&) = delete;
     Rig& operator=(const Rig&) = delete;

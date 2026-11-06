@@ -76,6 +76,7 @@ TESSERA_TEST(end_to_end_for_one_connection) {
     ThreadPoolJobSystem jobs(1);
     ReplicationEngine engine(schema, SmallConfig(), jobs);
     ReceiverState receiver(schema, 1000, 32);
+    receiver.AdvanceEvents(~0ull); // this test does not model the delivery of events
     Table table{TableConfig{0, kMobType}};
     TESSERA_CHECK(engine.AddConnection(0));
     const EntityId id = Spawn(table, 1.0f, 2.0f, 3.0f);
@@ -262,5 +263,7 @@ TESSERA_TEST(engine_rejects_a_config_that_cannot_work) {
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_connections = 0; }));
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_visible_per_connection = 0; }));
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_baseline_age_ticks = 0; }));
+    TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_unconfirmed_sends = 0; }));
+    TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_unconfirmed_sends = 256; }));
     TESSERA_CHECK(!rejects([](ReplicationConfig&) {}));
 }
