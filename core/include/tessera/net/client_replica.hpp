@@ -52,6 +52,9 @@ public:
     /// Reads what the transport has, and acts on it.
     void Poll();
 
+    /// Leaves the server: closes the connection and forgets what the client knew. Harmless if already left.
+    void Disconnect();
+
     ClientState State() const noexcept {
         return state_;
     }

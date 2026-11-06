@@ -437,3 +437,19 @@ TESSERA_TEST(latest_tick_is_the_newest_applied_even_if_an_older_one_arrives_late
     s.h.Step();
     TESSERA_CHECK(s.h.client.LatestTick() == 9 && s.h.client.Stats().buffers_applied == 2);
 }
+
+TESSERA_TEST(disconnect_closes_the_connection_and_clears_what_the_client_knew) {
+    ClientHarness h;
+    Handshake(h);
+    h.SendBatch(1, 1, {Enter(MakeEntity(kMobType, 4), 0)});
+    h.Step();
+    TESSERA_CHECK(h.client.VisibleCount() == 1);
+    h.client.Disconnect();
+    TESSERA_CHECK(h.client.State() == ClientState::Disconnected && h.client.VisibleCount() == 0);
+    TESSERA_CHECK(h.client.Stats().protocol_errors == 0); // leaving is not a violation
+    h.Step();
+    h.Step();
+    TESSERA_CHECK(h.client.State() == ClientState::Disconnected);
+    h.client.Disconnect(); // twice is harmless
+    TESSERA_CHECK(h.client.State() == ClientState::Disconnected);
+}

@@ -50,6 +50,15 @@ void ClientReplica::Poll() {
     apply_happened_ = false;
 }
 
+void ClientReplica::Disconnect() {
+    if (state_ == ClientState::Disconnected) {
+        return;
+    }
+    transport_.Disconnect(0);
+    state_ = ClientState::Disconnected;
+    ResetVisible();
+}
+
 void ClientReplica::Malformed(Channel channel) {
     if (channel == Channel::ReliableOrdered) {
         Fail(); // the reliable stream is the server's own doing: if it is unreadable, something is wrong
