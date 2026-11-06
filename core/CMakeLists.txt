@@ -8,6 +8,7 @@ add_library(tessera_net_core STATIC
     src/relevancy/relevancy_config.cpp
     src/relevancy/compact_ids.cpp
     src/relevancy/relevancy_groups.cpp
+    src/relevancy/visible_set.cpp
     src/relevancy/relevancy_engine.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
