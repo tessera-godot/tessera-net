@@ -11,13 +11,14 @@ namespace tessera::net {
 ReceiverState::ReceiverState(const ReplicationSchema& schema, uint32_t max_visible, uint32_t history_ticks)
     : schema_(schema), history_ticks_(history_ticks), slots_(max_visible) {}
 
-bool ReceiverState::OnEnter(uint32_t compact_id, EntityId entity) {
+bool ReceiverState::OnEnter(uint32_t compact_id, EntityId entity, uint64_t tick) {
     const TypeSchema* type = schema_.Find(entity.type());
     if (compact_id >= slots_.size() || type == nullptr) {
         return false;
     }
     Slot& slot = slots_[compact_id];
     slot.in_use = true;
+    slot.entered_tick = tick;
     slot.type = type;
     slot.history.clear();
     return true;
@@ -52,6 +53,10 @@ DecodeStatus ReceiverState::Apply(std::span<const uint8_t> buffer, uint64_t tick
         Slot& slot = slots_[static_cast<size_t>(id)];
         if (!slot.in_use) {
             status = DecodeStatus::UnknownEntity;
+            break;
+        }
+        if (slot.entered_tick > tick) {
+            status = DecodeStatus::StaleRecord;
             break;
         }
         const Entry* base = nullptr;

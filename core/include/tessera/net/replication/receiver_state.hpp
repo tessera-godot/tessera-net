@@ -18,6 +18,7 @@ enum class DecodeStatus : uint8_t {
     BadRecord,       ///< A record held a value outside its declared range or an impossible number.
     UnknownEntity,   ///< A record named a compact id the receiver was not told about.
     MissingBaseline, ///< A partial record is written against a state the receiver does not have.
+    StaleRecord,     ///< The buffer is from before the entity under that compact id became visible.
 };
 
 /// The receiving side of replicated state, and the reference decoder: it keeps, for each compact id, the
@@ -32,8 +33,13 @@ public:
     /// The schema must outlive this object and must not be moved.
     ReceiverState(const ReplicationSchema& schema, uint32_t max_visible, uint32_t history_ticks);
 
-    /// An entity became visible under this compact id. False for an id out of range or a type without schema.
-    bool OnEnter(uint32_t compact_id, EntityId entity);
+    /// An entity became visible under this compact id, at the server tick of the `Enter` event. False for an
+    /// id out of range or a type without schema.
+    ///
+    /// Visibility events must be applied in the order the server produced them. A buffer from before `tick`
+    /// cannot be for this entity (the number may have belonged to another one), so it is rejected with
+    /// `StaleRecord` instead of being decoded against the wrong type.
+    bool OnEnter(uint32_t compact_id, EntityId entity, uint64_t tick = 0);
     /// The entity using this compact id is no longer visible or no longer exists.
     void OnLeave(uint32_t compact_id);
 
@@ -55,6 +61,7 @@ private:
     };
     struct Slot {
         bool in_use = false;
+        uint64_t entered_tick = 0;
         const TypeSchema* type = nullptr;
         std::vector<Entry> history; // ascending by tick
     };

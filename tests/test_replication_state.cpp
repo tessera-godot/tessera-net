@@ -333,3 +333,19 @@ TESSERA_TEST(receiver_survives_corrupt_buffers) {
         TESSERA_CHECK(applied <= 20);
     }
 }
+
+TESSERA_TEST(record_for_an_entity_that_entered_later_is_rejected_as_stale) {
+    // A delayed buffer can name a compact id that another entity has taken over since: it must not be
+    // applied.
+    Rig rig;
+    const EntityId id = rig.Spawn(1.0f, 2.0f, 3.0f);
+    rig.Refresh();
+    rig.conn.ApplyEvents(std::vector<VisibilityEvent>{{VisibilityEvent::Kind::Enter, id, 0}});
+    const std::vector<uint8_t> bytes = rig.Encode(5);
+    TESSERA_CHECK(rig.receiver.OnEnter(0, id, 10)); // the receiver learned of this entity at tick 10
+    size_t applied = 99;
+    TESSERA_CHECK(rig.receiver.Apply(bytes, 5, &applied) == DecodeStatus::StaleRecord && applied == 0);
+    TESSERA_CHECK(rig.receiver.Current(0) == nullptr);
+    TESSERA_CHECK(rig.receiver.Apply(bytes, 10, &applied) == DecodeStatus::Ok && applied == 1);
+    TESSERA_CHECK(rig.receiver.CurrentTick(0) == 10);
+}
