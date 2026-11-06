@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Replicated state (`ReplicationEngine`, `ReceiverState`): property descriptors for positions, angles, integers,
+  bit masks and enums, quantization, and a buffer for each player that holds only what differs from the last
+  state the player confirmed. A position update takes about 4.4 bytes. See
+  `docs/reference/replicated-state.md`.
+- Replicated state benchmark and a chart for it, and a section 6 on the benchmarks page. It does not reach its
+  speed goals yet (about 5.8 million updates per second on one thread against 10 million); the numbers and
+  what is left are in record 0009.
+- Architecture decision record 0009 (replicated state).
+- `EntityTable::Config()`.
 - Relevancy engine (`RelevancyEngine`): decides which entities each player sees, from the type of entity
   (spatial range, always relevant, owner only), with a hysteresis margin, several observers per player,
   inclusion and exclusion groups, and a short id per entity on each connection. See

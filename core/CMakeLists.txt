@@ -9,7 +9,16 @@ add_library(tessera_net_core STATIC
     src/relevancy/compact_ids.cpp
     src/relevancy/relevancy_groups.cpp
     src/relevancy/visible_set.cpp
-    src/relevancy/relevancy_engine.cpp)
+    src/relevancy/relevancy_engine.cpp
+    src/replication/bit_stream.cpp
+    src/replication/property_schema.cpp
+    src/replication/property_codecs.cpp
+    src/replication/state_store.cpp
+    src/replication/connection_state.cpp
+    src/replication/record_codec.cpp
+    src/replication/receiver_state.cpp
+    src/replication/replication_engine.cpp
+    src/replication/subscription_index.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)

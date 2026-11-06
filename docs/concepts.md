@@ -8,6 +8,14 @@ to it. It is the single source of truth.
 **Replication.** Copying the state of the game world from the server to the players, so everyone sees the
 same thing.
 
+**Quantization.** Storing a number with less precision than a `float` has, as a whole number of small
+steps: a position to the centimetre, an angle in 1,024 steps. It makes the numbers small and easy to compare.
+
+**Delta.** Sending only what differs from a state the other side already has, instead of everything.
+
+**Confirmation (ack).** The player telling the server that a buffer arrived. The server writes the next ones
+against the last state the player confirmed, so a lost packet never leaves the player out of step.
+
 **Entity.** Anything in the world that the server keeps track of: a player, a zombie, a tree, a dropped
 item.
 

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "bench_relevancy.hpp"
+#include "bench_replication.hpp"
 #include "bench_report.hpp"
 #include "simulation_harness.hpp"
 #include "tessera/net/entity_table.hpp"
@@ -210,6 +211,7 @@ int main() {
     CheckTickJitter();
     CheckDeterminism();
     CheckRelevancy();
+    CheckReplication();
     const int failures = bench::Failures();
     std::printf("\n%s (%d criteria failed)\n", failures == 0 ? "ALL CRITERIA PASSED" : "SOME CRITERIA FAILED", failures);
     return failures == 0 ? 0 : 1;

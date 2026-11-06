@@ -170,13 +170,94 @@ one observer per player and no exclusion or inclusion groups. Memory is the grow
 memory after adding the players and running a few ticks, divided by the number of players; memory the
 process had already freed can hide part of the growth, so treat it as a lower bound.
 
+## 6. Replicated state
+
+How fast can the server turn entity state into the bytes each player needs, and how large are they? Source:
+[`bench/bench_replication.cpp`](../bench/bench_replication.cpp). How it works is in the
+[replicated state reference](reference/replicated-state.md) and the decisions behind it are in
+[record 0009](adr/0009-replicated-state.md). There is no network and no live relevancy here: every player is given
+a fixed set of visible entities, so the numbers are those of replicated state alone.
+
+![Replicated state: time to write the buffers of one tick, measured value, regression limit and goal](images/replication-update.svg)
+
+The scenario: 128 players, each seeing 1,500 of 200,000 entities, whose state is a position, an angle, a health,
+16 flags and a state number. Players confirm the buffers of a tick two ticks later. In the first case every visible
+entity changes on every tick, so each tick writes 192,000 records. In the typical case each entity changes every
+sixth tick (five times a second at 30 Hz).
+
+| Measure | Result (median of 6 executions, range) | Limit | Goal |
+|---|---|---|---|
+| Updates written per second, 1 thread | 5.8 million (5.4 to 6.0) | 2.9 million | 10 million |
+| Efficiency with 8 workers | 44% (40% to 48%) | 22% | 70% |
+| Bytes per position update | 4.4 | 8 | 8 |
+| Memory per entity (stored state) | 54 B | 128 B | 128 B |
+| Memory per player | 0.69 MB | 4 MB | 4 MB |
+| Bytes per tick for a player who sees nothing that changed | 1 | 1 | 1 |
+| Same bytes with 1 and 8 workers | identical | identical | identical |
+
+**The first two goals are not met.** The limits are regression guards, at about half of what the engine measures
+today, so the benchmark fails if it gets clearly slower; the goals are what the next version is for.
+
+The six values behind the first two rows, and the main times, per tick (milliseconds, unless marked):
+
+| Execution | Updates per second, 1 thread | `Update`, 1 thread | `Update`, 8 workers | Efficiency | Typical case, 1 thread |
+|---|---|---|---|---|---|
+| 1 | 5.75 million | 33.4 | 9.5 | 44% | 25.5 |
+| 2 | 6.02 million | 31.9 | 10.0 | 40% | 24.7 |
+| 3 | 5.99 million | 32.1 | 9.3 | 43% | 23.5 |
+| 4 | 5.50 million | 34.9 | 9.8 | 44% | 24.6 |
+| 5 | 5.42 million | 35.4 | 9.3 | 48% | 30.5 |
+| 6 | 5.81 million | 33.1 | 10.0 | 41% | 23.2 |
+
+Other numbers from the same runs (medians, in milliseconds per tick unless marked):
+
+| Case | Time |
+|---|---|
+| Quantizing the 200,000 entities that changed | 10.4 |
+| Confirmations of one tick, all 128 players | 6.1 |
+| Typical case: `Update` and confirmations, 1 thread | 24.6, for 96,000 records |
+| Typical case: quantizing the entities that changed | 2.2 |
+| Building and writing one whole position record on its own, data in the processor cache | 48 nanoseconds (47 to 51) |
+| Writing only the bits of one position record, data in the processor cache | 28 nanoseconds (27 to 33) |
+
+How to read this:
+- **Two sets of measurements, and what changed between them.** A first set of six executions, taken while the
+  machine was compiling another large project, gave 4.7 million updates per second and 48% efficiency; the
+  numbers here were taken after that finished. An earlier version of this code, before a review found and fixed
+  two defects (a confirmation shortcut that could leave a player on an intermediate state, and entities that
+  never settled when the round trip was longer than the remembered sends), measured 6.5 million updates per
+  second and 46% efficiency. Quantizing the entities, which did not change, took 18% longer now than then, so
+  the real cost of the fix is less than the 11% difference in throughput. We will measure again on a quiet
+  machine.
+- **Where the time goes.** Before the engine kept an index of who sees what, it looked every changed entity up in
+  every player's visible set: 25.6 million searches a tick, about 330 ms in all (the benchmark of that version
+  is in the git history). With the index the same tick takes 33 ms.
+  What remains is about 6 ms to mark who needs what, on one thread (estimated from the difference between one
+  thread and eight), and about 173 nanoseconds per record in all (33 ms for 192,000 records, marking included),
+  against 48 for building and writing one record alone with the data in cache.
+- **What did not help.** Fetching the state of the entities ahead of use into the cache made no difference to the
+  throughput in our test. We think the per-player state, about 90 MB for 128 players, is what does not fit in
+  the cache, but we have not shown it with a profiler.
+- **The typical case is three times larger than it needs to be.** A changed entity is sent on three ticks in a
+  row until the confirmation of the first send comes back, so a tick writes 96,000 records where 32,000 carry
+  new information. How often to repeat belongs to the layer that decides what goes first, not to this one.
+- **Size.** The 4.4 bytes are the whole buffer divided by its records, so the 1-byte end marker of each buffer is
+  included. In the typical case a record takes 3.9 bytes, because the entity moves less between confirmed states.
+- **Memory.** The 54 bytes per entity are the stored state of the entity plus some room for the list of changes.
+  The 0.69 MB per player includes an equal part of the index of who sees what.
+
+Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far, one observer per player
+and no exclusion or inclusion groups. The machine was also running other programs, and the variation between executions
+is large.
+
 ## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
 [`bench/README.md`](../bench/README.md)):
 
 ```powershell
-# data core (section 4) and relevancy (section 5): one program, under a minute on the machine above
+# data core (section 4), relevancy (section 5) and replicated state (section 6): one program, a few minutes on the
+# machine above
 cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
 cmake --build --preset windows-msvc-release --target tessera_net_bench
 ./build/windows-msvc/bench/Release/tessera_net_bench.exe

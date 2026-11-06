@@ -14,3 +14,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0006](0006-relevancy-by-type-and-groups.md) | Relevancy by entity type, with hysteresis and groups | Accepted |
 | [0007](0007-relevancy-first-version.md) | The first relevancy version is accepted at its measured cost | Superseded by 0008 |
 | [0008](0008-incremental-relevancy.md) | Relevancy is updated incrementally, with a small tolerance | Accepted |
+| [0009](0009-replicated-state.md) | Replicated state against the last confirmed state, accepted at its measured cost | Accepted |

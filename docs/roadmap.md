@@ -17,7 +17,7 @@ Replication is built in slices:
 | Slice | What it covers | Status |
 |---|---|---|
 | Relevancy | Which entities each player sees: ranges per type, groups, short ids, incremental updates | Done ([benchmarks](benchmarks.md#5-relevancy)) |
-| Replicated state | Which properties are sent, quantization, changes only | Planned |
+| Replicated state | Which properties are sent, quantization, changes only | First version done, slower than its goal ([benchmarks](benchmarks.md#6-replicated-state)); more property kinds and a faster path to come |
 | Priority and bandwidth budget | What goes first when there is too much to send | Planned |
 | Transport | Sending packets, reliable and unreliable messages | Planned |
 | Client side | Applying what arrives, end-to-end test with many simulated players | Planned |

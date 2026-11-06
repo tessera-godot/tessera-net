@@ -179,12 +179,56 @@ def relevancy_chart():
                 "\n".join(parts))
 
 
+def replication_chart():
+    """Replicated state: time to write the buffers of one tick (log scale), measured value, guard and goal."""
+    # (label, measured ms, regression guard ms or None, goal ms or None)
+    # The guard and the goal are for 192,000 records (every visible entity changing): 2.9 and 10 million per second.
+    rows = [
+        ("200,000 entities changing, 1 thread", 33.2, 66.2, 19.2),
+        ("200,000 entities changing, 8 workers", 9.6, None, None),
+        ("5 Hz updates, 1 thread, with confirmations", 24.6, None, None),
+    ]
+    width, height = 720, 350
+    left, plot_w, top, row_h = 270, 380, 100, 54
+    lo, hi = 1.0, 100.0
+
+    def x_of(value):
+        return left + plot_w * (math.log10(value) - math.log10(lo)) / (math.log10(hi) - math.log10(lo))
+
+    parts = []
+    for tick in (1, 10, 100):
+        x = x_of(tick)
+        parts.append(f'<line x1="{x:.1f}" y1="{top - 8}" x2="{x:.1f}" y2="{top + row_h * len(rows)}" stroke="{GRID}"/>')
+        parts.append(text(x, top - 14, f"{tick:g} ms", 11, MUTED, "middle"))
+    for i, (label, value, guard, goal) in enumerate(rows):
+        y = top + row_h * i
+        parts.append(text(left - 12, y + 28, label, 13, INK, "end"))
+        parts.append(f'<rect x="{left}" y="{y + 12}" width="{x_of(value) - left:.1f}" height="22" rx="3" fill="{BLUE}"/>')
+        parts.append(text(left + 10, y + 28, f"{value:.3g} ms", 12, "#ffffff", weight="bold"))
+        if guard is not None:
+            parts.append(f'<line x1="{x_of(guard):.1f}" y1="{y + 6}" x2="{x_of(guard):.1f}" y2="{y + 40}" stroke="{RED}" stroke-width="2"/>')
+        if goal is not None:
+            parts.append(f'<line x1="{x_of(goal):.1f}" y1="{y + 6}" x2="{x_of(goal):.1f}" y2="{y + 40}" stroke="{GREEN}" stroke-width="2"/>')
+    legend_y = top + row_h * len(rows) + 28
+    parts.append(f'<rect x="{left}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{BLUE}"/>')
+    parts.append(text(left + 22, legend_y, "measured", 12, INK))
+    parts.append(f'<rect x="{left + 100}" y="{legend_y - 11}" width="4" height="14" fill="{RED}"/>')
+    parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
+    parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
+    parts.append(text(left + 242, legend_y, "goal", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. The first version is faster than the limit but has not reached its goal of 10 million updates per second.", 11, MUTED))
+    return card(width, height, "Replicated state: time per tick",
+                "128 players seeing 1,500 of 200,000 entities each. Median of 6 runs, desktop CPU, Release build. Shorter is better.",
+                chr(10).join(parts))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline-godot-replication.svg").write_text(baseline_chart(), encoding="utf-8")
     (OUT / "data-core-acceptance.svg").write_text(acceptance_chart(), encoding="utf-8")
     (OUT / "entities-vs-godot-nodes.svg").write_text(nodes_chart(), encoding="utf-8")
     (OUT / "relevancy-update.svg").write_text(relevancy_chart(), encoding="utf-8")
+    (OUT / "replication-update.svg").write_text(replication_chart(), encoding="utf-8")
     print("wrote", OUT)
 
 
