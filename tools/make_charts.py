@@ -139,10 +139,10 @@ def relevancy_chart():
     """Relevancy update cost per tick (log scale): measured value, regression guard and goal."""
     # (label, measured ms, regression guard ms or None, goal ms or None)
     rows = [
-        ("128 players, 1 M entities, 1 thread", 13.6, 25.0, 1.5),
-        ("128 players, 1 M entities, 8 workers", 2.31, 5.0, 0.4),
-        ("32 players, 250 k entities, 1 thread", 2.96, None, None),
-        ("32 players, 250 k entities, 8 workers", 0.60, None, None),
+        ("128 players, 1 M entities, 1 thread", 1.03, 2.0, 1.5),
+        ("128 players, 1 M entities, 8 workers", 0.33, 0.7, 0.4),
+        ("32 players, 250 k entities, 1 thread", 0.29, None, None),
+        ("32 players, 250 k entities, 8 workers", 0.10, None, None),
     ]
     width, height = 720, 400
     left, plot_w, top, row_h = 270, 380, 100, 54
@@ -172,8 +172,8 @@ def relevancy_chart():
     parts.append(f'<rect x="{left + 100}" y="{legend_y - 11}" width="4" height="14" fill="{RED}"/>')
     parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
     parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
-    parts.append(text(left + 242, legend_y, "goal for the next version", 12, INK))
-    parts.append(text(24, height - 18, "Log scale. The goals are not met yet: the next relevancy version is built to reach them.", 11, MUTED))
+    parts.append(text(left + 242, legend_y, "goal", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. Both goals are met in the main scenario; the limits only guard against regressions.", 11, MUTED))
     return card(width, height, "Relevancy: time per tick",
                 "Median of 4 runs, desktop CPU with 12 cores, Release build. Shorter is better.",
                 "\n".join(parts))

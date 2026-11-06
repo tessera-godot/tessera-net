@@ -13,6 +13,8 @@ item.
 
 **Relevancy (interest management).** Deciding which entities a given player needs to know about.
 A player in the north of the map does not need updates about a tree in the south.
+To stay cheap, the server does not look around every player on every tick: it remembers where it last looked
+(the *anchor*) and looks again only when the player has moved a few metres.
 
 **Area of interest (AOI).** The region around a player in which entities are relevant. Usually a circle or
 a set of grid cells.

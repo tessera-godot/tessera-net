@@ -13,8 +13,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `docs/reference/relevancy.md`.
 - `SpatialGrid::ForEachInSphere`, a query that allocates nothing and hands over the stored position.
 - Relevancy benchmark (main and smaller scenario), a chart for it, and a section 5 on the benchmarks page.
-  The first version does not reach its cost goals yet; the numbers and the way forward are in record 0007.
-- Architecture decision records 0006 (relevancy by entity type) and 0007 (the first relevancy version).
+  It meets its cost goals; the numbers are on the benchmarks page and the design is in record 0008.
+- Architecture decision records 0006 (relevancy by entity type), 0007 (the first relevancy version) and 0008
+  (incremental relevancy, which replaces 0007).
+- `SpatialGrid::ForEachInSphereOfType` and an optional record of the changes made to the grid
+  (`SetRecordChanges`, `Changes`, `ClearChanges`). Cells now group their entities by type.
 - Benchmarks page with charts (`docs/benchmarks.md`) and a script to regenerate them (`tools/make_charts.py`).
 - Source of every benchmark in `bench/`: the data core acceptance benchmark, the comparison with a
   general-purpose ECS, the comparison with Godot nodes, and the baseline of Godot's built-in replication.
@@ -26,6 +29,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   documentation structure.
 
 ### Changed
+- The relevancy engine now keeps an anchor for each observer and does a full look around a player only when an
+  observer has moved `observer_tolerance` (4 m by default) from it; otherwise it reconsiders only the entities
+  that changed nearby. A tick in the main benchmark scenario went from 15.4 ms to 1.03 ms on one thread and from
+  2.13 ms to 0.33 ms with eight workers. `RelevancyConfig::recalc_interval_ticks` is removed; new settings are
+  `observer_tolerance` and `max_reanchors_per_tick`. The engine takes the grid and the groups as non-constant
+  references and must be the only engine on its grid.
 - `SpatialGrid` cells now store each entity's position next to its id, so queries no longer look every
   entity up in a hash table. Queries return the same results; a query over 11,600 entities went from about
   1.9 ms to about 0.1 ms (measured with the first version of the relevancy benchmark).

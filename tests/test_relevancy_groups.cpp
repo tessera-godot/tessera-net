@@ -145,3 +145,64 @@ TESSERA_TEST(group_ids_are_never_reused) {
     const GroupId second = groups.CreateGroup(GroupKind::Inclusion);
     TESSERA_CHECK(first != 0 && second != 0 && first != second);
 }
+
+// ---- Version and per-entity inclusion check -------------------------------------------------------
+
+TESSERA_TEST(version_grows_on_every_effective_change) {
+    RelevancyGroups groups;
+    uint64_t version = groups.version();
+    TESSERA_CHECK(version == 0);
+    const GroupId g = groups.CreateGroup(GroupKind::Inclusion);
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.AddMember(g, Id(1));
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.SetStatus(g, 3, true);
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.SetStatusForAll(g, true);
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.RemoveMember(g, Id(1));
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.AddMember(g, Id(2));
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.RemoveEntity(Id(2));
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.SetStatus(g, 5, true);
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.RemoveConnection(5);
+    TESSERA_CHECK(groups.version() == ++version);
+    groups.DestroyGroup(g);
+    TESSERA_CHECK(groups.version() == ++version);
+}
+
+TESSERA_TEST(version_does_not_change_when_nothing_changed) {
+    RelevancyGroups groups;
+    const GroupId g = groups.CreateGroup(GroupKind::Exclusion);
+    groups.AddMember(g, Id(1));
+    const uint64_t before = groups.version();
+    groups.AddMember(g, Id(1));          // already a member
+    groups.RemoveMember(g, Id(2));       // not a member
+    groups.AddMember(999, Id(1));        // unknown group
+    groups.RemoveMember(999, Id(1));
+    groups.SetStatus(999, 0, true);
+    groups.SetStatusForAll(999, true);
+    groups.DestroyGroup(999);
+    groups.RemoveEntity(Id(77));         // in no group
+    groups.RemoveConnection(42);         // no exceptions
+    TESSERA_CHECK(groups.version() == before);
+}
+
+TESSERA_TEST(is_included_for_follows_membership_and_status) {
+    RelevancyGroups groups;
+    const GroupId include = groups.CreateGroup(GroupKind::Inclusion);
+    const GroupId exclude = groups.CreateGroup(GroupKind::Exclusion);
+    groups.AddMember(include, Id(1));
+    groups.AddMember(exclude, Id(2));
+    groups.SetStatus(include, 3, true);
+    groups.SetStatusForAll(exclude, true);
+    TESSERA_CHECK(groups.IsIncludedFor(Id(1), 3));
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(1), 4));   // not allowed for connection 4
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(2), 3));   // exclusion groups never include
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(9), 3));   // in no group
+    groups.RemoveMember(include, Id(1));
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(1), 3));
+}

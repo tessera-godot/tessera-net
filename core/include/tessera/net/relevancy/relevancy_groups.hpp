@@ -61,9 +61,21 @@ public:
     /// True if the entity belongs to an exclusion group that does not allow this connection.
     bool IsExcluded(EntityId entity, ConnectionId connection) const;
 
+    /// True if the entity belongs to an inclusion group that allows this connection. Safe to call in
+    /// parallel.
+    bool IsIncludedFor(EntityId entity, ConnectionId connection) const;
+
     /// Appends the members of every inclusion group that allows this connection. The same entity
     /// can appear more than once, and the order is not specified.
     void AppendIncluded(ConnectionId connection, std::vector<EntityId>& out) const;
+
+    /// Grows by one with every call that changes something: a group created or destroyed, a member
+    /// added or removed, a status set, an entity or a connection taken out of the groups. Calls that
+    /// fail or change nothing leave it alone. Whoever depends on the groups (the relevancy engine)
+    /// compares it with the value it saw last time to know that the groups changed.
+    uint64_t version() const noexcept {
+        return version_;
+    }
 
     /// Removes an entity from every group (call when the entity is destroyed).
     void RemoveEntity(EntityId entity);
@@ -87,6 +99,7 @@ private:
     static bool Allowed(const Group& group, ConnectionId connection);
 
     GroupId next_id_ = 1;
+    uint64_t version_ = 0;
     std::unordered_map<GroupId, Group> groups_;
     // The reverse index: which groups an entity belongs to. Makes IsExcluded one lookup per entity.
     std::unordered_map<uint64_t, std::vector<GroupId>> groups_of_entity_;

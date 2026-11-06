@@ -5,7 +5,7 @@ High-performance, dedicated-server networking for Godot 4, built for large open 
 Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
 
 > **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
-> job system) and a first relevancy engine (deciding what each player sees) are implemented and tested.
+> job system) and a relevancy engine (deciding what each player sees) are implemented and tested.
 > Sending entity state, the transport, the Godot plugin and the dedicated server are not built yet, so
 > nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
@@ -46,8 +46,9 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 | Registered entities | 1 million, cost proportional to changes |
 
 These are targets, not results. Measured numbers are published as they exist, including the ones that miss
-their target: the first relevancy engine takes about 14 ms per tick for 128 players among a million entities
-(one thread), and its goal is 1.5 ms. See the [benchmarks](docs/benchmarks.md#5-relevancy).
+their target. For example, the relevancy engine takes about 1 ms per tick on one thread for 128 players among a
+million entities, against a goal of 1.5 ms; a first version took 15 ms. See the
+[benchmarks](docs/benchmarks.md#5-relevancy).
 
 ## What exists today
 
@@ -64,7 +65,9 @@ with one worker or many. See the [relevancy reference](docs/reference/relevancy.
 
 ![Relevancy time per tick: measured value, regression limit and goal](docs/images/relevancy-update.svg)
 
-The relevancy goals are not met yet; the chart shows where it stands and what the next version is for.
+Both relevancy goals are met in the main scenario (128 players, one million entities, 700 of them moving per
+tick): about 1 ms per tick on one thread and 0.3 ms with eight workers. The engine does a full look around a
+player only when they have moved a few metres; see [record 0008](docs/adr/0008-incremental-relevancy.md).
 
 All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).
 

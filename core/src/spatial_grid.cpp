@@ -47,6 +47,9 @@ bool SpatialGrid::Insert(EntityId id, float x, float y, float z) {
     Entry entry{x, y, z, CellOf(x, y, z), 0};
     AddToCell(entry.cell, id, entry);
     entries_.emplace(id.raw(), entry);
+    if (record_changes_) {
+        changes_.push_back(GridChange{GridChange::Kind::Inserted, id, x, y, z, x, y, z});
+    }
     return true;
 }
 
@@ -55,7 +58,11 @@ bool SpatialGrid::Remove(EntityId id) {
     if (it == entries_.end()) {
         return false;
     }
-    RemoveFromCell(it->second);
+    if (record_changes_) {
+        const Entry& e = it->second;
+        changes_.push_back(GridChange{GridChange::Kind::Removed, id, e.x, e.y, e.z, e.x, e.y, e.z});
+    }
+    RemoveFromCell(id, it->second);
     entries_.erase(it);
     return true;
 }
@@ -82,17 +89,22 @@ size_t SpatialGrid::ApplyMoves(const std::vector<PendingMove>& moves) {
             continue;
         }
         Entry& entry = it->second;
+        if (record_changes_ && (entry.x != move.x || entry.y != move.y || entry.z != move.z)) {
+            changes_.push_back(GridChange{GridChange::Kind::Moved, move.id, entry.x, entry.y, entry.z,
+                                          move.x, move.y, move.z});
+        }
         entry.x = move.x;
         entry.y = move.y;
         entry.z = move.z;
         const CellCoord target = CellOf(move.x, move.y, move.z);
         if (!(target == entry.cell)) {
-            RemoveFromCell(entry);
+            RemoveFromCell(move.id, entry);
             AddToCell(target, move.id, entry);
             ++changed;
         } else {
             // Same cell: the copy of the position kept in the cell must follow.
-            CellMember& member = cells_.find(entry.cell)->second[entry.index_in_cell];
+            Cell& cell = cells_.find(entry.cell)->second;
+            CellMember& member = FindGroup(cell, move.id.type())->members[entry.index_in_cell];
             member.x = move.x;
             member.y = move.y;
             member.z = move.z;
@@ -101,16 +113,34 @@ size_t SpatialGrid::ApplyMoves(const std::vector<PendingMove>& moves) {
     return changed;
 }
 
-void SpatialGrid::AddToCell(CellCoord cell, EntityId id, Entry& entry) {
-    std::vector<CellMember>& members = cells_[cell];
-    entry.cell = cell;
-    entry.index_in_cell = static_cast<uint32_t>(members.size());
-    members.push_back(CellMember{id, entry.x, entry.y, entry.z});
+SpatialGrid::TypeGroup* SpatialGrid::FindGroup(Cell& cell, uint32_t type) {
+    for (TypeGroup& group : cell.groups) {
+        if (group.type == type) {
+            return &group;
+        }
+    }
+    return nullptr;
 }
 
-void SpatialGrid::RemoveFromCell(const Entry& entry) {
+void SpatialGrid::AddToCell(CellCoord coord, EntityId id, Entry& entry) {
+    Cell& cell = cells_[coord];
+    const uint32_t type = id.type();
+    // Keep the groups ascending by type; a cell holds only a handful of them.
+    auto at = std::lower_bound(cell.groups.begin(), cell.groups.end(), type,
+                               [](const TypeGroup& group, uint32_t t) { return group.type < t; });
+    if (at == cell.groups.end() || at->type != type) {
+        at = cell.groups.insert(at, TypeGroup{type, {}});
+    }
+    entry.cell = coord;
+    entry.index_in_cell = static_cast<uint32_t>(at->members.size());
+    at->members.push_back(CellMember{id, entry.x, entry.y, entry.z});
+}
+
+void SpatialGrid::RemoveFromCell(EntityId id, const Entry& entry) {
     const auto cell_it = cells_.find(entry.cell);
-    std::vector<CellMember>& members = cell_it->second;
+    Cell& cell = cell_it->second;
+    TypeGroup* group = FindGroup(cell, id.type());
+    std::vector<CellMember>& members = group->members;
     const CellMember moved = members.back();
     members[entry.index_in_cell] = moved;
     members.pop_back();
@@ -118,6 +148,9 @@ void SpatialGrid::RemoveFromCell(const Entry& entry) {
         entries_.find(moved.id.raw())->second.index_in_cell = entry.index_in_cell;
     }
     if (members.empty()) {
+        cell.groups.erase(cell.groups.begin() + (group - cell.groups.data()));
+    }
+    if (cell.groups.empty()) {
         cells_.erase(cell_it);
     }
 }
@@ -125,8 +158,10 @@ void SpatialGrid::RemoveFromCell(const Entry& entry) {
 void SpatialGrid::QueryCell(CellCoord cell, std::vector<EntityId>& out) const {
     const auto it = cells_.find(cell);
     if (it != cells_.end()) {
-        for (const CellMember& member : it->second) {
-            out.push_back(member.id);
+        for (const TypeGroup& group : it->second.groups) {
+            for (const CellMember& member : group.members) {
+                out.push_back(member.id);
+            }
         }
     }
 }

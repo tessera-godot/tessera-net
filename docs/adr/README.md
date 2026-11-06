@@ -12,4 +12,5 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0004](0004-per-type-paged-tables.md) | Entities are stored in per-type paged tables | Accepted |
 | [0005](0005-entity-identification.md) | Entity identification | Accepted |
 | [0006](0006-relevancy-by-type-and-groups.md) | Relevancy by entity type, with hysteresis and groups | Accepted |
-| [0007](0007-relevancy-first-version.md) | The first relevancy version is accepted at its measured cost | Accepted |
+| [0007](0007-relevancy-first-version.md) | The first relevancy version is accepted at its measured cost | Superseded by 0008 |
+| [0008](0008-incremental-relevancy.md) | Relevancy is updated incrementally, with a small tolerance | Accepted |
