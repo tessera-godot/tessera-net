@@ -47,6 +47,9 @@ bool SpatialGrid::Insert(EntityId id, float x, float y, float z) {
     Entry entry{x, y, z, CellOf(x, y, z), 0};
     AddToCell(entry.cell, id, entry);
     entries_.emplace(id.raw(), entry);
+    if (record_changes_) {
+        changes_.push_back(GridChange{GridChange::Kind::Inserted, id, x, y, z, x, y, z});
+    }
     return true;
 }
 
@@ -54,6 +57,10 @@ bool SpatialGrid::Remove(EntityId id) {
     const auto it = entries_.find(id.raw());
     if (it == entries_.end()) {
         return false;
+    }
+    if (record_changes_) {
+        const Entry& e = it->second;
+        changes_.push_back(GridChange{GridChange::Kind::Removed, id, e.x, e.y, e.z, e.x, e.y, e.z});
     }
     RemoveFromCell(id, it->second);
     entries_.erase(it);
@@ -82,6 +89,10 @@ size_t SpatialGrid::ApplyMoves(const std::vector<PendingMove>& moves) {
             continue;
         }
         Entry& entry = it->second;
+        if (record_changes_ && (entry.x != move.x || entry.y != move.y || entry.z != move.z)) {
+            changes_.push_back(GridChange{GridChange::Kind::Moved, move.id, entry.x, entry.y, entry.z,
+                                          move.x, move.y, move.z});
+        }
         entry.x = move.x;
         entry.y = move.y;
         entry.z = move.z;

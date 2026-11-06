@@ -448,3 +448,107 @@ TESSERA_TEST(swap_removal_inside_a_type_group_keeps_positions_and_indexes_right)
     });
     TESSERA_CHECK(count == 1 && x == 30.0f);
 }
+
+// ---- Change feed --------------------------------------------------------------------------------
+
+using tessera::net::GridChange;
+using ChangeKind = tessera::net::GridChange::Kind;
+
+TESSERA_TEST(changes_are_not_recorded_by_default) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.ApplyMoves({PendingMove{Id(1), 50.0f, 2.0f, 3.0f}});
+    grid.Remove(Id(1));
+    TESSERA_CHECK(grid.Changes().empty());
+}
+
+TESSERA_TEST(insert_and_remove_are_recorded_with_positions) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.SetRecordChanges(true);
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.Remove(Id(1));
+    const auto changes = grid.Changes();
+    TESSERA_CHECK(changes.size() == 2);
+    TESSERA_CHECK(changes[0].kind == ChangeKind::Inserted && changes[0].id == Id(1));
+    TESSERA_CHECK(changes[0].old_x == 1.0f && changes[0].old_y == 2.0f && changes[0].old_z == 3.0f);
+    TESSERA_CHECK(changes[0].new_x == 1.0f && changes[0].new_y == 2.0f && changes[0].new_z == 3.0f);
+    TESSERA_CHECK(changes[1].kind == ChangeKind::Removed && changes[1].id == Id(1));
+    TESSERA_CHECK(changes[1].old_x == 1.0f && changes[1].new_x == 1.0f);
+    TESSERA_CHECK(changes[1].old_y == 2.0f && changes[1].new_y == 2.0f);
+    TESSERA_CHECK(changes[1].old_z == 3.0f && changes[1].new_z == 3.0f);
+}
+
+TESSERA_TEST(move_to_another_cell_is_recorded_with_old_and_new_position) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.SetRecordChanges(true);
+    TESSERA_CHECK(grid.ApplyMoves({PendingMove{Id(1), 55.0f, 2.0f, -4.0f}}) == 1);
+    const auto changes = grid.Changes();
+    TESSERA_CHECK(changes.size() == 1);
+    TESSERA_CHECK(changes[0].kind == ChangeKind::Moved && changes[0].id == Id(1));
+    TESSERA_CHECK(changes[0].old_x == 1.0f && changes[0].old_y == 2.0f && changes[0].old_z == 3.0f);
+    TESSERA_CHECK(changes[0].new_x == 55.0f && changes[0].new_y == 2.0f && changes[0].new_z == -4.0f);
+}
+
+TESSERA_TEST(move_inside_the_same_cell_is_recorded) {
+    SpatialGrid grid(GridConfig{100.0f, 100.0f, 100.0f});
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.SetRecordChanges(true);
+    TESSERA_CHECK(grid.ApplyMoves({PendingMove{Id(1), 2.0f, 2.0f, 3.0f}}) == 0);
+    const auto changes = grid.Changes();
+    TESSERA_CHECK(changes.size() == 1 && changes[0].kind == ChangeKind::Moved);
+    TESSERA_CHECK(changes[0].old_x == 1.0f && changes[0].new_x == 2.0f);
+}
+
+TESSERA_TEST(move_to_the_same_position_is_not_recorded) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.SetRecordChanges(true);
+    grid.ApplyMoves({PendingMove{Id(1), 1.0f, 2.0f, 3.0f}});
+    TESSERA_CHECK(grid.Changes().empty());
+}
+
+TESSERA_TEST(failed_calls_are_not_recorded) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.Insert(Id(1), 1.0f, 2.0f, 3.0f);
+    grid.SetRecordChanges(true);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    TESSERA_CHECK(!grid.Insert(Id(1), 5.0f, 5.0f, 5.0f));  // already there
+    TESSERA_CHECK(!grid.Insert(Id(2), nan, 0.0f, 0.0f));   // not finite
+    TESSERA_CHECK(!grid.Remove(Id(9)));                    // unknown
+    grid.ApplyMoves({PendingMove{Id(9), 1.0f, 1.0f, 1.0f}, PendingMove{Id(1), nan, 0.0f, 0.0f}});
+    TESSERA_CHECK(grid.Changes().empty());
+}
+
+TESSERA_TEST(changes_keep_their_order_and_clear_changes_empties_them) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.SetRecordChanges(true);
+    grid.Insert(Id(1), 1.0f, 0.0f, 0.0f);
+    grid.Insert(Id(2), 2.0f, 0.0f, 0.0f);
+    grid.ApplyMoves({PendingMove{Id(2), 3.0f, 0.0f, 0.0f}, PendingMove{Id(1), 4.0f, 0.0f, 0.0f}});
+    grid.Remove(Id(2));
+    const auto changes = grid.Changes();
+    TESSERA_CHECK(changes.size() == 5);
+    TESSERA_CHECK(changes[0].id == Id(1) && changes[0].kind == ChangeKind::Inserted);
+    TESSERA_CHECK(changes[1].id == Id(2) && changes[1].kind == ChangeKind::Inserted);
+    TESSERA_CHECK(changes[2].id == Id(2) && changes[2].kind == ChangeKind::Moved);
+    TESSERA_CHECK(changes[3].id == Id(1) && changes[3].kind == ChangeKind::Moved);
+    TESSERA_CHECK(changes[4].id == Id(2) && changes[4].kind == ChangeKind::Removed);
+    grid.ClearChanges();
+    TESSERA_CHECK(grid.Changes().empty());
+    grid.Insert(Id(3), 5.0f, 0.0f, 0.0f);
+    TESSERA_CHECK(grid.Changes().size() == 1);
+}
+
+TESSERA_TEST(turning_recording_off_stops_new_records_but_keeps_old_ones) {
+    SpatialGrid grid(GridConfig{10.0f, 10.0f, 10.0f});
+    grid.SetRecordChanges(true);
+    grid.Insert(Id(1), 1.0f, 0.0f, 0.0f);
+    grid.SetRecordChanges(false);
+    grid.Insert(Id(2), 2.0f, 0.0f, 0.0f);
+    TESSERA_CHECK(grid.Changes().size() == 1 && grid.Changes()[0].id == Id(1));
+    grid.SetRecordChanges(true);  // turning it on again is harmless
+    grid.SetRecordChanges(true);
+    grid.Insert(Id(3), 3.0f, 0.0f, 0.0f);
+    TESSERA_CHECK(grid.Changes().size() == 2);
+}

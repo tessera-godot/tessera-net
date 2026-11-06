@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -38,6 +39,17 @@ struct PendingMove {
     float x;
     float y;
     float z;
+};
+
+/// One change made to the grid, as reported by `SpatialGrid::Changes()`. For `Inserted` the old position
+/// equals the new one; for `Removed` the new position equals the old one.
+struct GridChange {
+    enum class Kind : uint8_t { Inserted, Moved, Removed };
+
+    Kind kind;
+    EntityId id;
+    float old_x, old_y, old_z;
+    float new_x, new_y, new_z;
 };
 
 }  // namespace tessera::net
@@ -85,6 +97,19 @@ public:
 
     size_t EntityCount() const noexcept { return entries_.size(); }
     size_t CellCount() const noexcept { return cells_.size(); }
+
+    /// Starts or stops keeping a list of the changes made to the grid (off by default, and then nothing
+    /// is kept). While on, every `Insert`, `Remove` and every move in `ApplyMoves` that changes a
+    /// position is added to the list, in the order it happened, including moves inside one cell. Calls
+    /// that fail, and moves to the same position, are not recorded. Whoever turns it on must call
+    /// `ClearChanges` regularly, or the list grows without limit. Only one consumer should read it.
+    void SetRecordChanges(bool enabled) noexcept { record_changes_ = enabled; }
+
+    /// The changes recorded since the last `ClearChanges`.
+    std::span<const GridChange> Changes() const noexcept { return changes_; }
+
+    /// Empties the list of recorded changes.
+    void ClearChanges() noexcept { changes_.clear(); }
 
     /// Appends the entities of one cell to `out`.
     void QueryCell(CellCoord cell, std::vector<EntityId>& out) const;
@@ -222,6 +247,8 @@ private:
     GridConfig config_;
     std::unordered_map<CellCoord, Cell> cells_;
     std::unordered_map<uint64_t, Entry> entries_;
+    bool record_changes_ = false;
+    std::vector<GridChange> changes_;
 };
 
 }  // namespace tessera::net
