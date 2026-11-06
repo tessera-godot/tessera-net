@@ -55,8 +55,53 @@ void ReplicationServer::SetCallbacks(std::function<void(ConnectionId)> on_connec
     on_disconnected_ = std::move(on_disconnected);
 }
 
-void ReplicationServer::Update(uint64_t) {
+void ReplicationServer::Update(uint64_t tick) {
+    // Whoever connected, left or confirmed something is dealt with first, so that the rest of the phase only
+    // sees the players that are really there.
     ProcessTransport();
+    relevancy_.Update(tick);
+    SendEventBatches(tick);
+    replication_.Update(tick);
+    SendStateBuffers(tick);
+}
+
+// The visibility events go to the player first and in order, numbered, on the reliable channel, and to the
+// replication engine. A state buffer that depends on them is sent after.
+void ReplicationServer::SendEventBatches(uint64_t tick) {
+    for (ConnectionId id = 0; id < slot_transport_.size(); ++id) {
+        if (slot_transport_[id] == 0) {
+            continue;
+        }
+        const std::vector<VisibilityEvent>& events = relevancy_.Events(id).events;
+        if (events.empty()) {
+            continue; // nothing changed in what this player sees: no message
+        }
+        Peer& peer = peers_.at(slot_transport_[id]);
+        ++peer.batches_sent;
+        std::vector<uint8_t> bytes;
+        Encode(EventBatch{peer.batches_sent, tick, events}, bytes);
+        transport_.Send(slot_transport_[id], Channel::ReliableOrdered, bytes);
+        ++stats_.event_batches_sent;
+        replication_.ApplyVisibility(id, events);
+        relevancy_.ClearEvents(id);
+    }
+}
+
+void ReplicationServer::SendStateBuffers(uint64_t tick) {
+    for (ConnectionId id = 0; id < slot_transport_.size(); ++id) {
+        if (slot_transport_[id] == 0) {
+            continue;
+        }
+        const std::span<const uint8_t> output = replication_.Output(id);
+        if (output.size() <= 1) {
+            continue; // just the end marker: an idle player costs nothing
+        }
+        const Peer& peer = peers_.at(slot_transport_[id]);
+        std::vector<uint8_t> bytes;
+        EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent}, output, bytes);
+        transport_.Send(slot_transport_[id], Channel::Unreliable, bytes);
+        ++stats_.state_buffers_sent;
+    }
 }
 
 void ReplicationServer::ProcessTransport() {
@@ -129,6 +174,10 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
     if (!peer.handshaken) {
         ++stats_.messages_ignored;
         return;
+    }
+    // Each tick the ack confirms for the first time is confirmed to the replication engine, once.
+    for (const uint64_t tick : peer.acks.Add(ack)) {
+        replication_.Confirm(peer.id, tick);
     }
 }
 

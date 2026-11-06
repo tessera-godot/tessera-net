@@ -92,12 +92,16 @@ private:
     struct Peer {
         bool handshaken = false;
         ConnectionId id = 0;
+        uint64_t batches_sent = 0; // event batches sent to this player so far
+        AckWindow acks;            // the ticks this player has confirmed
     };
 
     static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config);
     static ReplicationConfig MakeReplicationConfig(const ServerConfig& config);
 
     void ProcessTransport();
+    void SendEventBatches(uint64_t tick);
+    void SendStateBuffers(uint64_t tick);
     void HandleMessage(TransportConnection connection, Peer& peer, const TransportEvent& event);
     void HandleHello(TransportConnection connection, Peer& peer, const ClientHello& hello);
     void Reject(TransportConnection connection, RejectReason reason);

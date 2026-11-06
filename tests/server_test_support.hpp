@@ -106,14 +106,24 @@ struct ServerHarness {
     std::vector<std::unique_ptr<FakeClient>> clients;
     std::vector<ConnectionId> connected;
     std::vector<ConnectionId> disconnected;
+    std::function<void(ConnectionId)>
+        on_connect_hook; // lets a test set observers while the player is accepted
+    EntityTable<TestColumns> table{TableConfig{0, kMobType}};
+    std::vector<PendingMove> pending_moves;
     uint64_t tick = 0;
 
     explicit ServerHarness(const ServerConfig& config = SmallServerConfig(),
                            const NetworkConditions& conditions = NetworkConditions{}, uint32_t workers = 1)
         : jobs(workers), network(conditions),
           server(config, TestRelevancyConfig(), schema, grid, groups, jobs, network.Server()) {
-        server.SetCallbacks([this](ConnectionId id) { connected.push_back(id); },
-                            [this](ConnectionId id) { disconnected.push_back(id); });
+        server.SetCallbacks(
+            [this](ConnectionId id) {
+                connected.push_back(id);
+                if (on_connect_hook) {
+                    on_connect_hook(id);
+                }
+            },
+            [this](ConnectionId id) { disconnected.push_back(id); });
     }
 
     FakeClient& AddClient() {
@@ -122,12 +132,43 @@ struct ServerHarness {
         return *clients.back();
     }
 
+    // A mob in the world: in the table (flagged as changed) and in the grid.
+    EntityId AddMob(float x, float z) {
+        const EntityId id = table.Create();
+        const auto where = table.Find(id);
+        TestColumns& columns = table.Columns(where->page);
+        columns.x[where->slot] = x;
+        columns.y[where->slot] = 0.0f;
+        columns.z[where->slot] = z;
+        table.MarkDirty(id);
+        grid.Insert(id, x, 0.0f, z);
+        return id;
+    }
+
+    // Moves a mob; the grid learns of it at the start of the next step.
+    void MoveMob(EntityId id, float x, float z) {
+        const auto where = table.Find(id);
+        TestColumns& columns = table.Columns(where->page);
+        columns.x[where->slot] = x;
+        columns.z[where->slot] = z;
+        table.MarkDirty(id);
+        pending_moves.push_back(PendingMove{id, x, 0.0f, z});
+    }
+
+    void Observe(ConnectionId id, float x, float z) {
+        const Observer eye{x, 0.0f, z};
+        server.Relevancy().SetObservers(id, std::span<const Observer>(&eye, 1));
+    }
+
     // One tick: the network delivers, the fake clients read, the server runs its network phase.
     void Step() {
         network.Advance(tick);
         for (const auto& client : clients) {
             client->Collect();
         }
+        grid.ApplyMoves(pending_moves);
+        pending_moves.clear();
+        server.Refresh(table);
         server.Update(tick);
         ++tick;
     }
