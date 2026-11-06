@@ -365,3 +365,122 @@ TESSERA_TEST(entity_removed_from_the_grid_without_a_destroy_leaves_on_the_next_r
     TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
     TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
 }
+
+// ---- Groups ----------------------------------------------------------------------------------------
+
+namespace {
+
+/// A connection with one observer at the origin.
+void AddViewer(Fixture& f, ConnectionId id) {
+    f.engine.AddConnection(id);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(id, std::span<const Observer>(&eye, 1));
+}
+
+}  // namespace
+
+TESSERA_TEST(exclusion_hides_a_spatial_entity_and_makes_a_visible_one_leave) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    const EntityId seen = MakeId(kSpatialType, 1);
+    const EntityId hidden = MakeId(kSpatialType, 2);
+    f.grid.Insert(seen, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(hidden, 20.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, hidden);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, seen) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, hidden) == kInvalidCompactId);
+
+    f.groups.AddMember(g, seen);  // now an already visible entity is vetoed
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, seen) == kInvalidCompactId);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Leave) == 1);
+}
+
+TESSERA_TEST(exclusion_hides_global_and_owned_entities) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId global = MakeId(kGlobalType, 1);
+    const EntityId owned = MakeId(kOwnedType, 2);
+    f.engine.OnEntityCreated(global);
+    f.engine.OnEntityCreated(owned);
+    f.engine.SetOwner(owned, 0);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, global);
+    f.groups.AddMember(g, owned);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
+}
+
+TESSERA_TEST(releasing_the_exclusion_for_one_connection_shows_the_entity_there_only) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    AddViewer(f, 1);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, e);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0 && f.engine.VisibleCount(1) == 0);
+
+    f.groups.SetStatus(g, 1, true);
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(1, e) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+}
+
+TESSERA_TEST(inclusion_shows_a_far_entity_to_the_allowed_connection_only) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    AddViewer(f, 1);
+    const EntityId far_away = MakeId(kSpatialType, 1);
+    f.grid.Insert(far_away, 5000.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Inclusion);
+    f.groups.AddMember(g, far_away);
+    f.groups.SetStatus(g, 1, true);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(1, far_away) != kInvalidCompactId);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, far_away) == kInvalidCompactId);
+}
+
+TESSERA_TEST(exclusion_wins_over_inclusion_and_over_always_relevant) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    const GroupId include = f.groups.CreateGroup(GroupKind::Inclusion);
+    const GroupId exclude = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(include, e);
+    f.groups.SetStatusForAll(include, true);
+    f.groups.AddMember(exclude, e);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+}
+
+TESSERA_TEST(entity_in_no_group_is_unaffected_by_other_groups) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    const EntityId plain = MakeId(kSpatialType, 1);
+    const EntityId vetoed = MakeId(kSpatialType, 2);
+    f.grid.Insert(plain, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(vetoed, 12.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, vetoed);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, plain) != kInvalidCompactId);
+}
+
+TESSERA_TEST(destroying_a_group_restores_the_normal_rules) {
+    Fixture f(MakeConfig(1));
+    AddViewer(f, 0);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 10.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.AddMember(g, e);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) == kInvalidCompactId);
+    f.groups.DestroyGroup(g);
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
+}

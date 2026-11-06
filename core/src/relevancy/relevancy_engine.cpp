@@ -39,6 +39,7 @@ struct RelevancyEngine::Connection {
 
     // Scratch space reused every recalculation so the hot path does not allocate.
     std::vector<uint64_t> wanted;
+    std::vector<EntityId> included;
     std::vector<uint64_t> entering;
     std::vector<uint64_t> leaving;
 
@@ -157,7 +158,7 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
     });
 }
 
-void RelevancyEngine::Recalculate(ConnectionId, Connection& connection) const {
+void RelevancyEngine::Recalculate(ConnectionId id, Connection& connection) const {
     connection.wanted.clear();
     // Spatial types: one query per observer with the widest reach, then each candidate is judged by
     // its own type. An entity already visible gets the hysteresis margin, so it does not flicker.
@@ -183,7 +184,16 @@ void RelevancyEngine::Recalculate(ConnectionId, Connection& connection) const {
     }
     connection.wanted.insert(connection.wanted.end(), always_.begin(), always_.end());
     connection.wanted.insert(connection.wanted.end(), connection.owned.begin(), connection.owned.end());
+    // Groups: inclusion adds entities the type rules would hide; exclusion has the last word.
+    connection.included.clear();
+    groups_.AppendIncluded(id, connection.included);
+    for (const EntityId member : connection.included) {
+        connection.wanted.push_back(member.raw());
+    }
     SortUnique(connection.wanted);
+    connection.wanted.erase(std::remove_if(connection.wanted.begin(), connection.wanted.end(),
+                                           [&](uint64_t raw) { return groups_.IsExcluded(EntityId::FromRaw(raw), id); }),
+                            connection.wanted.end());
     Reconcile(connection);
 }
 
