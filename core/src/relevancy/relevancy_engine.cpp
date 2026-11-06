@@ -201,14 +201,22 @@ void RelevancyEngine::Recalculate(ConnectionId id, Connection& connection) const
                                       if (rule.mode != RelevancyMode::Spatial || !(rule.range > 0.0f)) {
                                           return;
                                       }
-                                      const bool seen = connection.visible.contains(id.raw());
-                                      const double reach = seen ? static_cast<double>(rule.range + rule.hysteresis_margin)
-                                                                : static_cast<double>(rule.range);
                                       const double dx = static_cast<double>(x) - observer.x;
                                       const double dy = static_cast<double>(y) - observer.y;
                                       const double dz = static_cast<double>(z) - observer.z;
-                                      if (dx * dx + dy * dy + dz * dz <= reach * reach) {
+                                      const double distance_squared = dx * dx + dy * dy + dz * dz;
+                                      const double range = static_cast<double>(rule.range);
+                                      if (distance_squared <= range * range) {
                                           connection.wanted.push_back(id.raw());
+                                          return;
+                                      }
+                                      // Outside the range: only an entity that is already visible may stay, up to
+                                      // the margin. Most candidates are far beyond it, so the lookup is rare.
+                                      if (rule.hysteresis_margin > 0.0f) {
+                                          const double reach = static_cast<double>(rule.range + rule.hysteresis_margin);
+                                          if (distance_squared <= reach * reach && connection.visible.contains(id.raw())) {
+                                              connection.wanted.push_back(id.raw());
+                                          }
                                       }
                                   });
         }
