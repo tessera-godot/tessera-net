@@ -5,9 +5,10 @@ High-performance, dedicated-server networking for Godot 4, built for large open 
 Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
 
 > **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
-> job system) and a relevancy engine (deciding what each player sees) are implemented and tested.
-> Sending entity state, the transport, the Godot plugin and the dedicated server are not built yet, so
-> nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> job system), a relevancy engine (deciding what each player sees) and replicated state (turning what
+> changed into small buffers for each player) are implemented and tested. Sending those buffers over a
+> network, the transport, the Godot plugin and the dedicated server are not built yet, so nothing here is
+> ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -47,7 +48,8 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 
 These are targets, not results. Measured numbers are published as they exist, including the ones that miss
 their target. For example, the relevancy engine takes about 1 ms per tick on one thread for 128 players among a
-million entities, against a goal of 1.5 ms; a first version took 15 ms. See the
+million entities, against a goal of 1.5 ms; a first version took 15 ms. Replicated state, on the other hand,
+writes about 6.5 million updates per second on one thread against a goal of 10 million. See the
 [benchmarks](docs/benchmarks.md#5-relevancy).
 
 ## What exists today
@@ -68,6 +70,18 @@ with one worker or many. See the [relevancy reference](docs/reference/relevancy.
 Both relevancy goals are met in the main scenario (128 players, one million entities, 700 of them moving per
 tick): about 1 ms per tick on one thread and 0.3 ms with eight workers. The engine does a full look around a
 player only when they have moved a few metres; see [record 0008](docs/adr/0008-incremental-relevancy.md).
+
+**Replicated state** (`core/`): for each player, only what changed in the entities they can see, as a few
+bytes. Properties are described once (a position to the centimetre, an angle, a health), every change is
+written against the last state the player confirmed, so lost, repeated and late packets do no harm, and an
+entity that has not changed costs nothing. A position update takes about 4.4 bytes. See the
+[replicated state reference](docs/reference/replicated-state.md).
+
+![Replicated state: time per tick, measured value, regression limit and goal](docs/images/replication-update.svg)
+
+The goals for size and memory are met; the goal for speed is not yet: about 6.5 million updates per second on
+one thread (the goal is 10 million) and about 45% efficiency with eight workers (the goal is 70%). The
+numbers and what is left to improve are in [record 0009](docs/adr/0009-replicated-state.md).
 
 All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).
 
@@ -110,7 +124,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
 | `tests/` | Automated tests |
-| `bench/` | Benchmarks: the data core, the relevancy engine and the comparisons shown in the docs |
+| `bench/` | Benchmarks: the data core, relevancy, replicated state and the comparisons shown in the docs |
 | `docs/` | Documentation, architecture and decision records |
 | `tools/` | Build and packaging scripts |
 
@@ -121,6 +135,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Concepts explained simply](docs/concepts.md)
 - [Core library reference](docs/reference/core.md)
 - [Relevancy reference](docs/reference/relevancy.md)
+- [Replicated state reference](docs/reference/replicated-state.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

@@ -47,7 +47,9 @@ table.Destroy(id);                     // false for a stale or foreign id
 
 The constructor throws `std::invalid_argument` if the type or shard does not fit in an `EntityId`. Slots never move, so an entity keeps its place for its whole life. A slot whose generation counter
 runs out is retired and never reused. `MarkDirty` and `ConsumeDirtyInPage` track what changed, which
-the replication layer uses to send only differences.
+the replication layer uses to send only differences: flag an entity with `MarkDirty` after you create it and
+after you change a replicated column (see the [replicated state reference](replicated-state.md)).
+`Config()` returns the shard and type the table was created with.
 
 ### `TypeRegistry` (`type_registry.hpp`)
 Maps type numbers (0 to 255) to names. Fill it once at start-up.
