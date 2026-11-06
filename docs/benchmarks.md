@@ -102,59 +102,68 @@ scale less well. Only Windows has been measured so far; Linux results will be ad
 How long does it take to decide what each player needs to know about? Source:
 [`bench/bench_relevancy.cpp`](../bench/bench_relevancy.cpp). How the engine works is in the
 [relevancy reference](reference/relevancy.md), and the decisions behind it are in records
-[0006](adr/0006-relevancy-by-type-and-groups.md) and [0007](adr/0007-relevancy-first-version.md).
+[0006](adr/0006-relevancy-by-type-and-groups.md) and [0008](adr/0008-incremental-relevancy.md).
 
 ![Relevancy time per tick: measured value, regression limit and goal](images/relevancy-update.svg)
 
 The main scenario: 128 players and 1,000,000 entities spread evenly over 10 km by 10 km (10,000 per square
-kilometre), grid cells of 128 m, 700 entities moving every tick. Every player has one observer that drifts
-a few metres per tick. Entities belong to four types that can be seen from 100, 250, 400 and 600 m (60%,
-25%, 10% and 5% of the entities), with an 8 m hysteresis margin. Each player re-checks every 3 ticks, so
-about 43 players are re-checked per tick.
+kilometre), grid cells of 128 m, 700 entities moving every tick by 0.2 m. Every player has one observer that
+moves at 5 m/s, and one player in ten at 25 m/s (a vehicle). Entities belong to four types that can be seen
+from 100, 250, 400 and 600 m (60%, 25%, 10% and 5% of the entities), with an 8 m hysteresis margin. The
+observer tolerance is 4 m and at most 32 full looks are done per tick. About 6.25 players per tick need a
+full look around them.
 
 | Measure | Result (median of 4 executions, range) | Limit | Goal |
 |---|---|---|---|
-| Entities visible to a player | 1,789 | between 1,000 and 2,000 | n/a |
-| Time per tick, 1 thread | 13.6 ms (12.5 to 17.6) | 25 ms | 1.5 ms |
-| Time per tick, 8 workers | 2.31 ms (2.16 to 3.48) | 5 ms | 0.4 ms |
-| Memory per player | about 0.17 MB | 2 MB | n/a |
+| Entities visible to a player | 1,787 | between 1,000 and 2,000 | n/a |
+| Time per tick, 1 thread | 1.03 ms (0.97 to 1.44) | 2.0 ms | 1.5 ms |
+| Time per tick, 8 workers | 0.33 ms (0.31 to 0.40) | 0.7 ms | 0.4 ms |
+| Memory per player | about 0.16 MB | 2 MB | n/a |
 | Same events with 1 and 8 workers | identical | identical | n/a |
 
-Each execution of the program reports the median of 5 runs of 30 ticks, after 9 warm-up ticks. We executed
-the program four times and give the median of those four values and their range. The four values, in
+Each execution of the program reports the median of 5 runs of 30 ticks, after 9 warm-up ticks. We executed the
+program four times and give the median of those four values and their range. The four values, in
 milliseconds per tick:
 
 | Execution | Main, 1 thread | Main, 8 workers | Smaller, 1 thread | Smaller, 8 workers |
 |---|---|---|---|---|
-| 1 (machine busier) | 17.57 | 3.48 | 4.24 | 0.74 |
-| 2 | 13.47 | 2.32 | 2.63 | 0.59 |
-| 3 | 13.72 | 2.30 | 3.28 | 0.59 |
-| 4 | 12.54 | 2.16 | 2.59 | 0.60 |
+| 1 | 0.97 | 0.31 | 0.27 | 0.09 |
+| 2 | 1.08 | 0.34 | 0.34 | 0.11 |
+| 3 | 1.44 | 0.40 | 0.29 | 0.10 |
+| 4 | 0.97 | 0.31 | 0.29 | 0.09 |
 
-The same program also runs a smaller scenario, for information only: 32 players and 250,000 entities at the
-same density, 175 entities moving per tick. The median tick takes 2.96 ms on one thread and 0.60 ms with
-eight workers.
+The same program also measures, for information only (medians of the four executions, in milliseconds per
+tick):
+
+| Case | 1 thread | 8 workers |
+|---|---|---|
+| Smaller scenario: 32 players, 250,000 entities at the same density, 175 moving per tick | 0.29 | 0.10 |
+| Half of the players moving at 25 m/s | 2.46 | 0.57 |
+| Stress: every observer jumps to a random place each tick | 4.68 | 0.83 |
+
+A full look around one player takes about 78 µs.
 
 How to read this:
-- **The limits are regression guards, not goals.** They sit above what the engine measures today, so the
-  benchmark fails if it gets slower. The goals (1.5 ms and 0.4 ms) are what the next version is built to
-  reach. **They are not met yet.** We allow 3.3 ms on one thread for the whole network phase of a 128-player
-  server ([README](../README.md#design-goals)). On one thread the relevancy engine alone takes about four
-  times that; with eight workers it takes about 70% of it.
-- **Where the time goes.** One query to the grid at the widest range returns about 11,600 entities in about
-  90 to 120 µs (roughly 8 to 10 ns each). A re-check of one player costs about 320 µs in total, so most of it
-  is spent after the query: filtering, ordering and comparing with what the player already sees. We estimate
-  that split; it was not timed separately.
-- **Where it started.** The first measurement, taken with the first version of `bench_relevancy.cpp` before
-  the changes described in [record 0007](adr/0007-relevancy-first-version.md), was 136 to 147 ms on one
-  thread and 23 to 24 ms with eight workers. Storing positions inside the grid cells and skipping a lookup for
-  most candidates made it about ten times faster. That version of the program is in the git history, in the
-  commit before "Keep entity positions inside grid cells".
-- **Scaling.** The cost follows the number of players and how many entities lie within the widest range, not
-  the size of the world: the smaller scenario costs about 4.6 times less with a quarter of the players, close
-  to proportional. On one thread the smaller scenario takes about 90% of the 3.3 ms budget, and with eight
-  workers about a fifth of it.
-- **Variation.** One execution in four was noticeably slower (17.57 and 3.48 ms) while the machine was busy.
+- **The limits are regression guards, not goals.** They are about twice the median, so the run-to-run
+  variation does not fail the benchmark and a real slowdown does. The goals (1.5 ms and 0.4 ms) are what the
+  engine was built to reach. One 8-worker execution measured 0.40 ms, exactly the goal, which is why the
+  guard cannot sit at the goal. We allow 3.3 ms on one thread for the whole network phase of a 128-player
+  server ([README](../README.md#design-goals)); relevancy takes about a third of it on one thread and about a
+  tenth with eight workers.
+- **Where it started.** The first version rebuilt each player's visible set every few ticks and measured 15.4
+  ms on one thread and 2.13 ms with eight workers under this same movement (136 to 147 ms and 23 to 24 ms
+  before the grid stored positions inside its cells; that version of the program is in the git history).
+  Asking the grid per entity type, keeping the visible set sorted, reconsidering only the entities that
+  changed and finding those through an index by grid cell made it 15 times faster on one thread and 6.5
+  times with eight workers. See [record 0008](adr/0008-incremental-relevancy.md).
+- **Fast players cost more.** A player moving at 25 m/s needs a full look every 5 ticks with a 4 m tolerance.
+  With half of the players doing that, a tick takes about 2.5 times as long. If your game has many fast
+  players, use more workers or a larger tolerance.
+- **Scaling.** The cost follows the number of players, how many entities move near them and how fast the
+  players move, not the size of the world. The smaller scenario has a quarter of the players and costs about
+  3.5 times less on one thread.
+- **Variation.** The machine was running other work during the measurements, and one execution was clearly
+  slower than the rest (1.44 ms and 0.40 ms).
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far. The benchmark uses
 one observer per player and no exclusion or inclusion groups. Memory is the growth of the process's resident

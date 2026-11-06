@@ -1,6 +1,6 @@
 # 0007. The first relevancy version is accepted at its measured cost
 
-- **Status:** Accepted
+- **Status:** Superseded by [0008](0008-incremental-relevancy.md)
 - **Date:** 2026-11-06
 
 ## Context

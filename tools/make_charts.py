@@ -139,10 +139,10 @@ def relevancy_chart():
     """Relevancy update cost per tick (log scale): measured value, regression guard and goal."""
     # (label, measured ms, regression guard ms or None, goal ms or None)
     rows = [
-        ("128 players, 1 M entities, 1 thread", 13.6, 25.0, 1.5),
-        ("128 players, 1 M entities, 8 workers", 2.31, 5.0, 0.4),
-        ("32 players, 250 k entities, 1 thread", 2.96, None, None),
-        ("32 players, 250 k entities, 8 workers", 0.60, None, None),
+        ("128 players, 1 M entities, 1 thread", 1.03, 2.0, 1.5),
+        ("128 players, 1 M entities, 8 workers", 0.33, 0.7, 0.4),
+        ("32 players, 250 k entities, 1 thread", 0.29, None, None),
+        ("32 players, 250 k entities, 8 workers", 0.10, None, None),
     ]
     width, height = 720, 400
     left, plot_w, top, row_h = 270, 380, 100, 54

@@ -73,6 +73,16 @@ the entities that crossed a cell border; `ApplyMoves` then updates the grid in o
 `fn(id, x, y, z)` for every entity within the radius (borders included) and hands over the stored position,
 which is what the [relevancy engine](relevancy.md) uses. It can be called from many threads at once.
 
+`ForEachInSphereOfType(type, cx, cy, cz, radius, fn)` does the same for the entities of one type only. Each
+cell keeps its entities grouped by type, so asking once per type, each with its own radius, is much cheaper
+than one wide query when the types have different reaches.
+
+`SetRecordChanges(true)` makes the grid keep a list of what happened to it: every `Insert`, `Remove` and every
+move in `ApplyMoves` that changes a position (including moves inside one cell). `Changes()` returns the list
+of `GridChange` records (kind, entity id, old and new position) and `ClearChanges()` empties it. It is off by
+default and then costs nothing. Whoever turns it on must clear it regularly, and only one reader should use it:
+the relevancy engine does, so do not share a grid between two engines.
+
 The grid stores the position of each entity as of the last `ApplyMoves`. `QueryBox`, `QuerySphere` and
 `ForEachInSphere` filter on those stored positions, so if you need exact answers, pass a `PendingMove` for every entity
 that moved, not only for those that crossed a cell border (`ApplyMoves` reports how many changed cell).

@@ -18,7 +18,8 @@ The rules also have to be easy to understand: a developer should be able to say 
   own type, measured by exact distance.
 - **Re-check every few ticks, not every tick.** Each player's visible set is recomputed every N ticks
   (3 by default), staggered between players so the work is even. Destruction is the exception: it is
-  reported at once. N and the margin below are configuration.
+  reported at once. N and the margin below are configuration. *This schedule was replaced by
+  [0008](0008-incremental-relevancy.md); the other decisions here still hold.*
 - **A hysteresis margin per type.** An entity that is already visible stays visible a little beyond its
   range, so entities at the edge do not flicker.
 - **Groups for exceptions.** An exclusion group hides its members from every player except those it allows;
@@ -39,6 +40,7 @@ layer that sends entity state.
 - The rules are easy to explain and to configure, and a game can add exceptions without touching the engine.
 - The cost of a re-check depends on how many entities lie within the widest range, so a type with a very
   large range makes every re-check more expensive. Choose the widest range carefully.
-- The delay before an entity appears is up to N ticks (about 100 ms with the defaults at 30 Hz).
+- With the first schedule the delay before an entity appeared was up to N ticks (about 100 ms with the
+  defaults at 30 Hz). The incremental version removes that delay; see [0008](0008-incremental-relevancy.md).
 - Recomputing the whole visible set is simple and correct, but it is not the cheapest possible approach.
-  See [0007](0007-relevancy-first-version.md).
+  See [0007](0007-relevancy-first-version.md) and [0008](0008-incremental-relevancy.md).
