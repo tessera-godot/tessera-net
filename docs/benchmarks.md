@@ -139,9 +139,9 @@ tick):
 |---|---|---|
 | Smaller scenario: 32 players, 250,000 entities at the same density, 175 moving per tick | 0.29 | 0.10 |
 | Half of the players moving at 25 m/s | 2.46 | 0.57 |
-| Stress: every observer jumps to a random place each tick | 4.68 | 0.83 |
+| Stress: every observer moves up to 10 m and every moving entity up to 30 m per axis each tick | 4.68 | 0.83 |
 
-A full look around one player takes about 78 µs.
+A separate measurement of the grid query by type, the sort and the merge for one player takes about 78 µs; a full look in the engine does more than that (groups, always-relevant and owned entities, ids), so treat it as a lower bound.
 
 How to read this:
 - **The limits are regression guards, not goals.** They are about twice the median, so the run-to-run
@@ -157,7 +157,7 @@ How to read this:
   changed and finding those through an index by grid cell made it 15 times faster on one thread and 6.5
   times with eight workers. See [record 0008](adr/0008-incremental-relevancy.md).
 - **Fast players cost more.** A player moving at 25 m/s needs a full look every 5 ticks with a 4 m tolerance.
-  With half of the players doing that, a tick takes about 2.5 times as long. If your game has many fast
+  With half of the players doing that, a tick takes about 2.4 times as long on one thread and 1.7 times with eight workers. If your game has many fast
   players, use more workers or a larger tolerance.
 - **Scaling.** The cost follows the number of players, how many entities move near them and how fast the
   players move, not the size of the world. The smaller scenario has a quarter of the players and costs about

@@ -102,12 +102,11 @@ RelevancyEngine::RelevancyEngine(const RelevancyConfig& config, SpatialGrid& gri
     }
     seen_group_version_ = groups_.version();
     grid_.ClearChanges(); // start from now: what was in the grid before is found by the first evaluations
-    grid_.SetRecordChanges(true);
+    grid_.RetainChangeRecording();
 }
 
 RelevancyEngine::~RelevancyEngine() {
-    grid_.SetRecordChanges(false);
-    grid_.ClearChanges();
+    grid_.ReleaseChangeRecording();
 }
 
 bool RelevancyEngine::AddConnection(ConnectionId connection) {

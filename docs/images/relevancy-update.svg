@@ -32,6 +32,6 @@
 <rect x="370" y="333" width="4" height="14" fill="#dc2626"/>
 <text x="382" y="344" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">regression limit</text>
 <rect x="500" y="333" width="4" height="14" fill="#16a34a"/>
-<text x="512" y="344" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal for the next version</text>
-<text x="24" y="382" font-size="11" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">Log scale. The goals are not met yet: the next relevancy version is built to reach them.</text>
+<text x="512" y="344" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal</text>
+<text x="24" y="382" font-size="11" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">Log scale. Both goals are met in the main scenario; the limits only guard against regressions.</text>
 </svg>

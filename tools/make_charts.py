@@ -172,8 +172,8 @@ def relevancy_chart():
     parts.append(f'<rect x="{left + 100}" y="{legend_y - 11}" width="4" height="14" fill="{RED}"/>')
     parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
     parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
-    parts.append(text(left + 242, legend_y, "goal for the next version", 12, INK))
-    parts.append(text(24, height - 18, "Log scale. The goals are not met yet: the next relevancy version is built to reach them.", 11, MUTED))
+    parts.append(text(left + 242, legend_y, "goal", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. Both goals are met in the main scenario; the limits only guard against regressions.", 11, MUTED))
     return card(width, height, "Relevancy: time per tick",
                 "Median of 4 runs, desktop CPU with 12 cores, Release build. Shorter is better.",
                 "\n".join(parts))

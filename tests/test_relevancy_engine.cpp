@@ -2,6 +2,7 @@
 #include "relevancy_test_support.hpp"
 #include "test_support.hpp"
 
+#include <memory>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -1272,4 +1273,18 @@ TESSERA_TEST(a_large_batch_of_changes_is_evaluated_correctly) {
     }
     TESSERA_CHECK(expected_count > 0);
     TESSERA_CHECK(f.engine.VisibleCount(0) == expected_count);
+}
+
+TESSERA_TEST(replacing_an_engine_keeps_the_grid_recording_for_the_new_one) {
+    SpatialGrid grid{GridConfig{64.0f, 64.0f, 64.0f}};
+    RelevancyGroups groups;
+    ThreadPoolJobSystem jobs(1);
+    auto engine = std::make_unique<RelevancyEngine>(MakeConfig(), grid, groups, jobs);
+    // The new engine is built before the old one is destroyed, as in `engine = std::make_unique<...>(...)`.
+    engine = std::make_unique<RelevancyEngine>(MakeConfig(), grid, groups, jobs);
+    grid.Insert(MakeId(kSpatialType, 1), 1.0f, 2.0f, 3.0f);
+    TESSERA_CHECK(grid.Changes().size() == 1); // the new engine still sees what happens in the grid
+    engine.reset();
+    grid.Insert(MakeId(kSpatialType, 2), 4.0f, 5.0f, 6.0f);
+    TESSERA_CHECK(grid.Changes().empty()); // the last engine is gone, nobody records
 }

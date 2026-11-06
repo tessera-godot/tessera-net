@@ -105,6 +105,20 @@ public:
     /// `ClearChanges` regularly, or the list grows without limit. Only one consumer should read it.
     void SetRecordChanges(bool enabled) noexcept { record_changes_ = enabled; }
 
+    /// Like `SetRecordChanges(true)`, but several users can share the recording: it stays on until every
+    /// user that called `RetainChangeRecording` has called `ReleaseChangeRecording`, and the last release
+    /// turns it off and empties the list. This lets one reader replace another without losing changes.
+    void RetainChangeRecording() noexcept {
+        ++recording_users_;
+        record_changes_ = true;
+    }
+    void ReleaseChangeRecording() noexcept {
+        if (recording_users_ > 0 && --recording_users_ == 0) {
+            record_changes_ = false;
+            changes_.clear();
+        }
+    }
+
     /// The changes recorded since the last `ClearChanges`.
     std::span<const GridChange> Changes() const noexcept { return changes_; }
 
@@ -248,6 +262,7 @@ private:
     std::unordered_map<CellCoord, Cell> cells_;
     std::unordered_map<uint64_t, Entry> entries_;
     bool record_changes_ = false;
+    uint32_t recording_users_ = 0;
     std::vector<GridChange> changes_;
 };
 

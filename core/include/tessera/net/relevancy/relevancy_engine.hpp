@@ -37,7 +37,7 @@ class RelevancyEngine {
 public:
     /// `grid`, `groups` and `jobs` must outlive the engine. `groups` is not constant because the
     /// engine removes destroyed entities and removed connections from it; `grid` is not constant because
-    /// the engine asks it to record the changes made to it (`SpatialGrid::SetRecordChanges`) and empties
+    /// the engine asks it to record the changes made to it (`SpatialGrid::RetainChangeRecording`) and empties
     /// that list at the end of every `Update`. Only one engine may use a grid. Throws
     /// std::invalid_argument if the configuration is invalid.
     RelevancyEngine(const RelevancyConfig& config, SpatialGrid& grid, RelevancyGroups& groups,

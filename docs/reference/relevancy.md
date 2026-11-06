@@ -42,8 +42,8 @@ removed or moved) and are near one of the player's anchors. An entity is always 
 What this means for a player, in plain terms, with the default tolerance of 4 m: an entity that is within
 `range` minus 4 m of where the player really is shows up, and one farther than `range` plus the hysteresis
 margin plus 4 m never does. In the thin band between, it depends on where the player was last looked at. A
-visible entity that moves, or a player who stands still, is handled exactly; only a moving player can be up to
-the tolerance behind. If many players need a full look at once (a crowd spawning together), at most
+visible entity that moves is handled exactly; a player can be up to the tolerance away from the position the
+engine last looked from, and stays that way until they move further or something forces a full look. If many players need a full look at once (a crowd spawning together), at most
 `max_reanchors_per_tick` are done per tick, the ones that have waited longest first, and the rest see the world
 a few ticks late instead of the tick taking longer. `DeferredReanchors()` tells you how many are waiting.
 
@@ -56,7 +56,7 @@ a few ticks late instead of the tick taking longer. `DeferredReanchors()` tells 
 | `max_connections` | 128 | Highest number of players at once. Connection ids go from 0 to this number minus 1. |
 | `max_observers_per_connection` | 4 | Most observers one player can have. |
 | `max_visible_per_connection` | 65,536 | Most entities one player can see at once. |
-| `observer_tolerance` | 4 m | How far an observer can move from its anchor before the engine looks around it again. Smaller is more exact and costs more; 0 looks again on every movement. |
+| `observer_tolerance` | 4 m | How far an observer can move from its anchor before the engine looks around it again. Smaller is more exact and costs more; 0 looks again on every call to `SetObservers`, moved or not. |
 | `max_reanchors_per_tick` | 32 | Most full looks around players in one `Update`. 0 means no limit. |
 | `types[n]` | `Spatial`, range 0 | The rule for entity type `n`: `mode`, `range` and `hysteresis_margin`. A range of 0 means "never visible". |
 
@@ -83,10 +83,10 @@ of the groups, which is why it needs them as non-constant references.
 | `OnEntityCreated(entity)` | Tell the engine an entity exists. Needed for `AlwaysRelevant` and `OwnerOnly` types. Spatial entities are found through the grid. |
 | `OnEntityDestroyed(entity)` | Tell the engine an entity is gone. It must no longer be in the grid when `Update` runs. |
 | `SetOwner(entity, id)` | Set the owner of an `OwnerOnly` entity. Returns false if the entity is unknown, its type is not `OwnerOnly`, or the player does not exist. |
-| `Update(tick)` | Bring every player up to date. Call once per tick. If you pass a pointer, it receives how many players got a full look in this call. |
+| `Update(tick)` | Bring every player up to date. Call once per tick, with a `tick` that grows (it decides who waited longest when the cap applies). If you pass a pointer, it receives how many players got a full look in this call. |
 | `Events(id)` / `ClearEvents(id)` | Read, then clear, what changed for a player. |
 | `CompactIdOf(id, entity)` | The short id of an entity for a player, or `kInvalidCompactId` if they cannot see it. |
-| `VisibleCount(id)`, `VisibleOverflow(id)` | How many entities the player sees, and how many times an entity was kept out because the ids ran out (added up over every full look). |
+| `VisibleCount(id)`, `VisibleOverflow(id)` | How many entities the player sees, and how many times an entity was kept out because the ids ran out (added up over every evaluation). |
 | `DeferredReanchors()` | How many players were due for a full look in the last `Update` but had to wait because of `max_reanchors_per_tick`. |
 | `Anchors(id)` | Where each of the player's observers was when the engine last looked around it. Meant for diagnostics and tests. |
 
@@ -128,7 +128,7 @@ A group is either `Inclusion` or `Exclusion`. Each group has a *status* per play
 Until you say otherwise nobody is allowed, so an exclusion group hides its members from everyone and an
 inclusion group shows them to no one. `SetStatus(group, id, allowed)` changes one player and
 `SetStatusForAll(group, allowed)` changes everyone. An entity can belong to several groups. Any change to the
-groups sends every player to a full look at the next `Update`, so changing them every tick costs a lot; they are
+groups sends every player to a full look, spread over the next `Update` calls by `max_reanchors_per_tick`, so changing them every tick costs a lot; they are
 meant for exceptions, not for per-tick state.
 
 When you destroy an entity or remove a player the engine removes them from every group, so a later entity
