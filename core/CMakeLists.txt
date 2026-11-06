@@ -14,7 +14,9 @@ add_library(tessera_net_core STATIC
     src/replication/property_schema.cpp
     src/replication/property_codecs.cpp
     src/replication/state_store.cpp
-    src/replication/connection_state.cpp)
+    src/replication/connection_state.cpp
+    src/replication/record_codec.cpp
+    src/replication/receiver_state.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication/connection_state.hpp"
 
+#include "tessera/net/replication/record_codec.hpp"
+#include "tessera/net/replication/state_store.hpp"
+
 #include <algorithm>
+#include <bit>
+#include <cstring>
 
 namespace tessera::net {
 
@@ -191,6 +196,90 @@ bool ConnectionState::IsPending(uint32_t compact_id) const noexcept {
 bool ConnectionState::HasBaseline(uint32_t compact_id) const noexcept {
     const Page* page = PageOf(compact_id);
     return page != nullptr && TestBit(page->has_baseline, compact_id % kPageIds);
+}
+
+EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out) {
+    out.clear();
+    EncodeStats stats;
+    BitWriter writer(out);
+    int64_t previous = -1;
+    for (uint32_t page_index = 0; page_index < pages_.size(); ++page_index) {
+        Page* page = pages_[page_index].get();
+        if (page == nullptr) {
+            continue;
+        }
+        for (uint32_t word = 0; word < kBitWords; ++word) {
+            uint64_t bits = page->pending[word];
+            while (bits != 0) {
+                const uint32_t local = word * 64 + static_cast<uint32_t>(std::countr_zero(bits));
+                bits &= bits - 1;
+                const EntityId id = EntityId::FromRaw(page->entity[local]);
+                const uint32_t* current = store.Find(id);
+                if (current == nullptr) {
+                    ++stats.skipped_unquantized; // it stays pending until it has a state
+                    continue;
+                }
+                const TypeSchema& type = *schema_.Find(id.type());
+                uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
+                uint32_t* sent = page->sent.data() + static_cast<size_t>(local) * words_;
+                const bool has_baseline = TestBit(page->has_baseline, local);
+                const bool outstanding = TestBit(page->outstanding, local);
+                if (!outstanding && has_baseline &&
+                    std::memcmp(acked, current, type.words * sizeof(uint32_t)) == 0) {
+                    ClearBit(page->pending, local); // the client already has exactly this
+                    ClearBit(page->stale, local);
+                    continue;
+                }
+                const uint64_t age = tick - page->acked_tick[local]; // huge if the tick went backwards
+                const bool use_baseline = has_baseline && age >= 1 && age <= max_baseline_age_;
+                const uint32_t compact_id = page_index * kPageIds + local;
+                WriteRecord(type, static_cast<uint32_t>(static_cast<int64_t>(compact_id) - previous),
+                            use_baseline ? static_cast<uint32_t>(age) : 0, use_baseline ? acked : nullptr,
+                            current, writer);
+                ++stats.records;
+                if (!use_baseline) {
+                    ++stats.complete_records;
+                }
+                std::memcpy(sent, current, type.words * sizeof(uint32_t));
+                page->sent_tick[local] = tick;
+                SetBit(page->outstanding, local);
+                ClearBit(page->stale, local);
+                previous = compact_id;
+            }
+        }
+    }
+    WriteTerminator(writer);
+    writer.Finish();
+    return stats;
+}
+
+void ConnectionState::Confirm(uint64_t tick) {
+    for (const std::unique_ptr<Page>& entry : pages_) {
+        Page* page = entry.get();
+        if (page == nullptr) {
+            continue;
+        }
+        for (uint32_t word = 0; word < kBitWords; ++word) {
+            uint64_t bits = page->pending[word] & page->outstanding[word];
+            while (bits != 0) {
+                const uint32_t local = word * 64 + static_cast<uint32_t>(std::countr_zero(bits));
+                bits &= bits - 1;
+                if (page->sent_tick[local] != tick) {
+                    continue; // sent again since, or sent in another buffer
+                }
+                const TypeSchema& type = *schema_.Find(EntityId::FromRaw(page->entity[local]).type());
+                std::memcpy(page->acked.data() + static_cast<size_t>(local) * words_,
+                            page->sent.data() + static_cast<size_t>(local) * words_,
+                            type.words * sizeof(uint32_t));
+                page->acked_tick[local] = tick;
+                SetBit(page->has_baseline, local);
+                ClearBit(page->outstanding, local);
+                if (!TestBit(page->stale, local)) {
+                    ClearBit(page->pending, local);
+                }
+            }
+        }
+    }
 }
 
 size_t ConnectionState::MemoryBytes() const noexcept {

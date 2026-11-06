@@ -14,6 +14,8 @@
 
 namespace tessera::net {
 
+class StateStore;
+
 /// What one `ConnectionState::Encode` call wrote.
 struct EncodeStats {
     uint32_t records = 0;          ///< Records written (complete and partial).
@@ -41,6 +43,18 @@ public:
 
     /// Flags the tracked entities among `changed` as needing to be sent. Other entities are ignored.
     void MarkChanged(std::span<const EntityId> changed);
+
+    /// Clears `out` and writes this tick's records into it, followed by the terminator. A record is written
+    /// for every pending entity that has a quantized state in `store`: complete if the client has confirmed
+    /// nothing (or only something older than the baseline age), otherwise only what differs from the
+    /// confirmed state. An entity that is not changed and has nothing outstanding is skipped and no longer
+    /// pending.
+    EncodeStats Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out);
+
+    /// The client confirmed it received the buffer written for `tick`: every entity whose latest send was in
+    /// that buffer now has the sent state as its confirmed state. Unknown, repeated or superseded ticks have
+    /// no effect.
+    void Confirm(uint64_t tick);
 
     /// The compact id of a tracked entity, or `kInvalidCompactId`.
     uint32_t CompactIdOf(EntityId id) const noexcept;
