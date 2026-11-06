@@ -76,6 +76,7 @@ void ConnectionState::Release(uint32_t compact_id) {
 }
 
 void ConnectionState::EnterOne(uint64_t raw, uint32_t compact_id) {
+    changes_.push_back(SubscriptionChange{true, raw, compact_id});
     Page* page = PageOf(compact_id, true);
     const uint32_t local = compact_id % kPageIds;
     page->entity[local] = raw;
@@ -92,6 +93,7 @@ void ConnectionState::EnterOne(uint64_t raw, uint32_t compact_id) {
 void ConnectionState::ApplyEvents(std::span<const VisibilityEvent> events) {
     // Departures first: the relevancy engine reports Destroy and Leave before Enter, and an id can be
     // taken over in the same call.
+    changes_.clear();
     leaving_.clear();
     for (const VisibilityEvent& event : events) {
         if (event.kind == VisibilityEvent::Kind::Enter) {
@@ -100,6 +102,7 @@ void ConnectionState::ApplyEvents(std::span<const VisibilityEvent> events) {
         const VisibleEntry* entry = visible_.Find(event.id.raw());
         if (entry != nullptr) {
             leaving_.push_back(entry->raw);
+            changes_.push_back(SubscriptionChange{false, entry->raw, entry->compact_id});
             Release(entry->compact_id);
         }
     }
@@ -150,12 +153,14 @@ void ConnectionState::ApplyEvents(std::span<const VisibilityEvent> events) {
         const Page* page = PageOf(entry.compact_id);
         if (page != nullptr && TestBit(page->in_use, entry.compact_id % kPageIds)) {
             const uint64_t old_raw = page->entity[entry.compact_id % kPageIds];
+            changes_.push_back(SubscriptionChange{false, old_raw, entry.compact_id});
             Release(entry.compact_id);
             const uint64_t gone[] = {old_raw};
             visible_.Apply(gone, {});
         }
         if (const VisibleEntry* again = visible_.Find(entry.raw)) {
             const uint32_t old_id = again->compact_id;
+            changes_.push_back(SubscriptionChange{false, entry.raw, old_id});
             Release(old_id);
             const uint64_t gone[] = {entry.raw};
             visible_.Apply(gone, {});
@@ -163,6 +168,18 @@ void ConnectionState::ApplyEvents(std::span<const VisibilityEvent> events) {
         EnterOne(entry.raw, entry.compact_id);
         const VisibleEntry added[] = {entry};
         visible_.Apply({}, added);
+    }
+}
+
+void ConnectionState::MarkPendingAt(uint32_t compact_id) noexcept {
+    Page* page = compact_id < max_visible_ ? pages_[compact_id / kPageIds].get() : nullptr;
+    if (page == nullptr) {
+        return;
+    }
+    const uint32_t local = compact_id % kPageIds;
+    if (TestBit(page->in_use, local)) {
+        SetBit(page->pending, local);
+        SetBit(page->stale, local);
     }
 }
 

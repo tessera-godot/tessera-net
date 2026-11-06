@@ -265,5 +265,81 @@ TESSERA_TEST(engine_rejects_a_config_that_cannot_work) {
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_baseline_age_ticks = 0; }));
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_unconfirmed_sends = 0; }));
     TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_unconfirmed_sends = 256; }));
+    TESSERA_CHECK(rejects([](ReplicationConfig& c) { c.max_connections = 65'536; }));
     TESSERA_CHECK(!rejects([](ReplicationConfig&) {}));
+}
+
+TESSERA_TEST(subscriptions_follow_the_visibility_events) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(1);
+    ReplicationEngine engine(schema, SmallConfig(), jobs);
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    engine.AddConnection(1);
+    const EntityId a = Spawn(table, 1.0f, 0.0f, 0.0f);
+    const EntityId b = Spawn(table, 2.0f, 0.0f, 0.0f);
+    engine.Refresh(table);
+    const VisibilityEvent both[] = {Enter(a, 0), Enter(b, 1)};
+    engine.ApplyVisibility(0, both);
+    const VisibilityEvent only_a = Enter(a, 0);
+    engine.ApplyVisibility(1, std::span<const VisibilityEvent>(&only_a, 1));
+    TESSERA_CHECK(engine.SubscriptionCount() == 3);
+    engine.Update(1);
+    engine.Confirm(0, 1);
+    engine.Confirm(1, 1);
+    const VisibilityEvent leave{VisibilityEvent::Kind::Leave, a, 0};
+    engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&leave, 1));
+    TESSERA_CHECK(engine.SubscriptionCount() == 2);
+    MoveX(table, a, 30.0f); // only connection 1 still sees it
+    engine.Refresh(table);
+    engine.Update(2);
+    TESSERA_CHECK(engine.Output(0).size() == 1);
+    TESSERA_CHECK(engine.Output(1).size() > 1);
+    TESSERA_CHECK(engine.LastStats().records == 1);
+}
+
+TESSERA_TEST(removing_a_connection_drops_its_subscriptions) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(1);
+    ReplicationEngine engine(schema, SmallConfig(), jobs);
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    engine.AddConnection(1);
+    std::vector<VisibilityEvent> events;
+    for (uint32_t i = 0; i < 20; ++i) {
+        events.push_back(Enter(Spawn(table, static_cast<float>(i), 0.0f, 0.0f), i));
+    }
+    engine.ApplyVisibility(0, events);
+    engine.ApplyVisibility(1, events);
+    TESSERA_CHECK(engine.SubscriptionCount() == 40);
+    TESSERA_CHECK(engine.RemoveConnection(0));
+    TESSERA_CHECK(engine.SubscriptionCount() == 20);
+    TESSERA_CHECK(engine.RemoveConnection(1));
+    TESSERA_CHECK(engine.SubscriptionCount() == 0);
+}
+
+TESSERA_TEST(a_change_to_a_slot_reused_by_a_new_entity_does_not_reach_the_old_viewers) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(1);
+    ReplicationEngine engine(schema, SmallConfig(), jobs);
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    engine.AddConnection(1);
+    const EntityId first = Spawn(table, 1.0f, 0.0f, 0.0f);
+    engine.Refresh(table);
+    const VisibilityEvent seen = Enter(first, 0);
+    engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&seen, 1));
+    engine.Update(1);
+    engine.Confirm(0, 1);
+    // The entity is destroyed and its slot reused, but connection 0 has not been told yet.
+    table.Destroy(first);
+    const EntityId second = Spawn(table, 50.0f, 0.0f, 0.0f);
+    TESSERA_CHECK(second.index() == first.index());
+    const VisibilityEvent sees_second = Enter(second, 0);
+    engine.ApplyVisibility(1, std::span<const VisibilityEvent>(&sees_second, 1));
+    engine.Refresh(table);
+    engine.Update(2);
+    // Connection 0 still tracks the old entity, which did not change: it gets nothing.
+    TESSERA_CHECK(engine.Output(0).size() == 1);
+    TESSERA_CHECK(engine.Output(1).size() > 1);
 }

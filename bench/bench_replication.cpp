@@ -195,7 +195,8 @@ public:
         for (ConnectionId c = 0; c < connections_; ++c) {
             total += static_cast<double>(engine_.Connection(c)->MemoryBytes());
         }
-        return total / connections_;
+        // The index of who sees what is shared, so each connection carries an equal part of it.
+        return total / connections_ + static_cast<double>(engine_.SubscriptionBytes()) / connections_;
     }
     size_t IdleOutputBytes() {
         size_t largest = 0;

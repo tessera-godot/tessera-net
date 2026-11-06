@@ -187,3 +187,56 @@ TESSERA_TEST(compact_id_of_and_entity_of_are_inverse) {
         TESSERA_CHECK(connection.EntityOf(i) == id);
     }
 }
+
+TESSERA_TEST(apply_events_reports_what_it_started_and_stopped_tracking_in_order) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ConnectionState connection(schema, 1000, kMaxAge);
+    const EntityId a = MakeEntity(kMobType, 10), b = MakeEntity(kMobType, 20), c = MakeEntity(kMobType, 30);
+    const VisibilityEvent first[] = {Enter(a, 0), Enter(b, 1)};
+    connection.ApplyEvents(first);
+    auto changes = connection.LastChanges();
+    TESSERA_CHECK(changes.size() == 2);
+    TESSERA_CHECK(changes[0].added && changes[0].raw == a.raw() && changes[0].compact_id == 0);
+    TESSERA_CHECK(changes[1].added && changes[1].raw == b.raw() && changes[1].compact_id == 1);
+
+    const VisibilityEvent second[] = {Destroy(a, 0), Leave(b, 1), Enter(c, 0)};
+    connection.ApplyEvents(second);
+    changes = connection.LastChanges(); // only this call: the departures first, then the arrival
+    TESSERA_CHECK(changes.size() == 3);
+    TESSERA_CHECK(!changes[0].added && changes[0].raw == a.raw());
+    TESSERA_CHECK(!changes[1].added && changes[1].raw == b.raw());
+    TESSERA_CHECK(changes[2].added && changes[2].raw == c.raw() && changes[2].compact_id == 0);
+
+    const VisibilityEvent ignored[] = {Leave(MakeEntity(kMobType, 99), 5),
+                                       Enter(MakeEntity(kUnknownType, 1), 6)};
+    connection.ApplyEvents(ignored); // nothing was tracked or forgotten
+    TESSERA_CHECK(connection.LastChanges().empty());
+}
+
+TESSERA_TEST(a_replaced_entity_is_reported_as_stopped_before_the_new_one_started) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ConnectionState connection(schema, 1000, kMaxAge);
+    const EntityId a = MakeEntity(kMobType, 10), b = MakeEntity(kMobType, 20);
+    const VisibilityEvent events[] = {Enter(a, 3), Enter(b, 3)}; // the same number twice in one call
+    connection.ApplyEvents(events);
+    const auto changes = connection.LastChanges();
+    TESSERA_CHECK(changes.size() == 3);
+    TESSERA_CHECK(changes[0].added && changes[0].raw == a.raw());
+    TESSERA_CHECK(!changes[1].added && changes[1].raw == a.raw());
+    TESSERA_CHECK(changes[2].added && changes[2].raw == b.raw());
+    TESSERA_CHECK(connection.CompactIdOf(b) == 3 && connection.CompactIdOf(a) == kInvalidCompactId);
+}
+
+TESSERA_TEST(mark_pending_at_flags_a_compact_id_without_looking_the_entity_up) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ConnectionState connection(schema, 1000, kMaxAge);
+    const EntityId a = MakeEntity(kMobType, 10);
+    const VisibilityEvent events[] = {Enter(a, 4)};
+    connection.ApplyEvents(events);
+    connection.MarkPendingAt(4);
+    TESSERA_CHECK(connection.IsPending(4));
+    connection.MarkPendingAt(5);    // free: nothing happens
+    connection.MarkPendingAt(5000); // beyond the maximum: nothing happens
+    TESSERA_CHECK(!connection.IsPending(5) && !connection.IsPending(5000));
+    TESSERA_CHECK(connection.Visible().size() == 1 && connection.Visible()[0].raw == a.raw());
+}

@@ -16,6 +16,13 @@ namespace tessera::net {
 
 class StateStore;
 
+/// A change to the set of entities a connection tracks, as reported by `ConnectionState::LastChanges`.
+struct SubscriptionChange {
+    bool added;   ///< true: the entity is now tracked under `compact_id`; false: it is no longer tracked
+    uint64_t raw; ///< `EntityId::raw()`
+    uint32_t compact_id;
+};
+
 /// What one `ConnectionState::Encode` call wrote.
 struct EncodeStats {
     uint32_t records = 0;          ///< Records written (complete and partial).
@@ -43,6 +50,22 @@ public:
     /// confirmed state and is pending, so it is sent in full; one that leaves or is destroyed is forgotten.
     /// Entities whose type has no schema, and compact ids at or above `max_visible`, are not tracked.
     void ApplyEvents(std::span<const VisibilityEvent> events);
+
+    /// What the last `ApplyEvents` call started and stopped tracking, in the order it happened (an entity
+    /// that was replaced appears as stopped before the new one starts). Empty for a call that changed
+    /// nothing.
+    std::span<const SubscriptionChange> LastChanges() const noexcept {
+        return changes_;
+    }
+
+    /// Flags a compact id as needing to be sent, without looking anything up. Ids that are free or out of
+    /// range are ignored.
+    void MarkPendingAt(uint32_t compact_id) noexcept;
+
+    /// The entities this connection tracks, ascending by id, with their compact ids.
+    std::span<const VisibleEntry> Visible() const noexcept {
+        return visible_.Entries();
+    }
 
     /// Flags the tracked entities among `changed` as needing to be sent. Other entities are ignored.
     void MarkChanged(std::span<const EntityId> changed);
@@ -109,6 +132,7 @@ private:
     VisibleSet visible_;
     std::vector<std::unique_ptr<Page>> pages_;
     uint64_t untracked_enters_ = 0;
+    std::vector<SubscriptionChange> changes_;
     std::vector<uint64_t> leaving_; // scratch
     std::vector<VisibleEntry> entering_;
 };

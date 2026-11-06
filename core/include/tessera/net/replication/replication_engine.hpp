@@ -7,6 +7,7 @@
 #include "tessera/net/replication/connection_state.hpp"
 #include "tessera/net/replication/property_schema.hpp"
 #include "tessera/net/replication/state_store.hpp"
+#include "tessera/net/replication/subscription_index.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +18,8 @@
 namespace tessera::net {
 
 struct ReplicationConfig {
-    /// Highest number of connections at once. Connection ids go from 0 to this number minus 1.
+    /// Highest number of connections at once (at most 65,535). Connection ids go from 0 to this number
+    /// minus 1.
     uint32_t max_connections = 128;
     /// Number of compact ids per connection (as in `RelevancyConfig::max_visible_per_connection`).
     uint32_t max_visible_per_connection = 65536;
@@ -72,6 +74,14 @@ public:
     /// A connection's state, or nullptr for an unknown connection.
     const ConnectionState* Connection(ConnectionId connection) const noexcept;
 
+    /// How many (entity, connection) pairs the engine is tracking, and the bytes its index of them takes.
+    size_t SubscriptionCount() const noexcept {
+        return subscriptions_.Count();
+    }
+    size_t SubscriptionBytes() const noexcept {
+        return subscriptions_.MemoryBytes();
+    }
+
     /// What the last `Update` wrote, added up over the connections.
     EncodeStats LastStats() const noexcept {
         return last_stats_;
@@ -91,6 +101,7 @@ private:
     const ReplicationSchema& schema_;
     IJobSystem& jobs_;
     StateStore store_;
+    SubscriptionIndex subscriptions_;
     std::vector<std::unique_ptr<Entry>> connections_;
     std::vector<uint32_t> active_; // scratch: the ids in use, ascending
     EncodeStats last_stats_;

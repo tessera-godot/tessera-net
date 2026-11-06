@@ -11,6 +11,9 @@ ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const Repl
     if (config.max_connections == 0) {
         throw std::invalid_argument("ReplicationConfig::max_connections must be at least 1");
     }
+    if (config.max_connections > 65535) {
+        throw std::invalid_argument("ReplicationConfig::max_connections must be at most 65535");
+    }
     if (config.max_visible_per_connection == 0) {
         throw std::invalid_argument("ReplicationConfig::max_visible_per_connection must be at least 1");
     }
@@ -35,13 +38,24 @@ bool ReplicationEngine::RemoveConnection(ConnectionId connection) {
     if (connection >= connections_.size() || !connections_[connection]) {
         return false;
     }
+    for (const VisibleEntry& entry : connections_[connection]->state.Visible()) {
+        subscriptions_.Remove(EntityId::FromRaw(entry.raw), connection);
+    }
     connections_[connection].reset();
     return true;
 }
 
 void ReplicationEngine::ApplyVisibility(ConnectionId connection, std::span<const VisibilityEvent> events) {
     if (connection < connections_.size() && connections_[connection]) {
-        connections_[connection]->state.ApplyEvents(events);
+        ConnectionState& state = connections_[connection]->state;
+        state.ApplyEvents(events);
+        for (const SubscriptionChange& change : state.LastChanges()) {
+            if (change.added) {
+                subscriptions_.Add(EntityId::FromRaw(change.raw), connection, change.compact_id);
+            } else {
+                subscriptions_.Remove(EntityId::FromRaw(change.raw), connection);
+            }
+        }
     }
 }
 
@@ -52,13 +66,17 @@ void ReplicationEngine::Update(uint64_t tick) {
             active_.push_back(id);
         }
     }
-    const std::span<const EntityId> changed = store_.Changed();
-    // Every connection reads the shared store and the list of changes and writes only its own state and
-    // buffer, so they can all run at once.
+    // Mark what changed: each entity reaches only the connections that see it, whatever their number.
+    for (const EntityId id : store_.Changed()) {
+        subscriptions_.ForEach(id, [&](uint32_t connection, uint32_t compact_id) {
+            connections_[connection]->state.MarkPendingAt(compact_id);
+        });
+    }
+    // Every connection reads the shared store and writes only its own state and buffer, so they can all run
+    // at once.
     jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
         for (uint32_t i = begin; i < end; ++i) {
             Entry& entry = *connections_[active_[i]];
-            entry.state.MarkChanged(changed);
             entry.stats = entry.state.Encode(tick, store_, entry.output);
         }
     });
