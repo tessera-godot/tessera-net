@@ -484,3 +484,168 @@ TESSERA_TEST(destroying_a_group_restores_the_normal_rules) {
     f.engine.Update(1);
     TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
 }
+
+// ---- Destruction, connection removal and id overflow ----------------------------------------------
+
+TESSERA_TEST(destroy_is_immediate_even_when_the_connection_is_not_due) {
+    Fixture f(MakeConfig(3));
+    f.engine.AddConnection(0);  // due on ticks where tick % 3 == 0
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    f.engine.Update(0);
+    const uint32_t compact = f.engine.CompactIdOf(0, e);
+    TESSERA_CHECK(compact != kInvalidCompactId);
+    f.engine.ClearEvents(0);
+
+    f.engine.OnEntityDestroyed(e);
+    uint32_t processed = 99;
+    f.engine.Update(1, &processed);  // connection 0 is not due now
+    TESSERA_CHECK(processed == 0);
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
+    TESSERA_CHECK(f.engine.Events(0).events[0].kind == Kind::Destroy);
+    TESSERA_CHECK(f.engine.Events(0).events[0].id == e);
+    TESSERA_CHECK(f.engine.Events(0).events[0].compact_id == compact);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
+}
+
+TESSERA_TEST(destroying_an_unknown_id_does_nothing) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    f.engine.OnEntityDestroyed(MakeId(kSpatialType, 99));
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+}
+
+TESSERA_TEST(destroying_the_same_id_twice_emits_one_destroy) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    f.engine.Update(0);
+    f.engine.ClearEvents(0);
+    f.engine.OnEntityDestroyed(e);
+    f.engine.OnEntityDestroyed(e);
+    f.engine.Update(1);
+    f.engine.OnEntityDestroyed(e);  // again, in a later tick
+    f.engine.Update(2);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Destroy) == 1);
+}
+
+TESSERA_TEST(destroyed_entity_leaves_groups_and_is_not_reentered_by_stale_inclusion) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId e = MakeId(kSpatialType, 1);
+    f.grid.Insert(e, 5000.0f, 0.0f, 0.0f);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Inclusion);
+    f.groups.AddMember(g, e);
+    f.groups.SetStatusForAll(g, true);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
+    f.engine.ClearEvents(0);
+
+    f.grid.Remove(e);
+    f.engine.OnEntityDestroyed(e);
+    TESSERA_CHECK(!f.groups.IsMember(g, e));
+    f.engine.Update(1);
+    f.engine.Update(2);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Destroy) == 1);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
+}
+
+TESSERA_TEST(destroyed_global_entity_is_not_shown_to_later_connections) {
+    Fixture f(MakeConfig(1));
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    f.engine.OnEntityDestroyed(e);
+    f.engine.Update(0);
+    f.engine.AddConnection(0);
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
+}
+
+TESSERA_TEST(reused_connection_id_starts_clean) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId e = MakeId(kGlobalType, 1);
+    f.engine.OnEntityCreated(e);
+    const GroupId g = f.groups.CreateGroup(GroupKind::Exclusion);
+    f.groups.SetStatus(g, 0, true);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 1);
+
+    TESSERA_CHECK(f.engine.RemoveConnection(0));
+    TESSERA_CHECK(!f.groups.IsAllowed(g, 0));  // the old exception is gone
+    TESSERA_CHECK(f.engine.AddConnection(0));
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);
+    TESSERA_CHECK(f.engine.Events(0).events.empty());
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
+    TESSERA_CHECK(f.engine.Events(0).events[0].compact_id == 0);  // compact ids start over
+}
+
+TESSERA_TEST(entities_of_a_removed_owner_become_ownerless_and_can_be_given_again) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const EntityId e = MakeId(kOwnedType, 1);
+    f.engine.OnEntityCreated(e);
+    f.engine.SetOwner(e, 0);
+    f.engine.RemoveConnection(0);
+    f.engine.AddConnection(0);
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 0);  // the new connection 0 does not inherit it
+    TESSERA_CHECK(f.engine.SetOwner(e, 0));
+    f.engine.Update(1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, e) != kInvalidCompactId);
+}
+
+TESSERA_TEST(overflow_keeps_extra_entities_out_and_counts_them) {
+    RelevancyConfig config = MakeConfig(1);
+    config.max_visible_per_connection = 2;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    for (uint32_t i = 1; i <= 3; ++i) {
+        f.engine.OnEntityCreated(MakeId(kGlobalType, i));
+    }
+    f.engine.Update(0);
+    TESSERA_CHECK(f.engine.VisibleCount(0) == 2);
+    TESSERA_CHECK(f.engine.VisibleOverflow(0) == 1);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, MakeId(kGlobalType, 3)) == kInvalidCompactId);
+}
+
+TESSERA_TEST(overflowed_entity_enters_once_an_id_is_free_for_a_full_tick) {
+    RelevancyConfig config = MakeConfig(1);
+    config.max_visible_per_connection = 2;
+    Fixture f(config);
+    f.engine.AddConnection(0);
+    for (uint32_t i = 1; i <= 3; ++i) {
+        f.engine.OnEntityCreated(MakeId(kGlobalType, i));
+    }
+    f.engine.Update(0);
+    f.engine.OnEntityDestroyed(MakeId(kGlobalType, 1));
+    f.engine.Update(1);
+    // The freed id is not reusable in the tick it was freed.
+    TESSERA_CHECK(f.engine.CompactIdOf(0, MakeId(kGlobalType, 3)) == kInvalidCompactId);
+    f.engine.Update(2);
+    TESSERA_CHECK(f.engine.CompactIdOf(0, MakeId(kGlobalType, 3)) != kInvalidCompactId);
+}
+
+TESSERA_TEST(enter_in_the_tick_of_a_leave_does_not_reuse_the_freed_id) {
+    Fixture f(MakeConfig(1));
+    f.engine.AddConnection(0);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    const EntityId leaving = MakeId(kSpatialType, 1);
+    const EntityId entering = MakeId(kSpatialType, 2);
+    f.grid.Insert(leaving, 10.0f, 0.0f, 0.0f);
+    f.grid.Insert(entering, 5000.0f, 0.0f, 0.0f);
+    f.engine.Update(0);
+    const uint32_t freed = f.engine.CompactIdOf(0, leaving);
+    TESSERA_CHECK(freed != kInvalidCompactId);
+
+    f.grid.ApplyMoves({PendingMove{leaving, 5000.0f, 0.0f, 0.0f}, PendingMove{entering, 10.0f, 0.0f, 0.0f}});
+    f.engine.Update(1);
+    const uint32_t taken = f.engine.CompactIdOf(0, entering);
+    TESSERA_CHECK(taken != kInvalidCompactId);
+    TESSERA_CHECK(taken != freed);
+}

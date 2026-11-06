@@ -55,7 +55,8 @@ public:
     void OnEntityCreated(EntityId entity);
 
     /// Tells the engine an entity no longer exists. Every connection that saw it gets a `Destroy`
-    /// event in the next `Update`, whatever its recalculation schedule.
+    /// event in the next `Update`, whatever its recalculation schedule. The entity is also removed from
+    /// every group. Remove it from the grid first, or a spatial entity would be seen again.
     void OnEntityDestroyed(EntityId entity);
 
     /// Sets the owner of an owner-only entity. False if the entity is not known to the engine, its
@@ -88,6 +89,7 @@ public:
 private:
     struct Connection;
 
+    void ApplyDestructions(Connection& connection) const;
     void Recalculate(ConnectionId id, Connection& connection) const;
     static void Reconcile(Connection& connection);
 

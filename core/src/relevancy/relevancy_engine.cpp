@@ -78,6 +78,7 @@ bool RelevancyEngine::RemoveConnection(ConnectionId connection) {
         owners_[raw] = kNoOwner;
     }
     connections_[connection].reset();
+    groups_.RemoveConnection(connection);
     active_.erase(std::lower_bound(active_.begin(), active_.end(), connection));
     return true;
 }
@@ -113,8 +114,21 @@ void RelevancyEngine::OnEntityCreated(EntityId entity) {
     }
 }
 
-void RelevancyEngine::OnEntityDestroyed(EntityId) {
-    // Handled together with destruction events.
+void RelevancyEngine::OnEntityDestroyed(EntityId entity) {
+    const auto always = std::lower_bound(always_.begin(), always_.end(), entity.raw());
+    if (always != always_.end() && *always == entity.raw()) {
+        always_.erase(always);
+    }
+    const auto owner = owners_.find(entity.raw());
+    if (owner != owners_.end()) {
+        if (owner->second != kNoOwner) {
+            std::vector<uint64_t>& owned = connections_[owner->second]->owned;
+            owned.erase(std::remove(owned.begin(), owned.end(), entity.raw()), owned.end());
+        }
+        owners_.erase(owner);
+    }
+    groups_.RemoveEntity(entity);
+    destroyed_.push_back(entity.raw());  // the Destroy events are written by the next Update
 }
 
 bool RelevancyEngine::SetOwner(EntityId entity, ConnectionId owner) {
@@ -143,19 +157,36 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
     if (connections_processed != nullptr) {
         *connections_processed = due;
     }
-    if (active_.empty()) {
-        return;
-    }
-    jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
-        for (uint32_t i = begin; i < end; ++i) {
-            const ConnectionId id = active_[i];
-            Connection& connection = *connections_[id];
-            connection.ids.BeginTick();
-            if (id % interval == phase) {
-                Recalculate(id, connection);
+    SortUnique(destroyed_);
+    if (!active_.empty()) {
+        jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
+            for (uint32_t i = begin; i < end; ++i) {
+                const ConnectionId id = active_[i];
+                Connection& connection = *connections_[id];
+                connection.ids.BeginTick();
+                ApplyDestructions(connection);
+                if (id % interval == phase) {
+                    Recalculate(id, connection);
+                }
             }
+        });
+    }
+    destroyed_.clear();
+}
+
+// Destructions are reported at once, whatever the connection's recalculation schedule. The id stays
+// reserved until the next tick, like any other id that is given up.
+void RelevancyEngine::ApplyDestructions(Connection& connection) const {
+    for (const uint64_t raw : destroyed_) {
+        const auto it = connection.visible.find(raw);
+        if (it == connection.visible.end()) {
+            continue;
         }
-    });
+        connection.events.events.push_back(
+            {VisibilityEvent::Kind::Destroy, EntityId::FromRaw(raw), it->second.compact_id});
+        connection.ids.Release(it->second.compact_id);
+        connection.visible.erase(it);
+    }
 }
 
 void RelevancyEngine::Recalculate(ConnectionId id, Connection& connection) const {
