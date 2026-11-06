@@ -11,7 +11,8 @@ add_library(tessera_net_core STATIC
     src/relevancy/visible_set.cpp
     src/relevancy/relevancy_engine.cpp
     src/replication/bit_stream.cpp
-    src/replication/property_schema.cpp)
+    src/replication/property_schema.cpp
+    src/replication/property_codecs.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)
