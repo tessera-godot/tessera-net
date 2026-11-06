@@ -33,6 +33,10 @@ void ValidateRelevancyConfig(const RelevancyConfig& config) {
         throw std::invalid_argument("RelevancyConfig: max_visible_per_connection must be between 1 and " +
                                     std::to_string(kMaxVisibleLimit));
     }
+    if (!IsNonNegativeFinite(config.observer_tolerance)) {
+        throw std::invalid_argument(
+            "RelevancyConfig: observer_tolerance must be a finite number, zero or more");
+    }
     for (size_t type = 0; type < config.types.size(); ++type) {
         const TypeRelevancy& rule = config.types[type];
         if (!IsNonNegativeFinite(rule.range)) {

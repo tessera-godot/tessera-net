@@ -84,3 +84,26 @@ TESSERA_TEST(invalid_range_or_margin_throws) {
         TESSERA_CHECK(Throws(config));
     }
 }
+
+TESSERA_TEST(new_defaults_match_the_documented_values) {
+    const RelevancyConfig config;
+    TESSERA_CHECK(config.observer_tolerance == 4.0f);
+    TESSERA_CHECK(config.max_reanchors_per_tick == 32);
+}
+
+TESSERA_TEST(negative_nan_or_infinite_tolerance_throws) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    for (const float bad : {nan, -1.0f, inf, -inf}) {
+        RelevancyConfig config;
+        config.observer_tolerance = bad;
+        TESSERA_CHECK(Throws(config));
+    }
+}
+
+TESSERA_TEST(zero_tolerance_and_zero_reanchor_cap_are_valid) {
+    RelevancyConfig config;
+    config.observer_tolerance = 0.0f;
+    config.max_reanchors_per_tick = 0;
+    TESSERA_CHECK(!Throws(config));
+}

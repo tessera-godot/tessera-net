@@ -31,6 +31,15 @@ struct RelevancyConfig {
     uint32_t max_observers_per_connection = 4;
     /// Most entities one connection can see at once. Also the size of its compact id space.
     uint32_t max_visible_per_connection = 65536;
+    /// How far (in world units) an observer must move from where it was last evaluated before the engine
+    /// looks at everything around it again. Below this distance the observer is treated as standing still,
+    /// so what a player sees can lag their true position by up to this much. 0 means evaluate again on
+    /// every movement (exact, and expensive).
+    float observer_tolerance = 4.0f;
+    /// Most full re-evaluations the engine does in one `Update`. When more are due, the ones that have
+    /// waited longest go first and the rest wait for the next tick, so a burst (many players spawning at
+    /// once) costs a little lag instead of a long tick. 0 means no limit.
+    uint32_t max_reanchors_per_tick = 32;
     std::array<TypeRelevancy, 256> types{};
 };
 
