@@ -196,6 +196,9 @@ private:
         ServerConfig config;
         config.max_connections = std::max<uint32_t>(params.clients + 4, 8);
         config.max_visible_per_connection = 1000;
+        config.rate_kbps = 0; // the older tests expect no budget and a resend on every tick
+        config.min_resend_ticks = 1;
+        config.initial_resend_ticks = 1;
         return config;
     }
 

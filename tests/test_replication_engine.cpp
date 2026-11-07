@@ -5,10 +5,13 @@
 #include "test_support.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace tessera::net;
@@ -342,4 +345,117 @@ TESSERA_TEST(a_change_to_a_slot_reused_by_a_new_entity_does_not_reach_the_old_vi
     // Connection 0 still tracks the old entity, which did not change: it gets nothing.
     TESSERA_CHECK(engine.Output(0).size() == 1);
     TESSERA_CHECK(engine.Output(1).size() > 1);
+}
+
+namespace {
+
+// True if building an engine with `config` throws std::invalid_argument naming `field`.
+bool RefusedNaming(const ReplicationConfig& config, const char* field,
+                   const ReplicationSchema& schema = MakeTestSchema()) {
+    ThreadPoolJobSystem jobs(1);
+    try {
+        ReplicationEngine engine(schema, config, jobs);
+    } catch (const std::invalid_argument& error) {
+        return std::string(error.what()).find(field) != std::string::npos;
+    }
+    return false;
+}
+
+ReplicationConfig WithBudget() {
+    ReplicationConfig config = SmallConfig();
+    config.rate_kbps = 100;
+    config.peak_kbps = 200;
+    config.max_buffer_bytes = 1100;
+    return config;
+}
+
+} // namespace
+
+TESSERA_TEST(replication_config_rejects_each_new_field_out_of_range) {
+    ReplicationConfig config = WithBudget();
+    TESSERA_CHECK(!RefusedNaming(config, "tick_rate")); // the budget config itself is fine
+    config = WithBudget();
+    config.tick_rate = 0;
+    TESSERA_CHECK(RefusedNaming(config, "tick_rate"));
+    config.tick_rate = 1001;
+    TESSERA_CHECK(RefusedNaming(config, "tick_rate"));
+    config = WithBudget();
+    config.rate_kbps = 1'000'001;
+    TESSERA_CHECK(RefusedNaming(config, "rate_kbps"));
+    config = WithBudget();
+    config.peak_kbps = 50; // below the rate
+    TESSERA_CHECK(RefusedNaming(config, "peak_kbps"));
+    config.peak_kbps = 1'000'001;
+    TESSERA_CHECK(RefusedNaming(config, "peak_kbps"));
+    config = WithBudget();
+    config.max_buffer_bytes = 63;
+    TESSERA_CHECK(RefusedNaming(config, "max_buffer_bytes"));
+    config.max_buffer_bytes = 65536;
+    TESSERA_CHECK(RefusedNaming(config, "max_buffer_bytes"));
+    config = WithBudget();
+    config.rate_kbps = 0; // no budget: the cap is not used, so it is not checked
+    config.peak_kbps = 0;
+    config.max_buffer_bytes = 63;
+    TESSERA_CHECK(!RefusedNaming(config, "max_buffer_bytes"));
+    config = WithBudget();
+    config.resend_margin_ticks = 31;
+    TESSERA_CHECK(RefusedNaming(config, "resend_margin_ticks"));
+    config = WithBudget();
+    config.min_resend_ticks = 0;
+    TESSERA_CHECK(RefusedNaming(config, "min_resend_ticks"));
+    config.min_resend_ticks = 256;
+    TESSERA_CHECK(RefusedNaming(config, "min_resend_ticks"));
+    config = WithBudget();
+    config.min_resend_ticks = 5;
+    config.max_resend_ticks = 4; // below the minimum
+    config.initial_resend_ticks = 5;
+    TESSERA_CHECK(RefusedNaming(config, "max_resend_ticks"));
+    config = WithBudget();
+    config.max_resend_ticks = 256;
+    TESSERA_CHECK(RefusedNaming(config, "max_resend_ticks"));
+    config = WithBudget();
+    config.min_resend_ticks = 2;
+    config.initial_resend_ticks = 1; // below the minimum
+    TESSERA_CHECK(RefusedNaming(config, "initial_resend_ticks"));
+    config.initial_resend_ticks = 31; // above the maximum
+    TESSERA_CHECK(RefusedNaming(config, "initial_resend_ticks"));
+    config = WithBudget();
+    config.type_weight[7] = 0;
+    TESSERA_CHECK(RefusedNaming(config, "type_weight"));
+}
+
+TESSERA_TEST(replication_config_defaults_keep_todays_behaviour) {
+    const ReplicationConfig config;
+    TESSERA_CHECK(config.rate_kbps == 0 && config.peak_kbps == 0); // no budget
+    TESSERA_CHECK(config.min_resend_ticks == 1 && config.initial_resend_ticks == 1); // resend every tick
+    TESSERA_CHECK(config.tick_rate == 30 && config.resend_margin_ticks == 1 && config.max_resend_ticks == 30);
+    TESSERA_CHECK(config.max_buffer_bytes == 65535);
+    for (const uint8_t weight : config.type_weight) {
+        TESSERA_CHECK(weight == 1);
+    }
+}
+
+TESSERA_TEST(engine_refuses_a_buffer_cap_smaller_than_the_largest_record) {
+    // Seven 64-bit integers are 14 words, so the largest complete record needs 4 * 14 + 16 = 72 bytes.
+    struct WideColumns {
+        int64_t v[7][kPageSlots];
+    };
+    ReplicationSchema schema;
+    std::vector<PropertyDescriptor> properties;
+    for (int i = 0; i < 7; ++i) {
+        properties.push_back(PropertyDescriptor::Integer(
+            ColumnRef{static_cast<uint32_t>(offsetof(WideColumns, v) + i * sizeof(int64_t) * kPageSlots), 8}, true,
+            std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()));
+    }
+    TESSERA_CHECK(schema.AddType(3, properties));
+    TESSERA_CHECK(schema.MaxWords() == 14);
+    ReplicationConfig config = WithBudget();
+    config.max_buffer_bytes = 71;
+    TESSERA_CHECK(RefusedNaming(config, "max_buffer_bytes", schema));
+    config.max_buffer_bytes = 72;
+    TESSERA_CHECK(!RefusedNaming(config, "max_buffer_bytes", schema));
+    config.rate_kbps = 0; // without a budget the cap is not used
+    config.peak_kbps = 0;
+    config.max_buffer_bytes = 64;
+    TESSERA_CHECK(!RefusedNaming(config, "max_buffer_bytes", schema));
 }

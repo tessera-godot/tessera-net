@@ -2,6 +2,7 @@
 #include "tessera/net/replication/replication_engine.hpp"
 
 #include <stdexcept>
+#include <string>
 
 namespace tessera::net {
 
@@ -22,6 +23,46 @@ ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const Repl
     }
     if (config.max_unconfirmed_sends == 0 || config.max_unconfirmed_sends > 255) {
         throw std::invalid_argument("ReplicationConfig::max_unconfirmed_sends must be 1 to 255");
+    }
+    if (config.tick_rate == 0 || config.tick_rate > 1000) {
+        throw std::invalid_argument("ReplicationConfig::tick_rate must be 1 to 1000");
+    }
+    if (config.rate_kbps > 1'000'000) {
+        throw std::invalid_argument("ReplicationConfig::rate_kbps must be at most 1000000");
+    }
+    if (config.peak_kbps > 1'000'000 || (config.peak_kbps != 0 && config.peak_kbps < config.rate_kbps)) {
+        throw std::invalid_argument("ReplicationConfig::peak_kbps must be 0, or from rate_kbps to 1000000");
+    }
+    if (config.rate_kbps > 0) {
+        if (config.max_buffer_bytes < 64 || config.max_buffer_bytes > 65535) {
+            throw std::invalid_argument("ReplicationConfig::max_buffer_bytes must be 64 to 65535");
+        }
+        // A record that cannot fit in an empty buffer would never be sent.
+        const uint32_t largest_record = 4 * schema.MaxWords() + 16;
+        if (config.max_buffer_bytes < largest_record) {
+            throw std::invalid_argument("ReplicationConfig::max_buffer_bytes must hold the largest record (" +
+                                        std::to_string(largest_record) + " bytes for this schema)");
+        }
+    }
+    if (config.resend_margin_ticks > 30) {
+        throw std::invalid_argument("ReplicationConfig::resend_margin_ticks must be 0 to 30");
+    }
+    if (config.min_resend_ticks == 0 || config.min_resend_ticks > 255) {
+        throw std::invalid_argument("ReplicationConfig::min_resend_ticks must be 1 to 255");
+    }
+    if (config.max_resend_ticks < config.min_resend_ticks || config.max_resend_ticks > 255) {
+        throw std::invalid_argument(
+            "ReplicationConfig::max_resend_ticks must be from min_resend_ticks to 255");
+    }
+    if (config.initial_resend_ticks < config.min_resend_ticks ||
+        config.initial_resend_ticks > config.max_resend_ticks) {
+        throw std::invalid_argument(
+            "ReplicationConfig::initial_resend_ticks must be from min_resend_ticks to max_resend_ticks");
+    }
+    for (const uint8_t weight : config.type_weight) {
+        if (weight == 0) {
+            throw std::invalid_argument("ReplicationConfig::type_weight must be 1 to 255 for every type");
+        }
     }
     connections_.resize(config.max_connections);
 }

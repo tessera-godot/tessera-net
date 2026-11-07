@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace network_test;
@@ -534,4 +535,74 @@ TESSERA_TEST(a_type_that_players_can_see_but_that_has_no_replication_schema_is_r
     relevancy.types[kUnknownType] = TypeRelevancy{RelevancyMode::Spatial, 0.0f, 0.0f}; // never visible: fine
     ReplicationServer fine(SmallServerConfig(), relevancy, schema, grid, groups, jobs, network.Server());
     TESSERA_CHECK(fine.ConnectionCount() == 0);
+}
+
+TESSERA_TEST(server_config_defaults_for_the_budget_and_the_pacing) {
+    const ServerConfig config;
+    TESSERA_CHECK(config.rate_kbps == 100 && config.peak_kbps == 200 && config.max_buffer_bytes == 1100);
+    TESSERA_CHECK(config.resend_margin_ticks == 1 && config.min_resend_ticks == 2);
+    TESSERA_CHECK(config.max_resend_ticks == 30 && config.initial_resend_ticks == 6);
+    for (const uint8_t weight : config.type_weight) {
+        TESSERA_CHECK(weight == 1);
+    }
+}
+
+TESSERA_TEST(the_server_names_the_budget_field_it_refuses) {
+    ReplicationSchema schema = MakeTestSchema();
+    SpatialGrid grid{GridConfig{64.0f, 64.0f, 64.0f}};
+    RelevancyGroups groups;
+    ThreadPoolJobSystem jobs(1);
+    SimulatedNetwork network{NetworkConditions{}};
+    auto refused_naming = [&](auto edit, const char* field) {
+        ServerConfig config = SmallServerConfig();
+        config.rate_kbps = 100;
+        edit(config);
+        try {
+            ReplicationServer server(config, TestRelevancyConfig(), schema, grid, groups, jobs,
+                                     network.Server());
+        } catch (const std::invalid_argument& error) {
+            return std::string(error.what()).find(std::string("ServerConfig::") + field) != std::string::npos;
+        }
+        return false;
+    };
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.rate_kbps = 1'000'001; }, "rate_kbps"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.peak_kbps = 50; }, "peak_kbps"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_buffer_bytes = 63; }, "max_buffer_bytes"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_buffer_bytes = 65536; }, "max_buffer_bytes"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.resend_margin_ticks = 31; }, "resend_margin_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.min_resend_ticks = 0; }, "min_resend_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_resend_ticks = 256; }, "max_resend_ticks"));
+    TESSERA_CHECK(refused_naming(
+        [](ServerConfig& c) {
+            c.min_resend_ticks = 5;
+            c.max_resend_ticks = 4;
+        },
+        "max_resend_ticks"));
+    TESSERA_CHECK(refused_naming(
+        [](ServerConfig& c) {
+            c.min_resend_ticks = 2;
+            c.initial_resend_ticks = 1; // below the minimum
+        },
+        "initial_resend_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.type_weight[3] = 0; }, "type_weight"));
+    TESSERA_CHECK(!refused_naming([](ServerConfig&) {}, "rate_kbps"));
+}
+
+TESSERA_TEST(server_passes_its_budget_settings_to_the_replication_engine) {
+    ServerConfig config = SmallServerConfig();
+    config.tick_rate = 60;
+    config.rate_kbps = 80;
+    config.peak_kbps = 160;
+    config.max_buffer_bytes = 900;
+    config.resend_margin_ticks = 2;
+    config.min_resend_ticks = 3;
+    config.max_resend_ticks = 20;
+    config.initial_resend_ticks = 7;
+    config.type_weight[4] = 9;
+    ServerHarness h(config);
+    const ReplicationConfig& engine = h.server.Replication().Config();
+    TESSERA_CHECK(engine.tick_rate == 60 && engine.rate_kbps == 80 && engine.peak_kbps == 160);
+    TESSERA_CHECK(engine.max_buffer_bytes == 900 && engine.resend_margin_ticks == 2);
+    TESSERA_CHECK(engine.min_resend_ticks == 3 && engine.max_resend_ticks == 20 && engine.initial_resend_ticks == 7);
+    TESSERA_CHECK(engine.type_weight[4] == 9 && engine.type_weight[5] == 1);
 }

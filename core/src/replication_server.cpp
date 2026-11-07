@@ -40,6 +40,34 @@ RelevancyConfig ReplicationServer::PrepareRelevancy(RelevancyConfig relevancy, c
                                         " can be seen by players but has no replication schema");
         }
     }
+    if (config.rate_kbps > 1'000'000) {
+        throw std::invalid_argument("ServerConfig::rate_kbps must be at most 1000000");
+    }
+    if (config.peak_kbps < config.rate_kbps || config.peak_kbps > 1'000'000) {
+        throw std::invalid_argument("ServerConfig::peak_kbps must be from rate_kbps to 1000000");
+    }
+    if (config.max_buffer_bytes < 64 || config.max_buffer_bytes > 65535) {
+        throw std::invalid_argument("ServerConfig::max_buffer_bytes must be 64 to 65535");
+    }
+    if (config.resend_margin_ticks > 30) {
+        throw std::invalid_argument("ServerConfig::resend_margin_ticks must be 0 to 30");
+    }
+    if (config.min_resend_ticks == 0 || config.min_resend_ticks > 255) {
+        throw std::invalid_argument("ServerConfig::min_resend_ticks must be 1 to 255");
+    }
+    if (config.max_resend_ticks < config.min_resend_ticks || config.max_resend_ticks > 255) {
+        throw std::invalid_argument("ServerConfig::max_resend_ticks must be from min_resend_ticks to 255");
+    }
+    if (config.initial_resend_ticks < config.min_resend_ticks ||
+        config.initial_resend_ticks > config.max_resend_ticks) {
+        throw std::invalid_argument(
+            "ServerConfig::initial_resend_ticks must be from min_resend_ticks to max_resend_ticks");
+    }
+    for (const uint8_t weight : config.type_weight) {
+        if (weight == 0) {
+            throw std::invalid_argument("ServerConfig::type_weight must be 1 to 255 for every type");
+        }
+    }
     relevancy.max_connections = config.max_connections;
     relevancy.max_visible_per_connection = config.max_visible_per_connection;
     return relevancy;
@@ -50,6 +78,15 @@ ReplicationConfig ReplicationServer::MakeReplicationConfig(const ServerConfig& c
     replication.max_connections = config.max_connections;
     replication.max_visible_per_connection = config.max_visible_per_connection;
     replication.max_baseline_age_ticks = config.max_baseline_age_ticks;
+    replication.tick_rate = config.tick_rate;
+    replication.rate_kbps = config.rate_kbps;
+    replication.peak_kbps = config.peak_kbps;
+    replication.max_buffer_bytes = config.max_buffer_bytes;
+    replication.resend_margin_ticks = config.resend_margin_ticks;
+    replication.min_resend_ticks = config.min_resend_ticks;
+    replication.max_resend_ticks = config.max_resend_ticks;
+    replication.initial_resend_ticks = config.initial_resend_ticks;
+    replication.type_weight = config.type_weight;
     replication.max_unconfirmed_sends = config.max_unconfirmed_sends;
     return replication;
 }

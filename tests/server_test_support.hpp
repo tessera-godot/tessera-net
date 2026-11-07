@@ -16,6 +16,9 @@ inline ServerConfig SmallServerConfig(uint32_t max_connections = 4) {
     ServerConfig config;
     config.max_connections = max_connections;
     config.max_visible_per_connection = 1000;
+    config.rate_kbps = 0; // the older tests expect no budget and a resend on every tick
+    config.min_resend_ticks = 1;
+    config.initial_resend_ticks = 1;
     return config;
 }
 

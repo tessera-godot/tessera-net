@@ -12,6 +12,7 @@
 #include "tessera/net/spatial_grid.hpp"
 #include "tessera/net/transport/transport.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -32,6 +33,26 @@ struct ServerConfig {
     uint32_t max_baseline_age_ticks = 32;
     /// Recent sends remembered per entity and player (1 to 255); see `ReplicationConfig`.
     uint32_t max_unconfirmed_sends = 8;
+    /// What one player may be sent: an average of `rate_kbps` kilobits per second (0 means no limit) and,
+    /// over any 10 seconds, at most `peak_kbps` (at least the rate). A buffer is never larger than
+    /// `max_buffer_bytes`, 64 to 65,535; the default fits one packet of the usual 1,200 bytes.
+    uint32_t rate_kbps = 100;
+    uint32_t peak_kbps = 200;
+    uint32_t max_buffer_bytes = 1100;
+    /// An entity that was sent and not confirmed is sent again after the player's measured round trip plus
+    /// `resend_margin_ticks`, between `min_resend_ticks` and `max_resend_ticks`; `initial_resend_ticks` is
+    /// used until a round trip has been measured.
+    uint32_t resend_margin_ticks = 1;
+    uint32_t min_resend_ticks = 2;
+    uint32_t max_resend_ticks = 30;
+    uint32_t initial_resend_ticks = 6;
+    /// Priority of a type when the budget does not hold everything (1 to 255), multiplied by the ticks an
+    /// entity has waited.
+    std::array<uint8_t, 256> type_weight = [] {
+        std::array<uint8_t, 256> weights{};
+        weights.fill(1);
+        return weights;
+    }();
 };
 
 struct ServerStats {
