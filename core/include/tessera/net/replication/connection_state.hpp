@@ -28,6 +28,21 @@ struct EncodeStats {
     uint32_t records = 0;          ///< Records written (complete and partial).
     uint32_t complete_records = 0; ///< Of those, records that carry every property.
     uint32_t skipped_unquantized = 0;
+    uint32_t waiting = 0;  ///< Sent and unconfirmed entities held back until their resend wait is over.
+    uint32_t deferred = 0; ///< Entities that needed sending but did not fit in the byte limit.
+};
+
+/// What limits one `Encode` call.
+struct EncodeLimits {
+    /// An entity that was sent, has not been confirmed and has not changed since is a candidate again only
+    /// after this many ticks. An entity that changed (or just entered) is a candidate at once. 1 means every
+    /// tick.
+    uint32_t resend_after_ticks = 1;
+    /// The most bytes in the buffer, terminator included. 0 means no limit.
+    uint32_t max_bytes = 0;
+    /// The weight of each entity type (256 entries, 1 or more) that multiplies the ticks an entity has waited
+    /// when not everything fits. `nullptr` means 1 for every type.
+    const uint8_t* type_weight = nullptr;
 };
 
 /// What the server knows about one connection's view of the replicated state: which entities it sees (from
@@ -75,7 +90,13 @@ public:
     /// nothing (or only something older than the baseline age), otherwise only what differs from the
     /// confirmed state. An entity that is not changed and has nothing outstanding is skipped and no longer
     /// pending.
-    EncodeStats Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out);
+    EncodeStats Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out) {
+        return Encode(tick, store, out, EncodeLimits{});
+    }
+    /// The same, within `limits`: entities waiting for their resend are left out, and so is whatever does not
+    /// fit.
+    EncodeStats Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out,
+                       const EncodeLimits& limits);
 
     /// The client confirmed it received the buffer written for `tick`: every entity that was sent in that
     /// buffer (and whose send is still remembered) now has the state sent then as its confirmed state, and

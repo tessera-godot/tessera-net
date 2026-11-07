@@ -220,7 +220,8 @@ bool ConnectionState::HasBaseline(uint32_t compact_id) const noexcept {
     return page != nullptr && TestBit(page->has_baseline, compact_id % kPageIds);
 }
 
-EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out) {
+EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out,
+                                    const EncodeLimits& limits) {
     out.clear();
     EncodeStats stats;
     BitWriter writer(out);
@@ -250,6 +251,15 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                     ClearBit(page->pending, local); // the client already has exactly this
                     ClearBit(page->stale, local);
                     continue;
+                }
+                // Sent, not confirmed and not changed since: the send may still be on its way, so wait for it.
+                if (!TestBit(page->stale, local) && outstanding && page->sent_count[local] > 0) {
+                    const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
+                    const uint64_t last_sent = page->sent_ticks[static_cast<size_t>(local) * ring_ + newest];
+                    if (tick - last_sent < limits.resend_after_ticks) { // huge if the tick went backwards
+                        ++stats.waiting;
+                        continue;
+                    }
                 }
                 const uint64_t age = tick - page->acked_tick[local]; // huge if the tick went backwards
                 const bool use_baseline = has_baseline && age >= 1 && age <= max_baseline_age_;
