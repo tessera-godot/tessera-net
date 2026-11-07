@@ -52,7 +52,7 @@ their target. For example, the relevancy engine takes about 1 ms per tick on one
 million entities, against a goal of 1.5 ms; a first version took 15 ms. Replicated state, on the other hand,
 writes about 5.8 million updates per second on one thread against a goal of 10 million, and the whole network
 phase takes about 66 ms per tick for 128 players in a large, busy world against a goal of 3.3 ms. See the
-[benchmarks](docs/benchmarks.md#5-relevancy).
+[benchmarks](docs/benchmarks.md#5-relevancy) and the [network section](docs/benchmarks.md#7-the-whole-network-path).
 
 ## What exists today
 
@@ -95,7 +95,7 @@ up with exactly what the server has. See the [networking reference](docs/referen
 
 Players converge, but the goals for the whole phase are not met: with 128 players in a world of 200,000
 entities, a sixth of them changing in every tick and 5% of packets lost, the phase takes about 66 ms per tick on
-one thread (the goal is 3.3 ms) and a player receives about 960 kbps (the goal is 100). Most of the bytes are
+one thread (the goal is 3.3 ms) and the server sends about 960 kbps to each player (the goal is 100). Most of the bytes are
 repeats of entities that have not been confirmed yet. The numbers are in
 [record 0010](docs/adr/0010-transport-and-protocol.md) and on the [benchmarks page](docs/benchmarks.md#7-the-whole-network-path).
 

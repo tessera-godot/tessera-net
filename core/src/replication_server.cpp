@@ -2,6 +2,7 @@
 #include "tessera/net/replication_server.hpp"
 
 #include <stdexcept>
+#include <string>
 
 namespace tessera::net {
 
@@ -15,7 +16,8 @@ constexpr uint32_t kMaxConnectionsLimit = 65535;
 
 } // namespace
 
-RelevancyConfig ReplicationServer::PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config) {
+RelevancyConfig ReplicationServer::PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config,
+                                                    const ReplicationSchema& schema) {
     if (config.max_connections == 0 || config.max_connections > kMaxConnectionsLimit) {
         throw std::invalid_argument("ServerConfig::max_connections must be 1 to 65535");
     }
@@ -27,6 +29,16 @@ RelevancyConfig ReplicationServer::PrepareRelevancy(RelevancyConfig relevancy, c
     }
     if (config.max_baseline_age_ticks == 0 || config.max_baseline_age_ticks > kMaxBaselineAgeLimit) {
         throw std::invalid_argument("ServerConfig::max_baseline_age_ticks must be 1 to 255");
+    }
+    // A type that players can see has to be replicable: a client treats an entity of a type it has no schema
+    // for as a broken server and disconnects.
+    for (uint32_t type = 0; type < relevancy.types.size(); ++type) {
+        const TypeRelevancy& rule = relevancy.types[type];
+        const bool visible = rule.mode != RelevancyMode::Spatial || rule.range > 0.0f;
+        if (visible && schema.Find(type) == nullptr) {
+            throw std::invalid_argument("RelevancyConfig: entity type " + std::to_string(type) +
+                                        " can be seen by players but has no replication schema");
+        }
     }
     relevancy.max_connections = config.max_connections;
     relevancy.max_visible_per_connection = config.max_visible_per_connection;
@@ -46,7 +58,7 @@ ReplicationServer::ReplicationServer(const ServerConfig& config, RelevancyConfig
                                      const ReplicationSchema& schema, SpatialGrid& grid,
                                      RelevancyGroups& groups, IJobSystem& jobs, ITransport& transport)
     : config_(config), schema_(schema), transport_(transport),
-      relevancy_(PrepareRelevancy(std::move(relevancy), config), grid, groups, jobs),
+      relevancy_(PrepareRelevancy(std::move(relevancy), config, schema), grid, groups, jobs),
       replication_(schema, MakeReplicationConfig(config), jobs), slot_transport_(config.max_connections, 0) {}
 
 void ReplicationServer::SetCallbacks(std::function<void(ConnectionId)> on_connected,
@@ -96,7 +108,9 @@ void ReplicationServer::SendStateBuffers(uint64_t tick) {
         if (output.size() <= 1) {
             continue; // just the end marker: an idle player costs nothing
         }
-        const Peer& peer = peers_.at(slot_transport_[id]);
+        Peer& peer = peers_.at(slot_transport_[id]);
+        peer.sent_state = true;
+        peer.last_state_tick = tick;
         std::vector<uint8_t> bytes;
         EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent}, output, bytes);
         transport_.Send(slot_transport_[id], Channel::Unreliable, bytes);
@@ -172,6 +186,13 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
         return;
     }
     if (!peer.handshaken) {
+        ++stats_.messages_ignored;
+        return;
+    }
+    // An ack for a tick the server has not sent cannot be true. Believing it would move the window of
+    // confirmed ticks past every real ack and make the engine look through its pending entities for each tick
+    // it names.
+    if (!peer.sent_state || ack.latest_tick > peer.last_state_tick) {
         ++stats_.messages_ignored;
         return;
     }

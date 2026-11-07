@@ -64,9 +64,10 @@ connection 0.
 ### What the contract does not cover
 
 - **Integrity and authentication.** A message that arrives is assumed to be the one that was sent. A forged but
-  well-formed message (for example an ack for a tick that was never applied) cannot be told from a real one, and
-  could make a player confirm too much. Checking packets is the job of the transport that carries them; the
-  networking libraries commonly used with games do it.
+  well-formed message cannot be told from a real one: a state buffer that claims a tick it does not hold could
+  make a player confirm too much. (An ack for a tick the server has not sent is dropped and counted in
+  `messages_ignored`, so a player cannot stall its own confirmations.) Checking packets is the job of the
+  transport that carries them; the networking libraries commonly used with games do it.
 - **Encryption and abuse.** Not handled here.
 
 ## The simulated network
@@ -96,8 +97,8 @@ What it models:
   14% of the time and one of sixty-eight, 97%.
 - **Duplicates and delay.** Unreliable messages may arrive twice and out of order, because each takes its own
   random delay.
-- **Reliable ordered delivery.** Loss on this channel costs delay and never an order or a message: a reliable
-  message arrives after the one before it.
+- **Reliable ordered delivery.** Every reliable message arrives, after the one before it. The simulator does not
+  model the delay a retransmission would add.
 - **Disconnects.** Either side can close; the other is told, once, after what was already on its way.
 - **Repeatable.** The same seed and the same calls give the same bytes in the same order.
 
@@ -151,7 +152,8 @@ player connects; the `on_connected` callback is the place.
 | `max_baseline_age_ticks` | 32 | See [replicated state](replicated-state.md#configuration), 1 to 255. |
 | `max_unconfirmed_sends` | 8 | The same. |
 
-The constructor throws `std::invalid_argument`, naming the field, for a value out of range.
+The constructor throws `std::invalid_argument`, naming the field, for a value out of range, and for an entity type
+that players can see (a spatial range above zero, always relevant, or owner only) but that has no schema.
 
 A player who breaks the protocol on the reliable channel (a message that cannot be read, or one a player never
 sends) is disconnected and counted in `Stats().protocol_errors`. The same on the unreliable channel is only
@@ -202,7 +204,7 @@ two ticks, with a sixth of the entities changing in every tick:
   benchmarks page; the rest is relevancy, the protocol and the transport. This scenario moves 33,000 of 200,000
   entities in every tick, about 48 times as many as the relevancy benchmark moves (700), and we have not yet
   measured the parts apart here.
-- **A player receives about 960 kbps.** The goal was 100 kbps. **It is not met.** Almost all of it is state
+- **The server sends about 960 kbps to each player.** The goal was 100 kbps. **It is not met.** Almost all of it is state
   buffers. A changed entity is sent again in every tick until its confirmation comes back, three to four ticks
   later: the server writes about 970 records per player per tick where about 290 entities changed.
 - Everything converges. Every player ends up with exactly what the server has, three ticks after the world

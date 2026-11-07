@@ -16,16 +16,14 @@ inline constexpr uint32_t kProtocolVersion = 1;
 // The messages between a server and a client. Every message starts with one byte that says which it is,
 // followed by its fields (whole numbers take 4 bits for each 3 bits of value, so small ones are cheap).
 //
-//   ClientHello  client -> server, reliable   version, hash of the schema
-//   ServerHello  server -> client, reliable   accepted or why not; if accepted: the client's connection id,
-//   the tick
-//                                             rate, how many compact ids it may use, how many ticks of
-//                                             history it keeps
-//   EventBatch   server -> client, reliable   a number (1, 2, 3, ...), the tick, and the visibility events of
-//   that tick StateBuffer  server -> client, unreliable the tick, how many event batches the server had sent
-//   by then, and the
-//                                             buffer written by the replication engine, unchanged
-//   Ack          client -> server, unreliable the newest tick applied and a mask of the 32 before it
+// ClientHello (client to server, reliable): the version and the hash of the schema.
+// ServerHello (server to client, reliable): accepted or why not; if accepted, the client's connection id, the
+//     tick rate, how many compact ids it may use and how many ticks of history it keeps.
+// EventBatch (server to client, reliable): a number (1, 2, 3, ...), the tick, and the visibility events of
+//     that tick.
+// StateBuffer (server to client, unreliable): the tick, how many event batches the server had sent by then,
+//     and the buffer written by the replication engine, unchanged.
+// Ack (client to server, unreliable): the newest tick applied and a mask of the 32 before it.
 enum class MessageKind : uint8_t {
     ClientHello = 1,
     ServerHello = 2,

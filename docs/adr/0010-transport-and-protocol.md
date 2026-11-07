@@ -39,8 +39,10 @@ phase with 128 players were 3.3 ms per tick on one thread, 1 ms with eight worke
   order (events before state, confirmations before relevancy) cannot be got wrong by the caller. It overrides
   the connection and visible-entity limits of the relevancy configuration with its own.
 - **Connections do not trust the wire to be honest.** A reliable message that cannot be read, or one a player
-  never sends, disconnects that player; the same on the unreliable channel is dropped and counted. Forged
-  messages that are well formed cannot be told from real ones. Checking packets is left to the transport.
+  never sends, disconnects that player; the same on the unreliable channel is dropped and counted. An ack for a
+  tick the server has not sent is dropped too. Other forged messages that are well formed cannot be told from
+  real ones; checking packets is left to the transport. The server also refuses, at construction, a type that
+  players can see but that has no replication schema.
 - **Left out on purpose:** a transport over real sockets, encryption and authentication, reconnecting into an
   old session, and pacing of repeats.
 
@@ -50,7 +52,7 @@ phase with 128 players were 3.3 ms per tick on one thread, 1 ms with eight worke
   128 players, garbage input, and one worker or eight.
 - **The goals for the whole phase are not met.** With 128 players in a world of 200,000 entities and a sixth of
   them changing in every tick, the phase takes about 66 ms per tick on one thread and about 21 ms with eight
-  workers, and a player receives about 960 kbps. The regression limits in the benchmark are set at about twice
+  workers, and the server sends about 960 kbps to each player. The regression limits in the benchmark are set at about twice
   these values. The numbers, the scenario and the machine are on the
   [benchmarks page](../benchmarks.md#7-the-whole-network-path).
 - Most of the bytes are repeats: a changed entity is sent again every tick until its confirmation returns,

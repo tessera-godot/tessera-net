@@ -489,3 +489,49 @@ TESSERA_TEST(the_server_tick_gives_the_same_bytes_with_1_and_8_workers) {
     };
     TESSERA_CHECK(run(1) == run(8));
 }
+
+TESSERA_TEST(an_ack_for_a_tick_that_was_never_sent_is_dropped_and_does_not_stop_later_confirmations) {
+    ServerHarness h;
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    const EntityId mob = h.AddMob(10.0f, 10.0f);
+    FakeClient& client = h.ConnectAndGreet();
+    h.Step();
+    const uint64_t ignored_before = h.server.Stats().messages_ignored;
+    client.SendAck(1'000'000, 0xFFFFFFFFu); // a tick far ahead of anything the server has sent
+    h.Step();
+    h.Step();
+    TESSERA_CHECK(h.server.Stats().messages_ignored == ignored_before + 1); // dropped and counted
+    h.MoveMob(mob, 20.0f, 10.0f); // the entity changes after the forged ack
+    h.Step();
+    client.SendAck(h.tick - 1, 0); // and the real player confirms it
+    h.Step();
+    h.Step();
+    TESSERA_CHECK(!h.server.Replication().Connection(0)->IsPending(0)); // still settles
+    const uint64_t settled = h.server.Stats().state_buffers_sent;
+    for (int i = 0; i < 4; ++i) {
+        h.Step();
+    }
+    TESSERA_CHECK(h.server.Stats().state_buffers_sent == settled);
+    TESSERA_CHECK(h.server.Stats().protocol_errors == 0 && h.server.ConnectionCount() == 1);
+}
+
+TESSERA_TEST(a_type_that_players_can_see_but_that_has_no_replication_schema_is_refused_at_construction) {
+    ReplicationSchema schema = MakeTestSchema();
+    SpatialGrid grid{GridConfig{64.0f, 64.0f, 64.0f}};
+    RelevancyGroups groups;
+    ThreadPoolJobSystem jobs(1);
+    SimulatedNetwork network{NetworkConditions{}};
+    RelevancyConfig relevancy = TestRelevancyConfig();
+    relevancy.types[kUnknownType] = TypeRelevancy{RelevancyMode::Spatial, 50.0f, 5.0f};
+    bool refused = false;
+    try {
+        ReplicationServer server(SmallServerConfig(), relevancy, schema, grid, groups, jobs,
+                                 network.Server());
+    } catch (const std::invalid_argument&) {
+        refused = true;
+    }
+    TESSERA_CHECK(refused);
+    relevancy.types[kUnknownType] = TypeRelevancy{RelevancyMode::Spatial, 0.0f, 0.0f}; // never visible: fine
+    ReplicationServer fine(SmallServerConfig(), relevancy, schema, grid, groups, jobs, network.Server());
+    TESSERA_CHECK(fine.ConnectionCount() == 0);
+}

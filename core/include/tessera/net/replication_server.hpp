@@ -92,11 +92,14 @@ private:
     struct Peer {
         bool handshaken = false;
         ConnectionId id = 0;
-        uint64_t batches_sent = 0; // event batches sent to this player so far
-        AckWindow acks;            // the ticks this player has confirmed
+        uint64_t batches_sent = 0;    // event batches sent to this player so far
+        AckWindow acks;               // the ticks this player has confirmed
+        bool sent_state = false;      // a state buffer has gone to this player
+        uint64_t last_state_tick = 0; // the tick of the newest one: an ack beyond it is not believed
     };
 
-    static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config);
+    static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config,
+                                            const ReplicationSchema& schema);
     static ReplicationConfig MakeReplicationConfig(const ServerConfig& config);
 
     void ProcessTransport();

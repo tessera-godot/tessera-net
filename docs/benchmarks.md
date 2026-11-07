@@ -262,7 +262,7 @@ The scenario: 128 players and 200,000 entities of four types seen from 100, 250,
 4,500 m wide (the density of the relevancy benchmark). Players walk at 5 m/s and a tenth of them drive at 25 m/s.
 A sixth of the entities change in every tick (five times a second at 30 Hz): each takes a step of 0.2 m, and one in
 ten of those also changes its health. The network loses 5% of the packets it carries (1,200 bytes each) and delays
-every message by one or two ticks in each direction, about 60 ms there and back. The players join on a network
+every message by one or two ticks in each direction, about 100 ms there and back on average. The players join on a network
 that loses nothing and settle; the 100 ticks that are measured come after 20 more with the loss on.
 
 | Measure | Result (median of 4 executions, range) | Limit | Goal |
@@ -274,7 +274,7 @@ that loses nothing and settle; the 100 ticks that are measured come after 20 mor
 | Client work per tick, per client | about 300 us (286 to 328) | 700 us | |
 | Every client sees what the server has, after joining | yes | yes | yes |
 | ... and after the world stops changing | 3 ticks | yes | yes |
-| Bytes sent with 1 and 8 workers, 40 ticks | identical | identical | identical |
+| Bytes sent with 1 and 8 workers (16 players, 20,000 entities, 40 ticks) | identical | identical | identical |
 
 **The first three goals are not met.** The limits are regression guards, at about twice what the path measures
 today, so the benchmark fails if it gets clearly slower.
