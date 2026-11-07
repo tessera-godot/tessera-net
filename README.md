@@ -5,10 +5,11 @@ High-performance, dedicated-server networking for Godot 4, built for large open 
 Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
 
 > **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
-> job system), a relevancy engine (deciding what each player sees) and replicated state (turning what
-> changed into small buffers for each player) are implemented and tested. Sending those buffers over a
-> network, the transport, the Godot plugin and the dedicated server are not built yet, so nothing here is
-> ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> job system), a relevancy engine (deciding what each player sees), replicated state (turning what
+> changed into small buffers for each player) and a server and a client that exchange them over a simulated
+> network are implemented and tested. A transport over real sockets, the Godot plugin and the dedicated server
+> are not built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for
+> progress.
 
 ## Why this exists
 
@@ -49,7 +50,8 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 These are targets, not results. Measured numbers are published as they exist, including the ones that miss
 their target. For example, the relevancy engine takes about 1 ms per tick on one thread for 128 players among a
 million entities, against a goal of 1.5 ms; a first version took 15 ms. Replicated state, on the other hand,
-writes about 5.8 million updates per second on one thread against a goal of 10 million. See the
+writes about 5.8 million updates per second on one thread against a goal of 10 million, and the whole network
+phase takes about 66 ms per tick for 128 players in a large, busy world against a goal of 3.3 ms. See the
 [benchmarks](docs/benchmarks.md#5-relevancy).
 
 ## What exists today
@@ -82,6 +84,20 @@ entity that has not changed costs nothing. A position update takes about 4.4 byt
 The goals for size and memory are met; the goal for speed is not yet: about 5.8 million updates per second on
 one thread (the goal is 10 million) and about 44% efficiency with eight workers (the goal is 70%). The
 numbers and what is left to improve are in [record 0009](docs/adr/0009-replicated-state.md).
+
+**Networking** (`core/`): a transport interface that moves whole messages on a reliable and an unreliable
+channel, a simulated network in memory that loses, repeats and delays them, five messages, a
+`ReplicationServer` that runs the whole network phase of a tick, and a `ClientReplica` that applies what arrives
+and confirms it. Tests run the real server and real players over a bad network and check that every player ends
+up with exactly what the server has. See the [networking reference](docs/reference/networking.md).
+
+![Network phase: time per tick, measured value, regression limit and goal](docs/images/network-phase.svg)
+
+Players converge, but the goals for the whole phase are not met: with 128 players in a world of 200,000
+entities, a sixth of them changing in every tick and 5% of packets lost, the phase takes about 66 ms per tick on
+one thread (the goal is 3.3 ms) and a player receives about 960 kbps (the goal is 100). Most of the bytes are
+repeats of entities that have not been confirmed yet. The numbers are in
+[record 0010](docs/adr/0010-transport-and-protocol.md) and on the [benchmarks page](docs/benchmarks.md#7-the-whole-network-path).
 
 All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.md).
 
@@ -124,7 +140,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
 | `tests/` | Automated tests |
-| `bench/` | Benchmarks: the data core, relevancy, replicated state and the comparisons shown in the docs |
+| `bench/` | Benchmarks: the data core, relevancy, replicated state, the network path and the comparisons shown in the docs |
 | `docs/` | Documentation, architecture and decision records |
 | `tools/` | Build and packaging scripts |
 
@@ -136,6 +152,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Core library reference](docs/reference/core.md)
 - [Relevancy reference](docs/reference/relevancy.md)
 - [Replicated state reference](docs/reference/replicated-state.md)
+- [Networking reference](docs/reference/networking.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

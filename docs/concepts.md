@@ -16,6 +16,13 @@ steps: a position to the centimetre, an angle in 1,024 steps. It makes the numbe
 **Confirmation (ack).** The player telling the server that a buffer arrived. The server writes the next ones
 against the last state the player confirmed, so a lost packet never leaves the player out of step.
 
+**Transport.** What carries messages between the server and a player. The rest of the code only knows its
+interface, so the network library underneath can be replaced.
+
+**Reliable and unreliable messages.** A reliable message always arrives, in the order it was sent, or the
+connection fails. An unreliable one may be lost, repeated or arrive out of order, and is cheap. Visibility
+events go the first way, state the second.
+
 **Entity.** Anything in the world that the server keeps track of: a player, a zombie, a tree, a dropped
 item.
 

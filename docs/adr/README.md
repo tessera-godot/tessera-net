@@ -15,3 +15,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0007](0007-relevancy-first-version.md) | The first relevancy version is accepted at its measured cost | Superseded by 0008 |
 | [0008](0008-incremental-relevancy.md) | Relevancy is updated incrementally, with a small tolerance | Accepted |
 | [0009](0009-replicated-state.md) | Replicated state against the last confirmed state, accepted at its measured cost | Accepted |
+| [0010](0010-transport-and-protocol.md) | Transport by messages, a protocol with numbered event batches, accepted at its measured cost | Accepted |

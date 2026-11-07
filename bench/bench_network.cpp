@@ -512,6 +512,7 @@ struct Measurement {
     double visible_most = 0.0;
     double mb_per_player = 0.0; // server and client of one player together
     double lag_ticks = 0.0;
+    double records_per_player = 0.0; // records written per player per tick
     int settle_ticks = 0;
     Totals client_totals;
     uint64_t server_errors = 0;
@@ -539,10 +540,12 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
     const Totals clients_before = ClientTotals(sim);
 
     std::vector<double> refresh_runs, update_runs, client_runs;
+    uint64_t records = 0;
     for (int run = 0; run < kRuns; ++run) {
         TickCost sum;
         for (int i = 0; i < kTicksPerRun; ++i) {
             const TickCost cost = sim.Tick(true);
+            records += sim.Server().Replication().LastStats().records;
             sum.client_ms += cost.client_ms;
             sum.refresh_ms += cost.refresh_ms;
             sum.update_ms += cost.update_ms;
@@ -551,6 +554,7 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
         update_runs.push_back(sum.update_ms / kTicksPerRun);
         client_runs.push_back(sum.client_ms / kTicksPerRun / scenario.players * 1000.0);
     }
+    result.records_per_player = static_cast<double>(records) / (kRuns * kTicksPerRun) / scenario.players;
     result.refresh_ms = Median(refresh_runs);
     result.update_ms = Median(update_runs);
     result.client_poll_us = Median(client_runs);
@@ -648,6 +652,7 @@ void CheckNetwork() {
     Info("  of which event batches", one.event_kbps, "kbps");
     Info("  of which hellos", one.hello_kbps, "kbps");
     Info("network acks per player, player to server", one.ack_kbps, "kbps");
+    Info("network records written per player per tick", one.records_per_player, "rec");
     Info("network messages the network lost", one.lost_percent, "%");
     Info("network state lag of a client (mean)", one.lag_ticks, "ticks");
     Info("network state buffers applied per client, per tick",
