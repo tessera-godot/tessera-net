@@ -140,6 +140,7 @@ private:
     std::unordered_map<TransportConnection, Peer> peers_;
     std::vector<TransportConnection> slot_transport_; // by connection id; 0 while the slot is free
     size_t connection_count_ = 0;
+    uint64_t now_tick_ = 0; // the tick `Update` is running, for measuring how long a confirmation took
     std::function<void(ConnectionId)> on_connected_;
     std::function<void(ConnectionId)> on_disconnected_;
     ServerStats stats_;

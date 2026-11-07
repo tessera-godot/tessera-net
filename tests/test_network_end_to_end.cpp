@@ -157,3 +157,96 @@ TESSERA_TEST(players_see_entities_enter_and_leave_as_they_walk) {
     TESSERA_CHECK(most < world.mobs().size()); // and not everything was visible: relevancy really filtered
     (void)least;
 }
+
+namespace {
+
+NetParams TightBudget() {
+    NetParams params;
+    params.rate_kbps = 12; // about 50 bytes a tick for a world that changes much more than that
+    params.max_buffer_bytes = 100;
+    params.min_resend_ticks = 2;
+    params.clients = 4;
+    return params;
+}
+
+} // namespace
+
+TESSERA_TEST(clients_converge_under_a_tight_budget_and_a_bad_network) {
+    for (uint32_t seed = 1; seed <= 12; ++seed) {
+        NetParams params = TightBudget();
+        params.seed = seed;
+        NetWorld world(params);
+        world.Run();
+        TESSERA_CHECK(world.converged() && world.AllConnected());
+        TESSERA_CHECK(world.server().Stats().protocol_errors == 0);
+    }
+}
+
+TESSERA_TEST(a_tight_budget_degrades_frequency_but_never_leaves_a_client_behind_forever) {
+    NetParams params = TightBudget();
+    params.conditions.loss = 0.0;
+    params.conditions.duplicate = 0.0;
+    NetWorld world(params);
+    world.Play(30);
+    double most = 0.0;
+    for (int i = 0; i < 60; ++i) {
+        world.Play(1);
+        most = std::max(most, world.Divergence());
+    }
+    TESSERA_CHECK(most > 0.05 && most < 0.95); // behind, because the budget does not hold everything...
+    world.Settle(120);
+    TESSERA_CHECK(world.Divergence() == 0.0 && world.Check()); // ...but caught up once the world stops
+}
+
+TESSERA_TEST(one_hundred_and_twenty_eight_clients_converge_under_a_budget) {
+    NetParams params;
+    params.clients = 128;
+    params.entities = 80;
+    params.ticks = 40;
+    params.settle_every = 0;
+    params.area = 200.0f;
+    params.rate_kbps = 40;
+    params.max_buffer_bytes = 200;
+    params.min_resend_ticks = 2;
+    params.conditions.loss = 0.0;
+    params.conditions.duplicate = 0.0;
+    params.conditions.max_delay_ticks = 1;
+    NetWorld world(params);
+    world.Play(40);
+    world.Settle(120);
+    TESSERA_CHECK(world.Check() && world.AllConnected());
+    TESSERA_CHECK(world.server().ConnectionCount() == 128 && world.checks() >= 128);
+}
+
+TESSERA_TEST(the_same_bytes_with_1_and_8_workers_under_a_budget) {
+    for (uint32_t seed = 700; seed < 703; ++seed) {
+        NetParams one = TightBudget();
+        one.seed = seed;
+        one.workers = 1;
+        NetParams eight = one;
+        eight.workers = 8;
+        NetWorld a(one);
+        NetWorld b(eight);
+        a.Run();
+        b.Run();
+        TESSERA_CHECK(a.converged() && b.converged());
+        TESSERA_CHECK(a.Fingerprint() == b.Fingerprint());
+    }
+}
+
+TESSERA_TEST(a_client_that_disconnects_and_a_new_one_that_takes_its_slot_under_a_budget_both_converge) {
+    NetParams params = TightBudget();
+    params.clients = 3;
+    NetWorld world(params);
+    world.Play(30);
+    world.Settle(120);
+    TESSERA_CHECK(world.Check() && world.AllConnected());
+    world.DropClient(1);
+    world.Settle(5);
+    const size_t fresh = world.AddClient();
+    world.Play(25);
+    world.Settle(150);
+    TESSERA_CHECK(world.client(fresh).State() == ClientState::Connected);
+    TESSERA_CHECK(world.Check());
+    TESSERA_CHECK(world.server().Stats().protocol_errors == 0);
+}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication_server.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -105,6 +106,7 @@ void ReplicationServer::SetCallbacks(std::function<void(ConnectionId)> on_connec
 }
 
 void ReplicationServer::Update(uint64_t tick) {
+    now_tick_ = tick;
     // Whoever connected, left or confirmed something is dealt with first, so that the rest of the phase only
     // sees the players that are really there.
     ProcessTransport();
@@ -130,6 +132,7 @@ void ReplicationServer::SendEventBatches(uint64_t tick) {
         std::vector<uint8_t> bytes;
         Encode(EventBatch{peer.batches_sent, tick, events}, bytes);
         transport_.Send(slot_transport_[id], Channel::ReliableOrdered, bytes);
+        replication_.Charge(id, static_cast<uint32_t>(bytes.size())); // sent, so it counts against the budget
         ++stats_.event_batches_sent;
         replication_.ApplyVisibility(id, events);
         relevancy_.ClearEvents(id);
@@ -234,8 +237,17 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
         return;
     }
     // Each tick the ack confirms for the first time is confirmed to the replication engine, once.
-    for (const uint64_t tick : peer.acks.Add(ack)) {
+    const std::vector<uint64_t> fresh = peer.acks.Add(ack);
+    for (const uint64_t tick : fresh) {
         replication_.Confirm(peer.id, tick);
+    }
+    // The newest tick of an ack, the first time it is confirmed, tells how long a round trip takes: the ticks
+    // since the buffer was written. The older ticks of the mask were confirmed late by design and would only
+    // overstate it.
+    if (!fresh.empty() && fresh.back() == ack.latest_tick) {
+        const uint64_t waited = now_tick_ - ack.latest_tick; // huge if the ticks went backwards; cut below
+        replication_.NoteRoundTrip(
+            peer.id, static_cast<uint32_t>(std::min<uint64_t>(waited, config_.max_resend_ticks)));
     }
 }
 

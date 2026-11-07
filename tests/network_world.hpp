@@ -33,6 +33,10 @@ struct NetParams {
     bool few_values = false; // values flip between a couple of states, so entities often return to old ones
     float area = 300.0f;     // players and entities live in a square this many metres wide
     double noise = 0.0;      // per tick: chance that garbage is injected on the unreliable channel, both ways
+    uint32_t rate_kbps = 0;  // the server's budget per player; 0 means none
+    uint32_t peak_kbps = 0;  // 0 means the same as the rate
+    uint32_t max_buffer_bytes = 1100;
+    uint32_t min_resend_ticks = 1; // the wait before an unconfirmed entity is sent again, at least
 };
 
 class NetWorld {
@@ -124,6 +128,27 @@ public:
         return ok;
     }
 
+    // The share of what the connected clients can see for which they do not hold the server's current state.
+    double Divergence() {
+        uint64_t visible = 0, behind = 0;
+        for (const auto& client : clients_) {
+            if (client->State() != ClientState::Connected) {
+                continue;
+            }
+            const ConnectionId connection = client->ConnectionId();
+            for (const EntityId mob : mobs_) {
+                if (server_.Relevancy().CompactIdOf(connection, mob) == kInvalidCompactId) {
+                    continue;
+                }
+                ++visible;
+                if (!SameWords(client->WordsOf(mob), server_.Replication().Store().Find(mob))) {
+                    ++behind;
+                }
+            }
+        }
+        return visible == 0 ? 0.0 : static_cast<double>(behind) / static_cast<double>(visible);
+    }
+
     bool AllConnected() const {
         return std::all_of(clients_.begin(), clients_.end(),
                            [](const auto& client) { return client->State() == ClientState::Connected; });
@@ -196,9 +221,11 @@ private:
         ServerConfig config;
         config.max_connections = std::max<uint32_t>(params.clients + 4, 8);
         config.max_visible_per_connection = 1000;
-        config.rate_kbps = 0; // the older tests expect no budget and a resend on every tick
-        config.min_resend_ticks = 1;
-        config.initial_resend_ticks = 1;
+        config.rate_kbps = params.rate_kbps; // the older tests expect no budget and a resend on every tick
+        config.peak_kbps = std::max(params.peak_kbps, params.rate_kbps);
+        config.max_buffer_bytes = params.max_buffer_bytes;
+        config.min_resend_ticks = params.min_resend_ticks;
+        config.initial_resend_ticks = params.min_resend_ticks;
         return config;
     }
 
