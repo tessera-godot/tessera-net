@@ -152,3 +152,25 @@ TESSERA_TEST(finish_pads_with_zero_bits_to_a_whole_byte) {
     full.Finish();
     TESSERA_CHECK(exact.size() == 1);
 }
+
+TESSERA_TEST(bit_writer_rewind_restores_the_exact_state) {
+    for (const uint32_t lead_bits : {0u, 3u, 8u, 13u}) { // the mark is taken at different places in a byte
+        std::vector<uint8_t> a, b;
+        BitWriter wa(a), wb(b);
+        wa.WriteBits(0x1FFF, lead_bits);
+        wb.WriteBits(0x1FFF, lead_bits);
+        const BitWriter::Mark mark = wa.GetMark();
+        wa.WriteVarUInt(123456); // the part that is taken back spans several bytes
+        wa.WriteBits(0xFFFF, 16);
+        wa.WriteBool(true);
+        wa.Rewind(mark);
+        TESSERA_CHECK(wa.BitCount() == wb.BitCount());
+        wa.WriteBits(0x2A, 7); // and writing goes on as if nothing had happened
+        wb.WriteBits(0x2A, 7);
+        wa.WriteVarInt(-77);
+        wb.WriteVarInt(-77);
+        wa.Finish();
+        wb.Finish();
+        TESSERA_CHECK(a == b);
+    }
+}

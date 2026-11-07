@@ -4,8 +4,10 @@
 #include "tessera/net/entity_id.hpp"
 #include "tessera/net/relevancy/relevancy_types.hpp"
 #include "tessera/net/relevancy/visible_set.hpp"
+#include "tessera/net/replication/bit_stream.hpp"
 #include "tessera/net/replication/property_schema.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -108,6 +110,9 @@ public:
     /// The entity using a compact id, or `EntityId::Null()` if the id is free or out of range.
     EntityId EntityOf(uint32_t compact_id) const noexcept;
     bool IsPending(uint32_t compact_id) const noexcept;
+    /// The size in bytes of the last record written for a compact id (what `Encode` expects the next one to
+    /// take); 0 if none was written. For diagnostics and tests.
+    uint32_t LastRecordBytes(uint32_t compact_id) const noexcept;
     bool HasBaseline(uint32_t compact_id) const noexcept;
 
     size_t VisibleCount() const noexcept {
@@ -138,6 +143,9 @@ private:
         std::vector<uint32_t> sent;            // kPageIds * ring * words: the latest sends, a ring per entity
         std::vector<uint32_t> sent_runs;       // kPageIds * ring: on how many ticks in a row it was sent
         std::vector<uint64_t> sent_ticks;      // kPageIds * ring: the tick of each of them
+        uint64_t ready_since[kPageIds] =
+            {};                             // 1 + the tick it first needed sending and was not sent; 0 if not
+        uint16_t last_bytes[kPageIds] = {}; // size in bytes of its last record; 0 if never sent
     };
 
     Page* PageOf(uint32_t compact_id, bool create);
@@ -157,6 +165,21 @@ private:
     std::vector<SubscriptionChange> changes_;
     std::vector<uint64_t> leaving_; // scratch
     std::vector<VisibleEntry> entering_;
+
+    // What `Encode` weighs when not everything fits.
+    struct Candidate {
+        uint32_t compact_id;
+        uint32_t estimated_bytes;
+        uint64_t score;
+    };
+    // Writes the record of one pending entity and remembers the send. With `max_bytes` set, a record that
+    // would take the buffer past it is taken back and false is returned, leaving everything as it was.
+    bool WriteEntity(Page& page, uint32_t page_index, uint32_t local, uint64_t tick, const uint32_t* current,
+                     uint32_t max_bytes, BitWriter& writer, int64_t& previous, EncodeStats& stats);
+
+    std::array<uint16_t, 256> type_full_bytes_{}; // what a complete record of each type has taken lately
+    std::vector<Candidate> candidates_;           // scratch
+    std::vector<uint32_t> chosen_;                // scratch
 };
 
 } // namespace tessera::net
