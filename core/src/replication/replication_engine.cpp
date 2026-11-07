@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication/replication_engine.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
 namespace tessera::net {
+
+namespace {
+
+// What a state buffer costs beyond its bytes: the message header (the tick and the number of event batches)
+// and the room a packet takes.
+constexpr uint32_t kBufferOverheadBytes = 12;
+
+} // namespace
 
 ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const ReplicationConfig& config,
                                      IJobSystem& jobs)
@@ -118,7 +127,19 @@ void ReplicationEngine::Update(uint64_t tick) {
     jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
         for (uint32_t i = begin; i < end; ++i) {
             Entry& entry = *connections_[active_[i]];
-            entry.stats = entry.state.Encode(tick, store_, entry.output);
+            entry.bucket.Refill();
+            EncodeLimits limits;
+            limits.resend_after_ticks = entry.rtt.ResendAfter();
+            limits.type_weight = config_.type_weight.data();
+            if (!entry.bucket.Unlimited()) {
+                limits.max_bytes = static_cast<uint32_t>(
+                    std::clamp<int64_t>(entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
+            }
+            entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
+            if (!entry.bucket.Unlimited() &&
+                entry.output.size() > 1) { // more than the end marker: it is sent
+                entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) + kBufferOverheadBytes);
+            }
         }
     });
     last_stats_ = EncodeStats{};
@@ -127,8 +148,36 @@ void ReplicationEngine::Update(uint64_t tick) {
         last_stats_.records += stats.records;
         last_stats_.complete_records += stats.complete_records;
         last_stats_.skipped_unquantized += stats.skipped_unquantized;
+        last_stats_.waiting += stats.waiting;
+        last_stats_.deferred += stats.deferred;
     }
     store_.ClearChanged();
+}
+
+void ReplicationEngine::NoteRoundTrip(ConnectionId connection, uint32_t ticks) {
+    if (connection < connections_.size() && connections_[connection]) {
+        connections_[connection]->rtt.Note(ticks);
+    }
+}
+
+void ReplicationEngine::Charge(ConnectionId connection, uint32_t bytes) {
+    if (connection < connections_.size() && connections_[connection]) {
+        connections_[connection]->bucket.Charge(bytes);
+    }
+}
+
+uint32_t ReplicationEngine::ResendAfterTicks(ConnectionId connection) const noexcept {
+    if (connection >= connections_.size() || !connections_[connection]) {
+        return 0;
+    }
+    return connections_[connection]->rtt.ResendAfter();
+}
+
+int64_t ReplicationEngine::BudgetBytes(ConnectionId connection) const noexcept {
+    if (connection >= connections_.size() || !connections_[connection]) {
+        return 0;
+    }
+    return connections_[connection]->bucket.AvailableBytes();
 }
 
 std::span<const uint8_t> ReplicationEngine::Output(ConnectionId connection) const noexcept {

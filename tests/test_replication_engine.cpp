@@ -459,3 +459,245 @@ TESSERA_TEST(engine_refuses_a_buffer_cap_smaller_than_the_largest_record) {
     config.max_buffer_bytes = 64;
     TESSERA_CHECK(!RefusedNaming(config, "max_buffer_bytes", schema));
 }
+
+namespace {
+
+// `connections` connections that each see all of `entities` mobs, which can all be moved at once.
+struct Scene {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs;
+    ReplicationEngine engine;
+    Table table{TableConfig{0, kMobType}};
+    std::vector<EntityId> ids;
+    uint64_t tick = 0;
+
+    Scene(const ReplicationConfig& config, uint32_t connections, uint32_t entities, uint32_t workers = 1)
+        : jobs(workers), engine(schema, config, jobs) {
+        for (uint32_t i = 0; i < entities; ++i) {
+            ids.push_back(Spawn(table, static_cast<float>(i), 1.0f, 2.0f));
+        }
+        engine.Refresh(table);
+        for (ConnectionId c = 0; c < connections; ++c) {
+            engine.AddConnection(c);
+            std::vector<VisibilityEvent> events;
+            for (uint32_t i = 0; i < entities; ++i) {
+                events.push_back(Enter(ids[i], i));
+            }
+            engine.ApplyVisibility(c, events);
+        }
+    }
+
+    // Moves every entity, then one tick of the engine.
+    void Step(bool move = true) {
+        ++tick;
+        if (move) {
+            for (const EntityId id : ids) {
+                MoveX(table, id, static_cast<float>(tick % 97) * 0.7f + static_cast<float>(id.index() % 13));
+            }
+            engine.Refresh(table);
+        }
+        engine.Update(tick);
+    }
+};
+
+ReplicationConfig BudgetConfig() {
+    ReplicationConfig config = SmallConfig();
+    config.rate_kbps = 20; // about 83 bytes a tick
+    config.peak_kbps = 0;  // no savings: the same rate over any window
+    config.max_buffer_bytes = 200;
+    config.min_resend_ticks = 1;
+    return config;
+}
+
+} // namespace
+
+TESSERA_TEST(engine_without_a_budget_charges_nothing_and_defers_nothing) {
+    Scene scene(SmallConfig(), 1, 20);
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == std::numeric_limits<int64_t>::max());
+    uint32_t records = 0;
+    for (int i = 0; i < 3; ++i) {
+        scene.Step(false); // nothing changes and nothing is confirmed: all 20 are sent on every tick
+        records += scene.engine.LastStats().records;
+        TESSERA_CHECK(scene.engine.LastStats().deferred == 0 && scene.engine.LastStats().waiting == 0);
+    }
+    TESSERA_CHECK(records == 60);
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == std::numeric_limits<int64_t>::max());
+}
+
+TESSERA_TEST(engine_budget_caps_the_bytes_per_tick_and_the_window) {
+    Scene scene(BudgetConfig(), 2, 60);
+    std::vector<size_t> sizes;
+    for (int i = 0; i < 300; ++i) {
+        scene.Step();
+        for (ConnectionId c = 0; c < 2; ++c) {
+            TESSERA_CHECK(scene.engine.Output(c).size() <= 200);
+        }
+        sizes.push_back(scene.engine.Output(0).size());
+    }
+    // 20 kbps is 2,500 bytes a second: over every window of 30 ticks, that and the tick the bucket holds.
+    for (size_t start = 0; start + 30 <= sizes.size(); ++start) {
+        size_t sum = 0;
+        for (size_t i = start; i < start + 30; ++i) {
+            sum += sizes[i];
+        }
+        TESSERA_CHECK(sum <= 2500 + 84);
+    }
+    TESSERA_CHECK(scene.engine.LastStats().deferred > 0); // there was more to send than the budget allowed
+}
+
+TESSERA_TEST(engine_idle_connection_keeps_a_full_bucket) {
+    ReplicationConfig config = BudgetConfig();
+    config.peak_kbps = 60; // 40 kbps of savings: 50,000 bytes
+    Scene scene(config, 1, 0);
+    const int64_t full = scene.engine.BudgetBytes(0);
+    TESSERA_CHECK(full == 50'000);
+    for (int i = 0; i < 100; ++i) {
+        scene.Step(false);
+    }
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == full);
+}
+
+TESSERA_TEST(engine_note_round_trip_changes_the_resend_wait) {
+    ReplicationConfig config = SmallConfig();
+    Scene scene(config, 1, 1);
+    TESSERA_CHECK(scene.engine.ResendAfterTicks(0) == 1);
+    scene.engine.NoteRoundTrip(0, 5);
+    TESSERA_CHECK(scene.engine.ResendAfterTicks(0) == 6); // 5 ticks and the margin of 1
+    scene.Step(false);                                   // sent at tick 1 and never confirmed
+    TESSERA_CHECK(scene.engine.LastStats().records == 1);
+    for (int i = 0; i < 5; ++i) {
+        scene.Step(false);
+        TESSERA_CHECK(scene.engine.LastStats().records == 0 && scene.engine.LastStats().waiting == 1);
+    }
+    scene.Step(false); // tick 7: six ticks after the send
+    TESSERA_CHECK(scene.engine.LastStats().records == 1);
+}
+
+TESSERA_TEST(engine_charge_reduces_the_budget_of_the_next_tick) {
+    ReplicationConfig config = BudgetConfig();
+    Scene scene(config, 1, 0);
+    const int64_t before = scene.engine.BudgetBytes(0);
+    TESSERA_CHECK(before > 0);
+    scene.engine.Charge(0, 1000); // more than it had: the bucket is in debt
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == 0);
+    scene.Step(false);
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == 0); // one tick of rate is not enough to pay it back
+    for (int i = 0; i < 20; ++i) {
+        scene.Step(false);
+    }
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) > 0);
+}
+
+TESSERA_TEST(engine_unknown_connection_calls_are_ignored) {
+    Scene scene(BudgetConfig(), 1, 1);
+    scene.engine.NoteRoundTrip(99, 5);
+    scene.engine.Charge(99, 5);
+    scene.engine.NoteRoundTrip(2, 5); // in range but never added
+    TESSERA_CHECK(scene.engine.ResendAfterTicks(99) == 0 && scene.engine.BudgetBytes(99) == 0);
+    TESSERA_CHECK(scene.engine.ResendAfterTicks(2) == 0 && scene.engine.BudgetBytes(2) == 0);
+}
+
+TESSERA_TEST(engine_reused_slot_gets_a_full_bucket_and_a_fresh_estimator) {
+    ReplicationConfig config = BudgetConfig();
+    config.peak_kbps = 60;
+    Scene scene(config, 1, 0);
+    const int64_t full = scene.engine.BudgetBytes(0);
+    const uint32_t initial = scene.engine.ResendAfterTicks(0);
+    scene.engine.Charge(0, 40'000);
+    scene.engine.NoteRoundTrip(0, 9);
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) < full && scene.engine.ResendAfterTicks(0) != initial);
+    TESSERA_CHECK(scene.engine.RemoveConnection(0));
+    TESSERA_CHECK(scene.engine.AddConnection(0));
+    TESSERA_CHECK(scene.engine.BudgetBytes(0) == full && scene.engine.ResendAfterTicks(0) == initial);
+}
+
+TESSERA_TEST(engine_budget_results_do_not_depend_on_the_number_of_workers) {
+    uint64_t hashes[2] = {};
+    int index = 0;
+    for (const uint32_t workers : {1u, 8u}) {
+        ReplicationConfig config = BudgetConfig();
+        config.max_connections = 8;
+        Scene scene(config, 6, 80, workers);
+        uint64_t hash = 0xcbf29ce484222325ull;
+        for (int i = 0; i < 40; ++i) {
+            scene.Step();
+            for (ConnectionId c = 0; c < 6; ++c) {
+                for (const uint8_t byte : scene.engine.Output(c)) {
+                    hash = Fnv(hash, byte);
+                }
+                if (i % 3 == 0) {
+                    scene.engine.Confirm(c, scene.tick);
+                }
+            }
+        }
+        hashes[index++] = hash;
+    }
+    TESSERA_CHECK(hashes[0] == hashes[1]);
+}
+
+TESSERA_TEST(engine_charges_what_it_writes_so_a_burst_cannot_last) {
+    ReplicationConfig config = BudgetConfig();
+    config.peak_kbps = 24; // 4 kbps of savings: 5,000 bytes to spend on top of the rate
+    Scene scene(config, 1, 60);
+    size_t total = 0;
+    for (int i = 0; i < 600; ++i) { // 20 seconds, with more to send than the budget allows
+        scene.Step();
+        total += scene.engine.Output(0).size();
+    }
+    // 20 kbps for 20 seconds is 50,000 bytes, and 5,000 more saved up, and the tick the bucket always holds.
+    TESSERA_CHECK(total <= 50'000 + 5'000 + 84);
+    TESSERA_CHECK(total >= 40'000); // and it did use the budget
+}
+
+TESSERA_TEST(engine_buffer_cap_applies_even_when_the_bucket_is_full) {
+    ReplicationConfig config = BudgetConfig();
+    config.peak_kbps = 60; // 50,000 bytes saved: the bucket never limits in this test
+    config.max_buffer_bytes = 120;
+    Scene scene(config, 1, 60);
+    size_t most = 0;
+    for (int i = 0; i < 30; ++i) {
+        scene.Step();
+        most = std::max(most, scene.engine.Output(0).size());
+        TESSERA_CHECK(scene.engine.Output(0).size() <= 120);
+    }
+    TESSERA_CHECK(most > 100); // it really was held back by the cap
+}
+
+TESSERA_TEST(engine_passes_the_type_weights_to_the_choice) {
+    for (const bool weighted : {false, true}) {
+        const ReplicationSchema schema = MakeTestSchema();
+        ThreadPoolJobSystem jobs(1);
+        ReplicationConfig config = BudgetConfig();
+        config.rate_kbps = 1000; // plenty: only the cap limits
+        config.max_buffer_bytes = 64;
+        if (weighted) {
+            config.type_weight[kScoreType] = 255;
+        }
+        ReplicationEngine engine(schema, config, jobs);
+        Table mobs{TableConfig{0, kMobType}};
+        Table scores{TableConfig{0, kScoreType}};
+        std::vector<VisibilityEvent> events;
+        for (uint32_t i = 0; i < 10; ++i) { // mobs take compact ids 0 to 9, scores 10 to 19
+            events.push_back(Enter(Spawn(mobs, static_cast<float>(i), 1.0f, 2.0f), i));
+        }
+        for (uint32_t i = 0; i < 10; ++i) {
+            const EntityId score = scores.Create();
+            const auto where = scores.Find(score);
+            scores.Columns(where->page).score[where->slot] = static_cast<int64_t>(i);
+            scores.MarkDirty(score);
+            events.push_back(Enter(score, 10 + i));
+        }
+        engine.Refresh(mobs);
+        engine.Refresh(scores);
+        engine.AddConnection(0);
+        engine.ApplyVisibility(0, events);
+        engine.Update(1);
+        const ConnectionState& state = *engine.Connection(0);
+        TESSERA_CHECK(engine.LastStats().records >= 1 && engine.LastStats().deferred >= 1);
+        // Everything waited the same time. With equal weights the lowest ids (the mobs) go first, and what is
+        // left of the buffer is filled with the smaller records of the scores; with a heavy score weight the
+        // scores go first and no mob fits after them.
+        TESSERA_CHECK((state.LastRecordBytes(0) > 0) == !weighted);
+        TESSERA_CHECK(!weighted || state.LastRecordBytes(10) > 0);
+    }
+}

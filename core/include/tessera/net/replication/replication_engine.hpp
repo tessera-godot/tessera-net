@@ -4,8 +4,10 @@
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/relevancy/relevancy_types.hpp"
+#include "tessera/net/replication/bandwidth_bucket.hpp"
 #include "tessera/net/replication/connection_state.hpp"
 #include "tessera/net/replication/property_schema.hpp"
+#include "tessera/net/replication/round_trip.hpp"
 #include "tessera/net/replication/state_store.hpp"
 #include "tessera/net/replication/subscription_index.hpp"
 
@@ -97,6 +99,22 @@ public:
     const StateStore& Store() const noexcept {
         return store_;
     }
+    /// The client of a connection took `ticks` ticks to confirm a buffer: how long to wait before sending an
+    /// unconfirmed entity again follows the average. Unknown connections are ignored.
+    void NoteRoundTrip(ConnectionId connection, uint32_t ticks);
+
+    /// Takes `bytes` out of a connection's budget, for what was sent outside the buffer of replicated state
+    /// (the event batches). The budget may go into debt. Unknown connections are ignored.
+    void Charge(ConnectionId connection, uint32_t bytes);
+
+    /// Ticks an unconfirmed entity of a connection waits before it is sent again; 0 for an unknown
+    /// connection.
+    uint32_t ResendAfterTicks(ConnectionId connection) const noexcept;
+
+    /// Bytes a connection may be sent right now: the largest `int64_t` when there is no budget, 0 for an
+    /// unknown connection.
+    int64_t BudgetBytes(ConnectionId connection) const noexcept;
+
     /// The configuration the engine was built with.
     const ReplicationConfig& Config() const noexcept {
         return config_;
@@ -122,8 +140,14 @@ private:
     struct Entry {
         Entry(const ReplicationSchema& schema, const ReplicationConfig& config)
             : state(schema, config.max_visible_per_connection, config.max_baseline_age_ticks,
-                    config.max_unconfirmed_sends) {}
+                    config.max_unconfirmed_sends),
+              bucket(config.rate_kbps, config.peak_kbps == 0 ? config.rate_kbps : config.peak_kbps,
+                     config.tick_rate),
+              rtt(config.resend_margin_ticks, config.min_resend_ticks, config.max_resend_ticks,
+                  config.initial_resend_ticks) {}
         ConnectionState state;
+        BandwidthBucket bucket;
+        RoundTripEstimator rtt;
         std::vector<uint8_t> output;
         EncodeStats stats;
     };
