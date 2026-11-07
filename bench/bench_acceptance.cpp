@@ -9,9 +9,11 @@
 #include <cstdio>
 #include <numeric>
 #include <random>
+#include <string_view>
 #include <thread>
 #include <vector>
 
+#include "bench_network.hpp"
 #include "bench_relevancy.hpp"
 #include "bench_replication.hpp"
 #include "bench_report.hpp"
@@ -202,9 +204,13 @@ void CheckDeterminism() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::printf("Tessera Net data core: acceptance benchmark (%u hardware threads)\n", std::thread::hardware_concurrency());
     std::printf("%-46s %12s %-6s %-28s\n", "criterion", "measured", "", "result");
+    if (argc > 1 && std::string_view(argv[1]) == "network") {
+        CheckNetwork(); // only the network path, which takes the longest
+        return bench::Failures() == 0 ? 0 : 1;
+    }
     CheckStorage();
     CheckDestroyOrders();
     CheckScaling();
@@ -212,6 +218,7 @@ int main() {
     CheckDeterminism();
     CheckRelevancy();
     CheckReplication();
+    CheckNetwork();
     const int failures = bench::Failures();
     std::printf("\n%s (%d criteria failed)\n", failures == 0 ? "ALL CRITERIA PASSED" : "SOME CRITERIA FAILED", failures);
     return failures == 0 ? 0 : 1;

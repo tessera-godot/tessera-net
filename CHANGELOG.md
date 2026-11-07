@@ -7,6 +7,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Networking: `ITransport` (whole messages on a reliable ordered and an unreliable channel), `SimulatedNetwork`
+  (an in-memory network with loss, duplicates, delay and a seed), the protocol (hello from each side, event
+  batches, state buffers and acks), `ReplicationServer` (the whole network phase of a tick) and `ClientReplica`
+  (applies events in order and state whole or not at all, and confirms it). End-to-end tests with real
+  relevancy over a bad network, with 128 players and with random input. See `docs/reference/networking.md`.
+- Network benchmark (128 players, 200,000 entities, 5% loss), a chart for it, and a section 7 on the
+  benchmarks page. It converges but does not reach its goals yet (about 66 ms per tick on one thread against
+  3.3 ms, and about 960 kbps per player against 100); the numbers and what is left are in record 0010. Run
+  `tessera_net_bench network` to run it alone.
+- Architecture decision record 0010 (transport and protocol).
+- `ClientReplica::Disconnect()`.
 - Replicated state (`ReplicationEngine`, `ReceiverState`): property descriptors for positions, angles, integers,
   bit masks and enums, quantization, and a buffer for each player that holds only what differs from the last
   state the player confirmed. A position update takes about 4.4 bytes. See

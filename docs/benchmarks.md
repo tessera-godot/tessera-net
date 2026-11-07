@@ -250,14 +250,87 @@ Conditions: Release build (MSVC), the same desktop machine as above, Windows onl
 and no exclusion or inclusion groups. The machine was also running other programs, and the variation between executions
 is large.
 
+## 7. The whole network path
+
+A server with real relevancy and replication, 128 clients and a simulated network between them, all in one
+process. This is the first measurement of everything the server does in a tick, and of what it sends. Source:
+[`bench/bench_network.cpp`](../bench/bench_network.cpp).
+
+![Network phase time per tick: measured value, regression limit and goal](images/network-phase.svg)
+
+The scenario: 128 players and 200,000 entities of four types seen from 100, 250, 400 and 600 m, in a world
+4,500 m wide (the density of the relevancy benchmark). Players walk at 5 m/s and a tenth of them drive at 25 m/s.
+A sixth of the entities change in every tick (five times a second at 30 Hz): each takes a step of 0.2 m, and one in
+ten of those also changes its health. The network loses 5% of the packets it carries (1,200 bytes each) and delays
+every message by one or two ticks in each direction, about 100 ms there and back on average. The players join on a network
+that loses nothing and settle; the 100 ticks that are measured come after 20 more with the loss on.
+
+| Measure | Result (median of 4 executions, range) | Limit | Goal |
+|---|---|---|---|
+| Network phase per tick, 1 thread | 66 ms (61 to 69) | 150 ms | 3.3 ms |
+| Network phase per tick, 8 workers | 20.8 ms (19.5 to 21.1) | 45 ms | 1 ms |
+| Bandwidth per player, server to player | 960 kbps | 2,000 kbps | 100 kbps |
+| Memory per player (server and client together) | 2.1 MB | 4 MB | |
+| Client work per tick, per client | about 300 us (286 to 328) | 700 us | |
+| Every client sees what the server has, after joining | yes | yes | yes |
+| ... and after the world stops changing | 3 ticks | yes | yes |
+| Bytes sent with 1 and 8 workers (16 players, 20,000 entities, 40 ticks) | identical | identical | identical |
+
+**The first three goals are not met.** The limits are regression guards, at about twice what the path measures
+today, so the benchmark fails if it gets clearly slower.
+
+The four executions, per tick (milliseconds, unless marked). Of the phase, 2.3 to 2.5 ms on one thread is
+quantizing the entities that changed and the rest is the server's `Update`:
+
+| Execution | Phase, 1 thread | Phase, 8 workers | Client, one `Poll` (us) |
+|---|---|---|---|
+| 1 | 68.5 | 20.9 | 311 |
+| 2 | 68.2 | 21.1 | 328 |
+| 3 | 64.1 | 20.6 | 294 |
+| 4 | 60.7 | 19.5 | 286 |
+
+Other numbers from the same runs, which did not change between executions:
+
+| Case | Value |
+|---|---|
+| Entities visible to a player | 1,755 on average, 1,854 at most |
+| Bytes per player per second, server to player | 960 kbps: 956 state buffers, 3.4 event batches |
+| Bytes per player per second, player to server (acks) | 1 kbps |
+| Records written per player per tick | 966, where about 290 entities changed |
+| Messages the network loses | 16% (a state buffer is three or four packets) |
+| Age of the newest state buffer a player has applied | 1.75 ticks on average |
+| State buffers applied per client per tick | 0.83 |
+| Ticks for 16 players to join a network with 5% loss and see everything | 10 |
+
+How to read this:
+- **Where the time goes.** Replication alone takes about 25 ms per tick in the typical case of section 6, so
+  roughly 40 of the 66 ms are relevancy, the protocol and the transport. We have not yet measured them apart in
+  this scenario. It moves 33,000 entities per tick, about 48 times as many as the main relevancy scenario (700),
+  and the work of relevancy grows with the entities that move.
+- **Where the bytes go.** A position record takes about 4 bytes, but a changed entity is written again in every
+  tick until its confirmation comes back, three or four ticks later, so a player gets about 3.3 records for each
+  change. Deciding how often to repeat belongs to the layer that decides what goes first, which is not built yet.
+- **Eight workers.** They make the phase 3.2 times faster. The marking of what changed runs on one thread
+  (section 6), and we have not looked at what else does.
+- **Bytes counted** are those of the messages, without the headers of IP, UDP or a network library.
+- **Joining.** The players are brought in on a network that loses nothing. A first buffer holds every entity the
+  player sees, in full: tens of packets for 1,750 entities. With 5% loss a message that size is lost most of the
+  time, so joining a busy area over a lossy network takes several tries. The 10 ticks in the table are for a small
+  world of 16 players and 20,000 entities.
+
+Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far, one observer per player and
+no groups. The programs on the machine during the measurements were closed, but the speed of a short test that
+the benchmark prints for this purpose (writing one position record) was between 55 and 82 nanoseconds in the four
+executions, against 47 when the machine is quiet, so the times may be a little pessimistic.
+
 ## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
 [`bench/README.md`](../bench/README.md)):
 
 ```powershell
-# data core (section 4), relevancy (section 5) and replicated state (section 6): one program, a few minutes on the
-# machine above
+# data core (section 4), relevancy (section 5), replicated state (section 6) and the network path (section 7): one
+# program, a few minutes on the machine above; add the word `network` after the program name to run section 7 alone
 cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
 cmake --build --preset windows-msvc-release --target tessera_net_bench
 ./build/windows-msvc/bench/Release/tessera_net_bench.exe

@@ -4,6 +4,7 @@
 // visible to each connection. A second, smaller scenario is reported for information.
 #include "bench_relevancy.hpp"
 
+#include "bench_memory.hpp"
 #include "bench_report.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/relevancy/relevancy_engine.hpp"
@@ -13,19 +14,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <fstream>
 #include <iterator>
 #include <random>
 #include <span>
 #include <vector>
-
-#ifdef _WIN32
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-// psapi.h must come after windows.h.
-#include <psapi.h>
-#endif
 
 using namespace tessera::net;
 using bench::Clock;
@@ -34,6 +26,7 @@ using bench::Median;
 using bench::Ms;
 using bench::Report;
 using bench::ReportBool;
+using bench::ResidentBytes;
 
 namespace {
 
@@ -68,20 +61,6 @@ struct Scenario {
 // The reference scenario and a smaller one with the same entity density (10,000 per square km).
 constexpr Scenario kMain{128, 1'000'000, 10'000.0f, 700};
 constexpr Scenario kSmall{32, 250'000, 5'000.0f, 175};
-
-size_t ResidentBytes() {
-#ifdef _WIN32
-    PROCESS_MEMORY_COUNTERS counters{};
-    GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
-    return static_cast<size_t>(counters.WorkingSetSize);
-#else
-    std::ifstream statm("/proc/self/statm");
-    size_t total_pages = 0;
-    size_t resident_pages = 0;
-    statm >> total_pages >> resident_pages;
-    return resident_pages * 4096;
-#endif
-}
 
 struct World {
     Scenario scenario;

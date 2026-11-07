@@ -5,7 +5,7 @@ the programs that produce them.
 
 | Folder | What it measures | Needs |
 |---|---|---|
-| `bench_acceptance.cpp`, `bench_relevancy.cpp`, `bench_replication.cpp` | The data core, the relevancy engine and replicated state against their limits | CMake and a C++20 compiler |
+| `bench_acceptance.cpp`, `bench_relevancy.cpp`, `bench_replication.cpp`, `bench_network.cpp` | The data core, the relevancy engine, replicated state and the whole network path against their limits | CMake and a C++20 compiler |
 | [`ecs-comparison/`](ecs-comparison/) | The entity table against a general-purpose ECS (EnTT) | CMake, C++20; downloads EnTT on first configure |
 | [`godot-nodes/`](godot-nodes/) | One million Godot nodes against the entity table | Godot 4.5 or newer, godot-cpp, SCons |
 | [`godot-replication/`](godot-replication/) | Godot's built-in replication as entities grow | Godot 4.x, Python with `psutil` |
@@ -20,7 +20,8 @@ cmake --build --preset windows-msvc-release
 ```
 
 Run benchmarks only in a Release build, and close other heavy programs first: the numbers vary when the
-machine is busy.
+machine is busy. The network benchmark takes the longest; run it alone by adding the word `network` after the
+name of the program.
 
 ## Godot nodes
 

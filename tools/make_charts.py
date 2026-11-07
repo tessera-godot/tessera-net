@@ -222,6 +222,45 @@ def replication_chart():
                 chr(10).join(parts))
 
 
+def network_chart():
+    """The whole network phase per tick (log scale): measured value, regression guard and goal."""
+    # (label, measured ms, regression guard ms, goal ms)
+    rows = [
+        ("128 players, 1 thread", 66.0, 150.0, 3.3),
+        ("128 players, 8 workers", 20.8, 45.0, 1.0),
+    ]
+    width, height = 720, 310
+    left, plot_w, top, row_h = 230, 420, 100, 54
+    lo, hi = 0.5, 200.0
+
+    def x_of(value):
+        return left + plot_w * (math.log10(value) - math.log10(lo)) / (math.log10(hi) - math.log10(lo))
+
+    parts = []
+    for tick in (1, 10, 100):
+        x = x_of(tick)
+        parts.append(f'<line x1="{x:.1f}" y1="{top - 8}" x2="{x:.1f}" y2="{top + row_h * len(rows)}" stroke="{GRID}"/>')
+        parts.append(text(x, top - 14, f"{tick:g} ms", 11, MUTED, "middle"))
+    for i, (label, value, guard, goal) in enumerate(rows):
+        y = top + row_h * i
+        parts.append(text(left - 12, y + 28, label, 13, INK, "end"))
+        parts.append(f'<rect x="{left}" y="{y + 12}" width="{x_of(value) - left:.1f}" height="22" rx="3" fill="{BLUE}"/>')
+        parts.append(text(left + 10, y + 28, f"{value:.3g} ms", 12, "#ffffff", weight="bold"))
+        parts.append(f'<line x1="{x_of(guard):.1f}" y1="{y + 6}" x2="{x_of(guard):.1f}" y2="{y + 40}" stroke="{RED}" stroke-width="2"/>')
+        parts.append(f'<line x1="{x_of(goal):.1f}" y1="{y + 6}" x2="{x_of(goal):.1f}" y2="{y + 40}" stroke="{GREEN}" stroke-width="2"/>')
+    legend_y = top + row_h * len(rows) + 28
+    parts.append(f'<rect x="{left}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{BLUE}"/>')
+    parts.append(text(left + 22, legend_y, "measured", 12, INK))
+    parts.append(f'<rect x="{left + 100}" y="{legend_y - 11}" width="4" height="14" fill="{RED}"/>')
+    parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
+    parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
+    parts.append(text(left + 242, legend_y, "goal", 12, INK))
+    parts.append(text(24, height - 18, "Log scale. Neither goal is met yet; a player also receives 960 kbps against a goal of 100.", 11, MUTED))
+    return card(width, height, "Network phase: time per tick",
+                "128 players, 200,000 entities, 5% packet loss. Median of 4 runs, desktop CPU, Release build. Shorter is better.",
+                chr(10).join(parts))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline-godot-replication.svg").write_text(baseline_chart(), encoding="utf-8")
@@ -229,6 +268,7 @@ def main():
     (OUT / "entities-vs-godot-nodes.svg").write_text(nodes_chart(), encoding="utf-8")
     (OUT / "relevancy-update.svg").write_text(relevancy_chart(), encoding="utf-8")
     (OUT / "replication-update.svg").write_text(replication_chart(), encoding="utf-8")
+    (OUT / "network-phase.svg").write_text(network_chart(), encoding="utf-8")
     print("wrote", OUT)
 
 
