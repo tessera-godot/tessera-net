@@ -162,7 +162,7 @@ namespace {
 
 NetParams TightBudget() {
     NetParams params;
-    params.rate_kbps = 12; // about 50 bytes a tick for a world that changes much more than that
+    params.rate_kbps = 20; // about 83 bytes a tick for a world that changes much more than that
     params.max_buffer_bytes = 100;
     params.min_resend_ticks = 2;
     params.clients = 4;

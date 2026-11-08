@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <cstdio>
-
 #include "test_support.hpp"
+
+#include <cstdio>
 
 int main() {
     for (const auto& test : tessera_test::Registry()) {
         std::printf("[ RUN ] %s\n", test.name);
+        std::fflush(stdout); // so that a crash names the test that caused it
         test.body();
     }
     const int failures = tessera_test::FailureCount();

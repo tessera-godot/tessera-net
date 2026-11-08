@@ -36,7 +36,7 @@ TESSERA_TEST(budget_reference_example) {
     conditions.max_delay_ticks = 2;
     SimulatedNetwork network(conditions);
 
-    // The budget. Each player gets 8 kilobits a second, with no room to save up for bursts (the peak is the
+    // The budget. Each player gets 12 kilobits a second, with no room to save up for bursts (the peak is the
     // rate), in buffers of at most 600 bytes. An entity that was sent and not confirmed waits for the
     // player's round trip plus one tick before it is sent again, and entities of type 1 count four times as
     // much as the rest when there is not room for everything.
@@ -45,8 +45,8 @@ TESSERA_TEST(budget_reference_example) {
     ServerConfig config;
     config.max_connections = 8;
     config.max_visible_per_connection = 1024;
-    config.rate_kbps = 8;
-    config.peak_kbps = 8;
+    config.rate_kbps = 12;
+    config.peak_kbps = 12;
     config.max_buffer_bytes = 600;
     config.resend_margin_ticks = 1;
     config.type_weight[1] = 4;

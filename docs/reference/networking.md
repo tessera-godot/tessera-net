@@ -217,18 +217,18 @@ two ticks, with a sixth of the entities changing in every tick:
   8 times fewer of them than before and the time barely moved): it is relevancy, the protocol and the transport,
   and this scenario moves 33,000 of 200,000 entities in every tick, about 48 times as many as the relevancy
   benchmark moves (700).
-- **The server sends each player 98 kbps on average and 172 kbps at the busiest 10 seconds.** The goals are 100 and
+- **The server sends each player 98 kbps on average and 173 kbps at the busiest 10 seconds.** The goals are 100 and
   200, and they hold: a player who has been connected a while cannot be sent more than the budget. A new player
   gets a quick start from the saved-up budget, so the first seconds are above the average.
 - **The price is how current the player's copy is.** With a sixth of the world changing in every tick, the changes
   are worth about 280 kbps per player and the budget carries 100, so each entity reaches the player about a third
-  as often as it changes. At any moment 67% of the entities a player sees are not in the state the server holds
+  as often as it changes. At any moment 70% of the entities a player sees are not in the state the server holds
   (31% without a budget, where only the network's delay and the waits make a copy old). When the world stops, a
-  player catches up in about two seconds (59 ticks).
+  player catches up in about two seconds (68 ticks).
 - **Sending again is paced.** The server writes about 1.1 records for each change instead of 3.3, because it waits
   for the confirmation of an entity (the player's measured round trip plus a tick) before sending it again.
 - Everything converges. Every player ends up with exactly what the server has once the world stops changing.
-  A player who joins a running world gets everything it sees in about 53 ticks. Server and clients run the same
+  A player who joins a running world gets everything it sees in about 61 ticks. Server and clients run the same
   with one worker or eight.
 - A player costs about 1.8 MB in memory on the server and its own client together.
 

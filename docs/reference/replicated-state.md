@@ -122,7 +122,7 @@ player's budget can carry, each entity reaches the player less often, and the pl
 world stops changing, the copy catches up. `LastStats()` reports, besides the records written, how many entities
 were `waiting` for their resend and how many were `deferred` because they did not fit.
 
-The example below gives each player 8 kilobits per second for 300 entities, much less than they need at once.
+The example below gives each player 12 kilobits per second for 300 entities, much less than they need at once.
 After a second the player has some of them, and after ten seconds all of them.
 
 ```cpp
@@ -160,7 +160,7 @@ conditions.loss = 0.05;
 conditions.max_delay_ticks = 2;
 SimulatedNetwork network(conditions);
 
-// The budget. Each player gets 8 kilobits a second, with no room to save up for bursts (the peak is the
+// The budget. Each player gets 12 kilobits a second, with no room to save up for bursts (the peak is the
 // rate), in buffers of at most 600 bytes. An entity that was sent and not confirmed waits for the
 // player's round trip plus one tick before it is sent again, and entities of type 1 count four times as
 // much as the rest when there is not room for everything.
@@ -169,8 +169,8 @@ RelevancyGroups groups;
 ServerConfig config;
 config.max_connections = 8;
 config.max_visible_per_connection = 1024;
-config.rate_kbps = 8;
-config.peak_kbps = 8;
+config.rate_kbps = 12;
+config.peak_kbps = 12;
 config.max_buffer_bytes = 600;
 config.resend_margin_ticks = 1;
 config.type_weight[1] = 4;
@@ -265,7 +265,7 @@ many. Do not confirm a buffer unless the status is `Ok`.
 | `max_baseline_age_ticks` | 32 | Oldest confirmed state still used as a reference. The receiver must keep at least this many ticks. |
 | `max_unconfirmed_sends` | 8 | Recent sends remembered for each entity and player, 1 to 255. It should cover the round-trip time in ticks. |
 | `tick_rate` | 30 | Ticks per second, 1 to 1,000. Turns kilobits per second into bytes per tick. |
-| `rate_kbps` | 0 | The average a player may be sent, in kilobits per second, up to 1,000,000. 0 means no limit, and then `peak_kbps` and `max_buffer_bytes` do nothing. |
+| `rate_kbps` | 0 | The average a player may be sent, in kilobits per second, up to 1,000,000. 0 means no limit, and then `peak_kbps` and `max_buffer_bytes` do nothing. One tick of the rate must carry the largest complete record of the schema and 12 bytes of headers, or the constructor throws: a record that does not fit in a tick would never be sent. |
 | `peak_kbps` | 0 | The most a player may be sent on average over 10 seconds. 0 means the rate; otherwise from the rate up to 1,000,000. |
 | `max_buffer_bytes` | 65,535 | The largest buffer, 64 to 65,535 when there is a rate. It must hold the largest complete record of the schema. |
 | `resend_margin_ticks` | 1 | Added to the measured round trip, 0 to 30. |

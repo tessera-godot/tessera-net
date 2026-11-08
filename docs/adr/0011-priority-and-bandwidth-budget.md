@@ -33,14 +33,16 @@ for everything, and how to keep a player's bytes within a promise.
   hold up a buffer of small ones. We chose age over distance for the first version because it is enough to
   guarantee that nothing waits forever, and distance needs a decision about what "near" means for each type.
 - **Nothing is dropped.** An entity that did not fit is a candidate again in the next tick, with a larger score.
+  A rate that cannot carry the largest record of the schema in one tick is refused when the engine is built,
+  because under load the bucket holds about one tick and such a record would never be sent.
 
 ## Consequences
 - **The goals for the bytes are met, by construction.** In the network benchmark a player gets about 98 kbps on
-  average (goal 100) and 172 kbps at the busiest 10 seconds (goal 200), and the server writes 1.09 records per
+  average (goal 100) and 173 kbps at the busiest 10 seconds (goal 200), and the server writes 1.09 records per
   change instead of 3.3 when the budget is off. The numbers are on the
   [benchmarks page](../benchmarks.md#7-the-whole-network-path).
 - **The price is how current a player's copy is.** The changes of that world are worth about 280 kbps per player
-  and the budget is 100, so an entity reaches a player about a third as often as it changes, and at any moment 67%
+  and the budget is 100, so an entity reaches a player about a third as often as it changes, and at any moment 70%
   of what a player sees is not the current state (31% without the budget). A player catches up in about two seconds
   after the world stops changing. We considered guarding this measure with a limit of 50% and decided against it: it
   could only be met by raising the budget, which is a different promise. The measure is reported and not guarded.
@@ -48,7 +50,7 @@ for everything, and how to keep a player's bytes within a promise.
   writing records was not where most of the time went. The next place to look is relevancy with many moving
   entities, with a profiler.
 - Buffers are one packet, so a lost message loses one packet's worth. A new player's first state arrives over
-  several buffers: everything it sees in about 53 ticks in a running world.
+  several buffers: everything it sees in about 61 ticks in a running world.
 - The wait has a resolution of one tick and follows an average, so a player whose round trip suddenly grows is sent
   some entities again too soon for a few seconds. A player who reconnects starts with a full bucket, as a new one
   does. Sending what is near more often than what is far is not built yet.

@@ -426,7 +426,7 @@ TESSERA_TEST(replication_config_rejects_each_new_field_out_of_range) {
 
 TESSERA_TEST(replication_config_defaults_keep_todays_behaviour) {
     const ReplicationConfig config;
-    TESSERA_CHECK(config.rate_kbps == 0 && config.peak_kbps == 0); // no budget
+    TESSERA_CHECK(config.rate_kbps == 0 && config.peak_kbps == 0);                   // no budget
     TESSERA_CHECK(config.min_resend_ticks == 1 && config.initial_resend_ticks == 1); // resend every tick
     TESSERA_CHECK(config.tick_rate == 30 && config.resend_margin_ticks == 1 && config.max_resend_ticks == 30);
     TESSERA_CHECK(config.max_buffer_bytes == 65535);
@@ -444,8 +444,8 @@ TESSERA_TEST(engine_refuses_a_buffer_cap_smaller_than_the_largest_record) {
     std::vector<PropertyDescriptor> properties;
     for (int i = 0; i < 7; ++i) {
         properties.push_back(PropertyDescriptor::Integer(
-            ColumnRef{static_cast<uint32_t>(offsetof(WideColumns, v) + i * sizeof(int64_t) * kPageSlots), 8}, true,
-            std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()));
+            ColumnRef{static_cast<uint32_t>(offsetof(WideColumns, v) + i * sizeof(int64_t) * kPageSlots), 8},
+            true, std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()));
     }
     TESSERA_CHECK(schema.AddType(3, properties));
     TESSERA_CHECK(schema.MaxWords() == 14);
@@ -563,7 +563,7 @@ TESSERA_TEST(engine_note_round_trip_changes_the_resend_wait) {
     TESSERA_CHECK(scene.engine.ResendAfterTicks(0) == 1);
     scene.engine.NoteRoundTrip(0, 5);
     TESSERA_CHECK(scene.engine.ResendAfterTicks(0) == 6); // 5 ticks and the margin of 1
-    scene.Step(false);                                   // sent at tick 1 and never confirmed
+    scene.Step(false);                                    // sent at tick 1 and never confirmed
     TESSERA_CHECK(scene.engine.LastStats().records == 1);
     for (int i = 0; i < 5; ++i) {
         scene.Step(false);
@@ -700,4 +700,16 @@ TESSERA_TEST(engine_passes_the_type_weights_to_the_choice) {
         TESSERA_CHECK((state.LastRecordBytes(0) > 0) == !weighted);
         TESSERA_CHECK(!weighted || state.LastRecordBytes(10) > 0);
     }
+}
+
+TESSERA_TEST(a_rate_that_cannot_carry_the_largest_record_in_one_tick_is_refused) {
+    ReplicationConfig config = WithBudget();
+    TESSERA_CHECK(!RefusedNaming(config, "rate_kbps"));
+    // 4 kbps is about 16 bytes a tick at 30 Hz: less than a complete record and the headers of a buffer.
+    // That record could never be sent, even with a bucket that saves up (the bucket drains under load).
+    config.rate_kbps = 4;
+    config.peak_kbps = 4;
+    TESSERA_CHECK(RefusedNaming(config, "rate_kbps"));
+    config.peak_kbps = 40;
+    TESSERA_CHECK(RefusedNaming(config, "rate_kbps"));
 }

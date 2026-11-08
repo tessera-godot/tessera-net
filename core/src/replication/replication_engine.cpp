@@ -52,6 +52,15 @@ ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const Repl
             throw std::invalid_argument("ReplicationConfig::max_buffer_bytes must hold the largest record (" +
                                         std::to_string(largest_record) + " bytes for this schema)");
         }
+        // A record larger than what one tick of the rate carries (with the headers of the buffer) would
+        // never be sent: under load the bucket holds about one tick.
+        const uint64_t bytes_per_tick = static_cast<uint64_t>(config.rate_kbps) * 125 / config.tick_rate;
+        if (bytes_per_tick < largest_record + kBufferOverheadBytes) {
+            throw std::invalid_argument(
+                "ReplicationConfig::rate_kbps must carry the largest record in one tick (" +
+                std::to_string(largest_record + kBufferOverheadBytes) +
+                " bytes for this schema, with the headers)");
+        }
     }
     if (config.resend_margin_ticks > 30) {
         throw std::invalid_argument("ReplicationConfig::resend_margin_ticks must be 0 to 30");

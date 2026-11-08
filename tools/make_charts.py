@@ -227,7 +227,7 @@ def network_chart():
     # (label, measured ms, regression guard ms, goal ms)
     rows = [
         ("128 players, 1 thread", 49.5, 100.0, 3.3),
-        ("128 players, 8 workers", 14.4, 30.0, 1.0),
+        ("128 players, 8 workers", 13.9, 30.0, 1.0),
     ]
     width, height = 720, 310
     left, plot_w, top, row_h = 230, 420, 100, 54

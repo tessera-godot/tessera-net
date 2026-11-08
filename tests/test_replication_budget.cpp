@@ -363,3 +363,53 @@ TESSERA_TEST(the_per_type_estimate_adapts_to_the_records_written) {
     // The first guess is room for every word; once real records have been written the guess comes down.
     TESSERA_CHECK(first.records >= 1 && second.records > first.records);
 }
+
+TESSERA_TEST(an_entity_whose_estimate_is_too_small_is_not_left_out_for_ever) {
+    Crowd crowd(4);
+    crowd.SendAndConfirm(1); // four complete records
+    uint32_t full = 0;
+    for (uint32_t i = 0; i < 4; ++i) {
+        full = std::max(full, crowd.rig.conn.LastRecordBytes(i));
+    }
+    // The last entity takes a tiny step and is sent as a small partial record, so its estimate is small.
+    crowd.rig.MoveX(crowd.ids[3], 3 * 1.5f + 0.01f);
+    crowd.rig.Refresh();
+    TESSERA_CHECK(crowd.rig.receiver.Apply(crowd.rig.EncodeWith(2, Capped(200)), 2) == DecodeStatus::Ok);
+    crowd.rig.conn.Confirm(2);
+    TESSERA_CHECK(crowd.rig.conn.LastRecordBytes(3) < full);
+    // Long after, the confirmed state is too old to write against: every record is complete. Room for two of
+    // them and the small estimate of the last, which is its record's real size short by the difference.
+    const uint32_t cap = 1 + 2 * full + crowd.rig.conn.LastRecordBytes(3);
+    for (uint64_t tick = 60; tick < 80; ++tick) {
+        crowd.MoveAll(static_cast<float>(tick) * 0.3f);
+        const std::vector<uint8_t> bytes = crowd.rig.EncodeWith(tick, Capped(cap));
+        TESSERA_CHECK(bytes.size() <= cap);
+        TESSERA_CHECK(crowd.rig.receiver.Apply(bytes, tick) == DecodeStatus::Ok);
+    }
+    TESSERA_CHECK(crowd.rig.receiver.CurrentTick(3) >= 60);
+}
+
+TESSERA_TEST(a_late_confirmation_does_not_leave_an_old_wait_behind) {
+    Crowd crowd(2);
+    TESSERA_CHECK(crowd.rig.receiver.Apply(crowd.rig.EncodeWith(1, Capped(200, 3)), 1) == DecodeStatus::Ok);
+    uint32_t full = 0;
+    for (uint32_t i = 0; i < 2; ++i) {
+        full = std::max(full, crowd.rig.conn.LastRecordBytes(i));
+    }
+    // Sent at tick 1 and due again at tick 4, but nothing fits: both start to wait there. The confirmation
+    // comes after that, and they are idle.
+    crowd.rig.EncodeWith(4, Capped(2, 3));
+    crowd.rig.conn.Confirm(1);
+    // Much later the second entity changes, and nothing fits: it waits from tick 950.
+    crowd.rig.MoveX(crowd.ids[1], 70.0f);
+    crowd.rig.Refresh();
+    crowd.rig.EncodeWith(950, Capped(2, 3));
+    // At tick 1000 both change and there is room for one complete record. The second has waited for 50 ticks,
+    // the first for none: the old wait from tick 4 must not count.
+    crowd.MoveAll(40.0f);
+    EncodeStats stats;
+    TESSERA_CHECK(crowd.rig.receiver.Apply(crowd.rig.EncodeWith(1000, Capped(1 + full, 3), &stats), 1000) ==
+                  DecodeStatus::Ok);
+    TESSERA_CHECK(stats.records == 1);
+    TESSERA_CHECK(crowd.Matching(1, 1) == 1 && crowd.Matching(0, 1) == 0);
+}

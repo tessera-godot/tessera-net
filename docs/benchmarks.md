@@ -270,19 +270,20 @@ its default budget: 100 kbps on average, 200 over 10 seconds, buffers of 1,100 b
 | Measure | Result (median of 4 executions, range) | Limit | Goal |
 |---|---|---|---|
 | Network phase per tick, 1 thread | 49.5 ms (49.0 to 50.5) | 100 ms | 3.3 ms |
-| Network phase per tick, 8 workers | 14.4 ms (14.3 to 14.4) | 30 ms | 1 ms |
+| Network phase per tick, 8 workers | 13.9 ms (13.1 to 14.2) | 30 ms | 1 ms |
 | Bandwidth per player, the last 5 seconds | 98.1 kbps | 105 kbps | 100 kbps |
-| Bandwidth per player, the busiest 10 seconds | 172 kbps | 205 kbps | 200 kbps |
+| Bandwidth per player, the busiest 10 seconds | 173 kbps | 205 kbps | 200 kbps |
 | Records written per change, with the budget off | 1.09 | 1.5 | |
-| A new player receives everything it sees | 53 ticks | 90 ticks | |
+| A new player receives everything it sees | 61 ticks | 90 ticks | |
 | Memory per player (server and client together) | 1.8 MB (1.77 to 1.78) | 3.6 MB | |
-| Client work per tick, per client | 27.5 us (26.7 to 29.2) | 60 us | |
+| Client work per tick, per client | 12.8 us (12.6 to 13.2) | 60 us | |
 | Every client sees what the server has, after joining | yes | yes | yes |
-| ... and after the world stops changing | 59 ticks | | |
+| ... and after the world stops changing | 68 ticks | | |
 | Bytes sent with 1 and 8 workers (16 players, 20,000 entities, 40 ticks) | identical | identical | identical |
 
 **The goals for the time of the phase are not met; the goals for the bytes are.** The limits are regression guards:
-about twice what the path measures today for times and memory, so that the benchmark fails if it gets clearly
+about twice what the path measures today for times and memory (the client's work is far below its limit, because
+the limit was set while the machine was busier), so that the benchmark fails if it gets clearly
 slower, and the budget's own promise (with a little room for headers and event batches) for the bandwidth and the
 join. Bandwidth is measured over the last 5 seconds because the first seconds spend what the player saved up.
 
@@ -292,30 +293,30 @@ and the numbers below, were identical in the four, because they do not depend on
 
 | Execution | Phase, 1 thread | Phase, 8 workers | Client, one `Poll` (us) |
 |---|---|---|---|
-| 1 | 50.5 | 14.4 | 27.8 |
-| 2 | 49.5 | 14.4 | 26.7 |
-| 3 | 49.0 | 14.4 | 26.7 |
-| 4 | 49.6 | 14.3 | 29.2 |
+| 1 | 50.0 | 14.2 | 12.8 |
+| 2 | 48.4 | 14.1 | 12.8 |
+| 3 | 49.0 | 13.7 | 13.2 |
+| 4 | 50.5 | 13.1 | 12.6 |
 
 Other numbers from the same runs:
 
 | Case | Value |
 |---|---|
 | Entities visible to a player | 1,752 on average, 1,851 at most |
-| Bytes per player per second over the whole run, server to player | 146 kbps: 142 state buffers, 4.0 event batches |
+| Bytes per player per second over the whole run, server to player | 147 kbps: 143 state buffers, 4.0 event batches |
 | Bytes per player per second, player to server (acks) | 1.2 kbps |
-| Records written per player per tick | 121, where about 290 entities changed |
-| Records that carry every property | 4.5% |
+| Records written per player per tick | 97, where about 290 entities changed |
+| Records that carry every property | 19.8% |
 | Wait before a resend that the server settled on | 4.1 ticks |
 | Messages the network loses | 4.6% (a state buffer is one packet now) |
 | Age of the newest state buffer a player has applied | 1.6 ticks on average |
 | State buffers applied per client per tick | 0.95 |
-| Share of what a player sees that is not the current state, with the budget | 67% |
+| Share of what a player sees that is not the current state, with the budget | 70% |
 | ... with only the paced resends and no budget | 31% |
 | Ticks for 16 players to join a network with 5% loss and see everything | 33 |
 
 How to read this:
-- **Where the time goes.** The server writes 121 records per player per tick where it wrote 966 before the budget
+- **Where the time goes.** The server writes 97 records per player per tick where it wrote 966 before the budget
   (see record 0010), and the phase takes about 50 ms where it took about 66 ms. Part of that drop is a quieter
   machine, so it is not a gain to count on. What the figures say is that writing and sending records is not where
   most of the time goes: relevancy, the protocol and the transport are. This scenario moves 33,000 entities per tick,
@@ -323,27 +324,26 @@ How to read this:
   that move. That is the next place to look, with a profiler.
 - **Where the bytes go.** A changed entity is now written again after the player's round trip and a tick, not in
   every tick: 1.09 records per change when the budget is off, against 3.3 before. The budget then holds the rest to
-  what the player was promised. Almost none of the records are complete (4.5%), so the budget does not spend itself
-  on sending whole entities again.
+  what the player was promised. One record in five is complete (19.8%): an entity that waited more than 32 ticks has lost its
+  reference state and is sent in full.
 - **What the budget costs.** About 290 entities change per tick for each player, which is about 280 kbps of new
   information, and the budget carries 100. The rest waits, and the entities that waited longest go first. So each
-  entity reaches the player about a third as often as it changes, and 67% of what a player sees is not the
+  entity reaches the player about a third as often as it changes, and 70% of what a player sees is not the
   current state at any moment, against 31% when only the delay of the network and the waits make a copy old. The
-  players still converge: 59 ticks after the world stops changing they hold exactly what the server has. A world
+  players still converge: 68 ticks after the world stops changing they hold exactly what the server has. A world
   that changes less, or players with a larger budget, have a smaller gap. Giving priority to what is near the player
   would make the gap matter less, and is not built yet.
 - **Eight workers.** They make the phase 3.4 times faster. The marking of what changed runs on one thread
   (section 6), and we have not looked at what else does.
 - **Bytes counted** are those of the messages, without the headers of IP, UDP or a network library.
-- **Joining.** A new player joins the running world on the lossy network, and gets everything it sees in 53 ticks
-  (under two seconds), with its first state spread over buffers of at most 1,100 bytes instead of one of tens of
+- **Joining.** A new player joins the running world on the lossy network, and gets everything it sees in 61 ticks
+  (about two seconds), with its first state spread over buffers of at most 1,100 bytes instead of one of tens of
   packets. The 33 ticks in the table are for a small world of 16 players and 20,000 entities with the loss on from
   the start.
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far, one observer per player and
-no groups. The programs on the machine during the measurements were closed, except two small background processes
-that still used about three of the 24 threads. The speed of a short test that the benchmark prints for this purpose
-(writing one position record) was 50 nanoseconds in a full run, against 47 when the machine is quiet, so the times
+no groups. The programs on the machine during the measurements were closed. The speed of a short test that the benchmark prints for this purpose
+(writing one position record) was 53 nanoseconds in a full run, against 47 when the machine is quiet, so the times
 may be a little pessimistic.
 
 ## Reproduce

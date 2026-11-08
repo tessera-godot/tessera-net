@@ -675,7 +675,7 @@ TESSERA_TEST(a_repeated_or_forged_ack_gives_no_sample) {
 
 TESSERA_TEST(event_batches_are_charged_to_the_bucket) {
     ServerConfig config = SmallServerConfig();
-    config.rate_kbps = 1; // four bytes a tick
+    config.rate_kbps = 20; // 83 bytes a tick, enough for the largest record and the headers
     config.peak_kbps = 2000;
     ServerHarness h(config);
     h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
@@ -685,7 +685,7 @@ TESSERA_TEST(event_batches_are_charged_to_the_bucket) {
     client.SendHello(kProtocolVersion, h.schema.Hash());
     h.Step(); // the player is accepted, sees the world, and gets an event batch and a first state buffer
     const int64_t full =
-        (2000 - 1) * 1250; // what a new connection starts with: 1,999 kbps saved for 10 seconds
+        (2000 - 20) * 1250; // what a new connection starts with: 1,980 kbps saved for 10 seconds
     const int64_t spent = full - h.server.Replication().BudgetBytes(0);
     h.Step(); // the network delivers what was just sent
     client.Collect();
@@ -702,8 +702,8 @@ TESSERA_TEST(event_batches_are_charged_to_the_bucket) {
         }
     }
     TESSERA_CHECK(batch_bytes > 100 && buffer_bytes > 12);
-    // The batch is charged too (a tick of a 1 kbps rate, 4 bytes, came back into the bucket meanwhile).
-    TESSERA_CHECK(spent >= static_cast<int64_t>(batch_bytes + buffer_bytes) - 5);
+    // The batch is charged too (a tick of the rate, 83 bytes, came back into the bucket meanwhile).
+    TESSERA_CHECK(spent >= static_cast<int64_t>(batch_bytes + buffer_bytes) - 88);
 }
 
 TESSERA_TEST(state_buffers_respect_the_server_budget_and_cap) {

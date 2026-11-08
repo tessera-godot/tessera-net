@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Pacing and a bandwidth budget for each player: an entity that was sent is sent again only after the player's
   measured round trip (plus a margin), a bucket of bytes with a rate, a peak over 10 seconds and a cap on the size
   of a buffer, and a priority (how long an entity has waited times the weight of its type) for when there is not
-  room for everything. In the network benchmark a player gets about 98 kbps on average and 172 kbps at the busiest
+  room for everything. In the network benchmark a player gets about 98 kbps on average and 173 kbps at the busiest
   10 seconds (goals: 100 and 200), and 1.09 records per change instead of 3.3. The price is that each entity reaches
   a player less often than it changes when the world changes more than the budget carries. New fields in
   `ReplicationConfig` and `ServerConfig`; the server's defaults are a budget of 100 kbps. See

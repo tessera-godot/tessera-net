@@ -258,7 +258,8 @@ bool ConnectionState::WriteEntity(Page& page, uint32_t page_index, uint32_t loca
                 writer);
     const uint64_t bits = writer.BitCount() - bits_before;
     if (max_bytes > 0 && (writer.BitCount() + kTerminatorBits + 7) / 8 > max_bytes) {
-        writer.Rewind(mark); // it does not fit: nothing about this entity changes
+        writer.Rewind(mark); // it does not fit: nothing changes but the estimate, which now is the real size
+        page.last_bytes[local] = static_cast<uint16_t>(std::min<uint64_t>((bits + 7) / 8, 65535));
         return false;
     }
     ++stats.records;
@@ -335,6 +336,7 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                     std::memcmp(acked, current, type.words * sizeof(uint32_t)) == 0) {
                     ClearBit(page->pending, local); // the client already has exactly this
                     ClearBit(page->stale, local);
+                    page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
                     continue;
                 }
                 // Sent, not confirmed and not changed since: the send may still be on its way, so wait for
@@ -471,6 +473,7 @@ void ConnectionState::Confirm(uint64_t tick) {
                     ClearBit(page->outstanding, local);
                     if (!TestBit(page->stale, local)) {
                         ClearBit(page->pending, local);
+                        page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
                     }
                 }
             }
