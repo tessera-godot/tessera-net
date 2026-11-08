@@ -39,8 +39,8 @@ namespace {
 // Regression limits: about twice what the path measures, so that run-to-run variation does not fail the
 // benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with one thread,
 // 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
-constexpr double kLimitOneThreadMs = 100.0;
-constexpr double kLimitEightWorkersMs = 30.0;
+constexpr double kLimitOneThreadMs = 50.0;
+constexpr double kLimitEightWorkersMs = 20.0;
 // What the budget promises, from the goal of 100 kbps on average and 200 kbps over any 10 seconds, with room
 // for the headers and the event batches that the budget does not hold back.
 constexpr double kLimitSteadyKbps = 105.0;

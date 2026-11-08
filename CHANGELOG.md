@@ -59,6 +59,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   documentation structure.
 
 ### Changed
+- Relevancy tests the reach of a change while it gathers the changes filed near a player's observers, and sorts
+  only those within reach, instead of sorting everything it gathered and checking the distance afterwards. The
+  events it produces are the same. In the main relevancy benchmark a tick went from 1.03 ms to 0.71 ms on one
+  thread and from 0.33 ms to 0.24 ms with eight workers; in the network benchmark the phase went from about 50 ms
+  to about 29 ms on one thread and from about 14 ms to about 10 ms with eight workers.
 - The relevancy engine now keeps an anchor for each observer and does a full look around a player only when an
   observer has moved `observer_tolerance` (4 m by default) from it; otherwise it reconsiders only the entities
   that changed nearby. A tick in the main benchmark scenario went from 15.4 ms to 1.03 ms on one thread and from
