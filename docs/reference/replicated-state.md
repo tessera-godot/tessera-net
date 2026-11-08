@@ -67,8 +67,9 @@ Everything in this list belongs to the `Network` phase of the [tick](core.md).
 5. **`engine.Confirm(connection, tick)`** when a player confirms that the buffer written for `tick` arrived.
 
 A buffer is a run of records, one for each entity that needs sending, followed by an end marker. An entity needs
-sending when it changed, or when it was sent and no send of it has been confirmed yet (it is then sent again on
-the next tick; deciding how often is left to the layer that paces the sending).
+sending when it changed, or when it was sent and no send of it has been confirmed yet. One that changed is sent at
+once; one that is only waiting for its confirmation is sent again after a wait, and what does not fit in the budget
+waits for the next tick (see [Pacing and the budget](#pacing-and-the-budget)).
 
 ### Confirmations
 
@@ -85,6 +86,136 @@ and the entity is sent in full every time. Raise the setting for players with a 
 
 If the confirmed state is more than `max_baseline_age_ticks` old (32 by default, about a second at 30 Hz), the
 entity is sent in full instead, because the player's side may have forgotten it.
+
+## Pacing and the budget
+
+Two things keep the engine from sending a player more than the player can use: a wait before an entity is sent
+again, and a budget of bytes.
+
+**The wait.** An entity that changed, or that is new to the player, is a candidate at once. One that was sent, has
+not been confirmed and has not changed since waits before it is a candidate again. The wait is the player's round
+trip, measured in ticks and averaged (each new measurement counts for an eighth), plus `resend_margin_ticks`, kept
+between `min_resend_ticks` and `max_resend_ticks`. Until there is a measurement it is `initial_resend_ticks`. The
+code that runs the network reports each measurement with `engine.NoteRoundTrip(connection, ticks)`; the
+[server](networking.md) does it for you. `engine.ResendAfterTicks(connection)` tells you the current wait. The
+resolution is one tick, so a round trip of 1.4 ticks counts as 2.
+
+**The budget.** Each player has a bucket of bytes. It fills at `rate_kbps` (kilobits per second, 0 for no limit)
+and it can hold what the player is allowed to save up: the difference between `peak_kbps` and the rate, over
+10 seconds. Over any 10 seconds a player gets at most `peak_kbps` on average. The bucket starts full, so a player
+who joins gets a quick start. Every buffer takes its size from the bucket, plus 12 bytes for the headers of the
+packet. `engine.Charge(connection, bytes)` takes out what was sent outside the buffer (the server uses it for event
+batches), and the bucket may go into debt: the player then gets nothing until it is paid. A buffer is also never
+larger than `max_buffer_bytes`, so that it fits in one packet.
+
+**What goes first.** If every candidate fits, all are written. If not, each candidate gets a score, the number of
+ticks it has been ready to send, counting the current one, times the weight of its type (`type_weight`, 1 to 255,
+all 1 by default). The highest scores are written first; ties go to the lower compact id. An entity that does not
+fit is skipped, and a smaller one after it may still fit. The records are then written in id order, as the format
+needs. The size of a record is estimated from the last one written for that entity, and from the average of the
+complete records of its type for a new one. The limit itself is exact: a record that would cross it is taken
+back out of the buffer.
+
+**What it costs the player.** Nothing is dropped. An entity that did not fit stays a candidate and waits longer,
+so it goes first in the next tick. The budget promises bytes, not freshness: if the world changes more than the
+player's budget can carry, each entity reaches the player less often, and the player's copy is behind. When the
+world stops changing, the copy catches up. `LastStats()` reports, besides the records written, how many entities
+were `waiting` for their resend and how many were `deferred` because they did not fit.
+
+The example below gives each player 8 kilobits per second for 300 entities, much less than they need at once.
+After a second the player has some of them, and after ten seconds all of them.
+
+```cpp
+#include <cstdint>
+#include <span>
+
+#include "tessera/net/client_replica.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/replication_server.hpp"
+#include "tessera/net/spatial_grid.hpp"
+#include "tessera/net/transport/simulated_network.hpp"
+#include "test_support.hpp"
+
+using namespace tessera::net;
+
+struct MobColumns {
+    float x[kPageSlots];
+    float y[kPageSlots];
+    float z[kPageSlots];
+};
+
+ReplicationSchema schema;
+schema.AddType(1,
+               {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x), TESSERA_COLUMN(MobColumns, y),
+                                             TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
+
+EntityTable<MobColumns> table(TableConfig{0, 1});
+SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
+RelevancyConfig relevancy;
+relevancy.types[1] = TypeRelevancy{RelevancyMode::Spatial, 150.0f, 10.0f};
+
+NetworkConditions conditions;
+conditions.loss = 0.05;
+conditions.max_delay_ticks = 2;
+SimulatedNetwork network(conditions);
+
+// The budget. Each player gets 8 kilobits a second, with no room to save up for bursts (the peak is the
+// rate), in buffers of at most 600 bytes. An entity that was sent and not confirmed waits for the
+// player's round trip plus one tick before it is sent again, and entities of type 1 count four times as
+// much as the rest when there is not room for everything.
+ThreadPoolJobSystem jobs(ThreadPoolJobSystem::DefaultWorkerCount());
+RelevancyGroups groups;
+ServerConfig config;
+config.max_connections = 8;
+config.max_visible_per_connection = 1024;
+config.rate_kbps = 8;
+config.peak_kbps = 8;
+config.max_buffer_bytes = 600;
+config.resend_margin_ticks = 1;
+config.type_weight[1] = 4;
+ReplicationServer server(config, relevancy, schema, grid, groups, jobs, network.Server());
+
+Observer eye{0.0f, 0.0f, 0.0f};
+server.SetCallbacks(
+    [&](ConnectionId id) { server.Relevancy().SetObservers(id, std::span<const Observer>(&eye, 1)); },
+    [](ConnectionId) {});
+
+// 300 mobs around the player: more than the budget can send in the first second.
+for (uint32_t i = 0; i < 300; ++i) {
+    const EntityId mob = table.Create();
+    const auto where = table.Find(mob);
+    MobColumns& columns = table.Columns(where->page);
+    columns.x[where->slot] = static_cast<float>(i % 20) * 5.0f;
+    columns.y[where->slot] = 0.0f;
+    columns.z[where->slot] = static_cast<float>(i / 20) * 5.0f;
+    table.MarkDirty(mob);
+    grid.Insert(mob, columns.x[where->slot], 0.0f, columns.z[where->slot]);
+}
+
+ClientReplica client(*network.AddClient(), schema);
+uint32_t seen_after_one_second = 0;
+for (uint64_t tick = 0; tick < 300; ++tick) {
+    network.Advance(tick);
+    client.Poll();
+    server.Refresh(table);
+    server.Update(tick);
+    if (tick == 29) {
+        client.ForEachEntity([&](EntityId, const uint32_t*) { ++seen_after_one_second; });
+    }
+}
+
+// The budget held some entities back at first, and in the end the player has all of them.
+uint32_t seen = 0;
+client.ForEachEntity([&](EntityId, const uint32_t*) { ++seen; });
+TESSERA_CHECK(seen_after_one_second < 300);
+TESSERA_CHECK(seen == 300);
+const uint32_t wait = server.Replication().ResendAfterTicks(client.ConnectionId()); // measured, in ticks
+TESSERA_CHECK(wait >= config.min_resend_ticks && wait <= config.max_resend_ticks);
+```
+
+The code above is the body of a test (`tests/test_budget_reference_example.cpp`), so it is compiled and run with
+every build.
 
 ## The player's side
 
@@ -133,6 +264,17 @@ many. Do not confirm a buffer unless the status is `Ok`.
 | `max_visible_per_connection` | 65,536 | Compact ids per player. Use the same number as the relevancy engine. |
 | `max_baseline_age_ticks` | 32 | Oldest confirmed state still used as a reference. The receiver must keep at least this many ticks. |
 | `max_unconfirmed_sends` | 8 | Recent sends remembered for each entity and player, 1 to 255. It should cover the round-trip time in ticks. |
+| `tick_rate` | 30 | Ticks per second, 1 to 1,000. Turns kilobits per second into bytes per tick. |
+| `rate_kbps` | 0 | The average a player may be sent, in kilobits per second, up to 1,000,000. 0 means no limit, and then `peak_kbps` and `max_buffer_bytes` do nothing. |
+| `peak_kbps` | 0 | The most a player may be sent on average over 10 seconds. 0 means the rate; otherwise from the rate up to 1,000,000. |
+| `max_buffer_bytes` | 65,535 | The largest buffer, 64 to 65,535 when there is a rate. It must hold the largest complete record of the schema. |
+| `resend_margin_ticks` | 1 | Added to the measured round trip, 0 to 30. |
+| `min_resend_ticks`, `max_resend_ticks` | 1, 30 | The shortest and longest wait, 1 to 255. |
+| `initial_resend_ticks` | 1 | The wait before a round trip has been measured. |
+| `type_weight[type]` | 1 for every type | How much a type counts when there is not room for everything, 1 to 255. |
+
+The [server](networking.md) has its own defaults for these (a rate of 100 and a peak of 200 kilobits per second, and a
+buffer of 1,100 bytes), because it is the one that talks to real players.
 
 The engine's constructor throws `std::invalid_argument`, naming the field, when a value is zero or too large.
 
@@ -146,8 +288,11 @@ The engine's constructor throws `std::invalid_argument`, naming the field, when 
 | `Update(tick)` | Write a buffer for every player. Call once per tick, with a `tick` that grows. |
 | `Output(id)` | The buffer of the last `Update`; empty for an unknown player. |
 | `Confirm(id, tick)` | The player confirmed the buffer written for `tick`. |
+| `NoteRoundTrip(id, ticks)` | A confirmation took `ticks` ticks to come back; the wait before a resend follows the average. |
+| `Charge(id, bytes)` | Take bytes out of a player's budget for something sent outside the buffer. It may go into debt. |
+| `ResendAfterTicks(id)`, `BudgetBytes(id)` | The current wait, and the bytes the player may be sent right now. |
 | `Store()`, `Connection(id)` | Read-only views, for diagnostics and tests. |
-| `LastStats()` | Records written by the last `Update` (and how many were complete), added up over players. |
+| `LastStats()` | Records written by the last `Update` (and how many were complete), and how many entities were waiting or did not fit, added up over players. |
 | `SubscriptionCount()` | How many (entity, player) pairs are being tracked. |
 
 Entities are looked up by type and index, so all the tables of one engine must use the same shard.

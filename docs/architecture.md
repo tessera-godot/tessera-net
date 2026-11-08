@@ -24,8 +24,9 @@ standalone server. This guarantees client and server agree on the rules.
 2. **Simulation loop**: fixed tick, decoupled from rendering.
 3. **Spatial grid**: the base for relevancy and, later, for splitting the world across servers.
 4. **Replication**: relevancy, dormancy, priority, bandwidth budget, delta, quantization. Relevancy
-   (deciding what each player sees) and replicated state (what is sent about those entities, as small
-   buffers written against what each player confirmed) are implemented; see the
+   (deciding what each player sees), replicated state (what is sent about those entities, as small
+   buffers written against what each player confirmed) and the pacing of resends with a byte budget for
+   each player are implemented; see the
    [relevancy reference](reference/relevancy.md) and the
    [replicated state reference](reference/replicated-state.md).
 5. **Transport**: behind an interface, so the network library can be replaced. The interface, a simulated

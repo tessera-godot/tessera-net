@@ -133,7 +133,8 @@ cannot be right.
    and the same events go to the replication engine.
 4. **Replication.** The engine writes one buffer per player.
 5. **State buffers.** Each buffer that holds a record goes out as a `StateBuffer` on the unreliable channel, with
-   the number of event batches sent so far. A player with nothing to receive gets no message at all.
+   the number of event batches sent so far. A player with nothing to receive, or whose budget is empty, gets no
+   message at all.
 
 Before `Update`, call `server.Refresh(table)` for each table, after you have written the replicated columns and
 called `table.MarkDirty(entity)`. This is the "quantize what changed" step of [replicated state](replicated-state.md).
@@ -151,6 +152,18 @@ player connects; the `on_connected` callback is the place.
 | `tick_rate` | 30 | Told to the players in the hello, 1 to 1,000. |
 | `max_baseline_age_ticks` | 32 | See [replicated state](replicated-state.md#configuration), 1 to 255. |
 | `max_unconfirmed_sends` | 8 | The same. |
+| `rate_kbps` | 100 | Kilobits per second a player may be sent on average, up to 1,000,000. 0 means no limit. |
+| `peak_kbps` | 200 | The most on average over any 10 seconds, from the rate up to 1,000,000. 0 means the rate. |
+| `max_buffer_bytes` | 1,100 | The largest state buffer, 64 to 65,535. It fits one packet of the usual 1,200 bytes. |
+| `resend_margin_ticks` | 1 | Added to the measured round trip before an unconfirmed entity is sent again, 0 to 30. |
+| `min_resend_ticks`, `max_resend_ticks` | 2, 30 | The shortest and the longest wait, 1 to 255. |
+| `initial_resend_ticks` | 6 | The wait until the first round trip of a player has been measured. |
+| `type_weight[type]` | 1 for every type | How much a type counts when there is not room for everything, 1 to 255. |
+
+The pacing and the budget are described in [replicated state](replicated-state.md#pacing-and-the-budget). The server
+measures each player's round trip itself: the ticks between writing a buffer and the first ack that confirms it
+(only the newest tick of an ack counts, because the older ones were confirmed late by design), and it takes the
+event batches it sends out of the player's budget too.
 
 The constructor throws `std::invalid_argument`, naming the field, for a value out of range, and for an entity type
 that players can see (a spatial range above zero, always relevant, or owner only) but that has no schema.
@@ -199,36 +212,49 @@ Measured numbers, with the machine and the code that produced them, are on the
 each see about 1,750 of them, over a network that loses 5% of what it carries and delays every message by one to
 two ticks, with a sixth of the entities changing in every tick:
 
-- **A tick of the Network phase takes about 66 ms on one thread and about 21 ms with eight workers.** The goals
-  were 3.3 ms and 1 ms. **Neither is met.** Replication alone takes about 25 ms of that in the typical case on the
-  benchmarks page; the rest is relevancy, the protocol and the transport. This scenario moves 33,000 of 200,000
-  entities in every tick, about 48 times as many as the relevancy benchmark moves (700), and we have not yet
-  measured the parts apart here.
-- **The server sends about 960 kbps to each player.** The goal was 100 kbps. **It is not met.** Almost all of it is state
-  buffers. A changed entity is sent again in every tick until its confirmation comes back, three to four ticks
-  later: the server writes about 970 records per player per tick where about 290 entities changed.
-- Everything converges. Every player ends up with exactly what the server has, three ticks after the world
-  stops changing. Server and clients run the same with one worker or eight.
-- A player costs about 2.1 MB in memory on the server and its own client together.
+- **A tick of the Network phase takes about 50 ms on one thread and about 14 ms with eight workers.** The goals
+  are 3.3 ms and 1 ms. **Neither is met.** Most of the time is not in writing records (the server now writes about
+  8 times fewer of them than before and the time barely moved): it is relevancy, the protocol and the transport,
+  and this scenario moves 33,000 of 200,000 entities in every tick, about 48 times as many as the relevancy
+  benchmark moves (700).
+- **The server sends each player 98 kbps on average and 172 kbps at the busiest 10 seconds.** The goals are 100 and
+  200, and they hold: a player who has been connected a while cannot be sent more than the budget. A new player
+  gets a quick start from the saved-up budget, so the first seconds are above the average.
+- **The price is how current the player's copy is.** With a sixth of the world changing in every tick, the changes
+  are worth about 280 kbps per player and the budget carries 100, so each entity reaches the player about a third
+  as often as it changes. At any moment 67% of the entities a player sees are not in the state the server holds
+  (31% without a budget, where only the network's delay and the waits make a copy old). When the world stops, a
+  player catches up in about two seconds (59 ticks).
+- **Sending again is paced.** The server writes about 1.1 records for each change instead of 3.3, because it waits
+  for the confirmation of an entity (the player's measured round trip plus a tick) before sending it again.
+- Everything converges. Every player ends up with exactly what the server has once the world stops changing.
+  A player who joins a running world gets everything it sees in about 53 ticks. Server and clients run the same
+  with one worker or eight.
+- A player costs about 1.8 MB in memory on the server and its own client together.
 
-What lowers these numbers is next: deciding how often to repeat an entity and what goes first when there is too
-much to send, and making relevancy and replication faster.
+What lowers the time is next: making relevancy and replication faster. What would make the budget feel better is
+sending what is near the player more often than what is far, which is not built yet.
 
 ## Known limits
 
 - One server process, one grid, one set of tables with a single shard.
 - The simulated network is an approximation (see above), and nothing here has met a real network yet.
 - A forged but well-formed message is accepted (see "What the contract does not cover").
-- A large message is lost far more often than a small one. A player who joins a busy area receives a large first
-  buffer, and over a lossy network it can take several tries to get through. Limiting the size of a buffer is part
-  of the work on what goes first.
-- The mask of an ack carries no information today, because the server sends again every entity that is not
-  confirmed in every tick. It starts to matter when sending again is paced.
+- A large message is lost far more often than a small one, which is why a state buffer is limited to 1,100 bytes
+  by default: a player who joins a busy area gets its first state over several buffers instead of one.
+- The wait before a resend has a resolution of one tick, and it follows an average, so a player whose connection
+  suddenly gets much slower is sent some entities again too soon for a few seconds.
+- A buffer is written against the state the player last confirmed. A player who stops confirming for longer than
+  `max_baseline_age_ticks` is sent entities in full, which costs more of its budget.
+- A player who reconnects starts with a full bucket, like a new one. The budget limits what a player is sent on one
+  connection, not what an address is sent over several.
+- The priority knows how long an entity has waited and the weight of its type, not how far it is from the player.
+  Sending what is near more often than what is far is not built yet.
 
 ## Coming next
 
 A transport over real sockets (so far only the simulated one exists), a dedicated server program, the Godot
-extension that exposes the client, and the pacing and priorities mentioned above.
+extension that exposes the client, and priority by distance.
 
 ## Example
 

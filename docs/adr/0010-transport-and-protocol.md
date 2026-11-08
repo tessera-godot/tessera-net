@@ -44,7 +44,7 @@ phase with 128 players were 3.3 ms per tick on one thread, 1 ms with eight worke
   real ones; checking packets is left to the transport. The server also refuses, at construction, a type that
   players can see but that has no replication schema.
 - **Left out on purpose:** a transport over real sockets, encryption and authentication, reconnecting into an
-  old session, and pacing of repeats.
+  old session, and pacing of repeats (done afterwards, see [0011](0011-priority-and-bandwidth-budget.md)).
 
 ## Consequences
 - The server and the client now run together, in C++ and without Godot, and the end-to-end tests prove that
@@ -57,8 +57,8 @@ phase with 128 players were 3.3 ms per tick on one thread, 1 ms with eight worke
   [benchmarks page](../benchmarks.md#7-the-whole-network-path).
 - Most of the bytes are repeats: a changed entity is sent again every tick until its confirmation returns,
   which writes about three times more records than there are changes. Deciding how often to repeat and what
-  goes first when there is too much to send is the next piece of work, and it should bring both the bytes and the
-  time down.
+  goes first when there is too much to send was the next piece of work. It is [record 0011](0011-priority-and-bandwidth-budget.md),
+  and it brought the bytes within the goal (the numbers above are from before it).
 - The ack mask carries no information until repeats are paced, because everything not confirmed is sent again
   in every tick anyway.
 - A transport over real sockets has to meet the contract in the

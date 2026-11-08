@@ -7,15 +7,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Pacing and a bandwidth budget for each player: an entity that was sent is sent again only after the player's
+  measured round trip (plus a margin), a bucket of bytes with a rate, a peak over 10 seconds and a cap on the size
+  of a buffer, and a priority (how long an entity has waited times the weight of its type) for when there is not
+  room for everything. In the network benchmark a player gets about 98 kbps on average and 172 kbps at the busiest
+  10 seconds (goals: 100 and 200), and 1.09 records per change instead of 3.3. The price is that each entity reaches
+  a player less often than it changes when the world changes more than the budget carries. New fields in
+  `ReplicationConfig` and `ServerConfig`; the server's defaults are a budget of 100 kbps. See
+  `docs/reference/replicated-state.md` and `docs/adr/0011-priority-and-bandwidth-budget.md`.
 - Networking: `ITransport` (whole messages on a reliable ordered and an unreliable channel), `SimulatedNetwork`
   (an in-memory network with loss, duplicates, delay and a seed), the protocol (hello from each side, event
   batches, state buffers and acks), `ReplicationServer` (the whole network phase of a tick) and `ClientReplica`
   (applies events in order and state whole or not at all, and confirms it). End-to-end tests with real
   relevancy over a bad network, with 128 players and with random input. See `docs/reference/networking.md`.
 - Network benchmark (128 players, 200,000 entities, 5% loss), a chart for it, and a section 7 on the
-  benchmarks page. It converges but does not reach its goals yet (about 66 ms per tick on one thread against
-  3.3 ms, and about 960 kbps per player against 100); the numbers and what is left are in record 0010. Run
-  `tessera_net_bench network` to run it alone.
+  benchmarks page. It converges; with the budget above the bytes are within the goal, and the time of the phase
+  (about 50 ms per tick on one thread against 3.3 ms) is not yet. Run `tessera_net_bench network` to run it
+  alone.
 - Architecture decision record 0010 (transport and protocol).
 - `ClientReplica::Disconnect()`.
 - Replicated state (`ReplicationEngine`, `ReceiverState`): property descriptors for positions, angles, integers,
