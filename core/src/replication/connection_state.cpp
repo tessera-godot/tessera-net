@@ -32,6 +32,12 @@ ConnectionState::ConnectionState(const ReplicationSchema& schema, uint32_t max_v
       ring_(max_unconfirmed_sends < 1 ? 1 : (max_unconfirmed_sends > 255 ? 255 : max_unconfirmed_sends)),
       words_(schema.MaxWords()) {
     pages_.resize((static_cast<size_t>(max_visible) + kPageIds - 1) / kPageIds);
+    for (uint32_t type = 0; type < type_full_bytes_.size(); ++type) {
+        if (const TypeSchema* found = schema.Find(type)) {
+            // Until a record of the type has been written: room for every word in full and the record head.
+            type_full_bytes_[type] = static_cast<uint16_t>(std::min<uint32_t>(found->words * 4 + 4, 65535));
+        }
+    }
 }
 
 ConnectionState::Page* ConnectionState::PageOf(uint32_t compact_id, bool create) {
@@ -69,6 +75,8 @@ void ConnectionState::Release(uint32_t compact_id) {
     page->entity[local] = kNoEntity;
     page->sent_count[local] = 0;
     page->sent_head[local] = 0;
+    page->ready_since[local] = 0;
+    page->last_bytes[local] = 0;
     ClearBit(page->in_use, local);
     ClearBit(page->pending, local);
     ClearBit(page->stale, local);
@@ -83,6 +91,8 @@ void ConnectionState::EnterOne(uint64_t raw, uint32_t compact_id) {
     page->entity[local] = raw;
     page->sent_count[local] = 0;
     page->sent_head[local] = 0;
+    page->ready_since[local] = 0;
+    page->last_bytes[local] = 0;
     page->acked_tick[local] = 0;
     SetBit(page->in_use, local);
     SetBit(page->pending, local); // no confirmed state yet, so the entity is sent in full
@@ -215,16 +225,93 @@ bool ConnectionState::IsPending(uint32_t compact_id) const noexcept {
     return page != nullptr && TestBit(page->pending, compact_id % kPageIds);
 }
 
+uint32_t ConnectionState::LastRecordBytes(uint32_t compact_id) const noexcept {
+    const Page* page = PageOf(compact_id);
+    return page != nullptr ? page->last_bytes[compact_id % kPageIds] : 0;
+}
+
 bool ConnectionState::HasBaseline(uint32_t compact_id) const noexcept {
     const Page* page = PageOf(compact_id);
     return page != nullptr && TestBit(page->has_baseline, compact_id % kPageIds);
 }
 
-EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out) {
+namespace {
+
+constexpr uint32_t kTerminatorBits = 4; // the end of a buffer is a gap of 0: one chunk of a variable number
+
+} // namespace
+
+bool ConnectionState::WriteEntity(Page& page, uint32_t page_index, uint32_t local, uint64_t tick,
+                                  const uint32_t* current, uint32_t max_bytes, BitWriter& writer,
+                                  int64_t& previous, EncodeStats& stats) {
+    const EntityId id = EntityId::FromRaw(page.entity[local]);
+    const TypeSchema& type = *schema_.Find(id.type());
+    uint32_t* acked = page.acked.data() + static_cast<size_t>(local) * words_;
+    const bool has_baseline = TestBit(page.has_baseline, local);
+    const uint64_t age = tick - page.acked_tick[local]; // huge if the tick went backwards
+    const bool use_baseline = has_baseline && age >= 1 && age <= max_baseline_age_;
+    const uint32_t compact_id = page_index * kPageIds + local;
+    const BitWriter::Mark mark = writer.GetMark();
+    const uint64_t bits_before = writer.BitCount();
+    WriteRecord(type, static_cast<uint32_t>(static_cast<int64_t>(compact_id) - previous),
+                use_baseline ? static_cast<uint32_t>(age) : 0, use_baseline ? acked : nullptr, current,
+                writer);
+    const uint64_t bits = writer.BitCount() - bits_before;
+    if (max_bytes > 0 && (writer.BitCount() + kTerminatorBits + 7) / 8 > max_bytes) {
+        writer.Rewind(mark); // it does not fit: nothing changes but the estimate, which now is the real size
+        page.last_bytes[local] = static_cast<uint16_t>(std::min<uint64_t>((bits + 7) / 8, 65535));
+        return false;
+    }
+    ++stats.records;
+    if (!use_baseline) {
+        ++stats.complete_records;
+    }
+    const uint16_t bytes = static_cast<uint16_t>(std::min<uint64_t>((bits + 7) / 8, 65535));
+    page.last_bytes[local] = bytes;
+    page.ready_since[local] = 0;
+    if (!use_baseline) { // follow what a complete record of this type takes
+        uint16_t& estimate = type_full_bytes_[id.type()];
+        estimate = static_cast<uint16_t>((3u * estimate + bytes + 2) / 4);
+    }
+    // Remember this send, so that its confirmation can be used even if the entity is sent again
+    // first. Sending the very same state on the very next tick extends the newest remembered send
+    // instead of taking a new place, so an entity that does not change never runs out of room.
+    const size_t ring_base = static_cast<size_t>(local) * ring_;
+    bool extended = false;
+    if (page.sent_count[local] > 0) {
+        const uint32_t newest = (page.sent_head[local] + ring_ - 1) % ring_;
+        if (page.sent_ticks[ring_base + newest] + 1 == tick &&
+            std::memcmp(page.sent.data() + (ring_base + newest) * words_, current,
+                        type.words * sizeof(uint32_t)) == 0) {
+            page.sent_ticks[ring_base + newest] = tick;
+            ++page.sent_runs[ring_base + newest];
+            extended = true;
+        }
+    }
+    if (!extended) {
+        const uint32_t slot = page.sent_head[local];
+        std::memcpy(page.sent.data() + (ring_base + slot) * words_, current, type.words * sizeof(uint32_t));
+        page.sent_ticks[ring_base + slot] = tick;
+        page.sent_runs[ring_base + slot] = 1;
+        page.sent_head[local] = static_cast<uint8_t>((slot + 1) % ring_);
+        if (page.sent_count[local] < ring_) {
+            ++page.sent_count[local];
+        }
+    }
+    SetBit(page.outstanding, local);
+    ClearBit(page.stale, local);
+    previous = compact_id;
+    return true;
+}
+
+EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std::vector<uint8_t>& out,
+                                    const EncodeLimits& limits) {
     out.clear();
     EncodeStats stats;
     BitWriter writer(out);
     int64_t previous = -1;
+    const bool limited = limits.max_bytes > 0;
+    candidates_.clear();
     for (uint32_t page_index = 0; page_index < pages_.size(); ++page_index) {
         Page* page = pages_[page_index].get();
         if (page == nullptr) {
@@ -242,56 +329,86 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
                     continue;
                 }
                 const TypeSchema& type = *schema_.Find(id.type());
-                uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
+                const uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
                 const bool has_baseline = TestBit(page->has_baseline, local);
                 const bool outstanding = TestBit(page->outstanding, local);
                 if (!outstanding && has_baseline &&
                     std::memcmp(acked, current, type.words * sizeof(uint32_t)) == 0) {
                     ClearBit(page->pending, local); // the client already has exactly this
                     ClearBit(page->stale, local);
+                    page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
                     continue;
                 }
-                const uint64_t age = tick - page->acked_tick[local]; // huge if the tick went backwards
-                const bool use_baseline = has_baseline && age >= 1 && age <= max_baseline_age_;
-                const uint32_t compact_id = page_index * kPageIds + local;
-                WriteRecord(type, static_cast<uint32_t>(static_cast<int64_t>(compact_id) - previous),
-                            use_baseline ? static_cast<uint32_t>(age) : 0, use_baseline ? acked : nullptr,
-                            current, writer);
-                ++stats.records;
-                if (!use_baseline) {
-                    ++stats.complete_records;
-                }
-                // Remember this send, so that its confirmation can be used even if the entity is sent again
-                // first. Sending the very same state on the very next tick extends the newest remembered send
-                // instead of taking a new place, so an entity that does not change never runs out of room.
-                const size_t ring_base = static_cast<size_t>(local) * ring_;
-                bool extended = false;
-                if (page->sent_count[local] > 0) {
+                // Sent, not confirmed and not changed since: the send may still be on its way, so wait for
+                // it.
+                if (!TestBit(page->stale, local) && outstanding && page->sent_count[local] > 0) {
                     const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
-                    if (page->sent_ticks[ring_base + newest] + 1 == tick &&
-                        std::memcmp(page->sent.data() + (ring_base + newest) * words_, current,
-                                    type.words * sizeof(uint32_t)) == 0) {
-                        page->sent_ticks[ring_base + newest] = tick;
-                        ++page->sent_runs[ring_base + newest];
-                        extended = true;
+                    const uint64_t last_sent = page->sent_ticks[static_cast<size_t>(local) * ring_ + newest];
+                    if (tick - last_sent < limits.resend_after_ticks) { // huge if the tick went backwards
+                        ++stats.waiting;
+                        continue;
                     }
                 }
-                if (!extended) {
-                    const uint32_t slot = page->sent_head[local];
-                    std::memcpy(page->sent.data() + (ring_base + slot) * words_, current,
-                                type.words * sizeof(uint32_t));
-                    page->sent_ticks[ring_base + slot] = tick;
-                    page->sent_runs[ring_base + slot] = 1;
-                    page->sent_head[local] = static_cast<uint8_t>((slot + 1) % ring_);
-                    if (page->sent_count[local] < ring_) {
-                        ++page->sent_count[local];
-                    }
+                if (!limited) {
+                    WriteEntity(*page, page_index, local, tick, current, 0, writer, previous, stats);
+                    continue;
                 }
-                SetBit(page->outstanding, local);
-                ClearBit(page->stale, local);
-                previous = compact_id;
+                if (page->ready_since[local] == 0) {
+                    page->ready_since[local] = tick + 1;
+                }
+                const uint32_t estimate =
+                    page->last_bytes[local] != 0 ? page->last_bytes[local] : type_full_bytes_[id.type()];
+                candidates_.push_back(Candidate{page_index * kPageIds + local, estimate, 0});
             }
         }
+    }
+    if (limited) {
+        // Room in the buffer for records: all of it but the end marker.
+        const uint32_t room = limits.max_bytes - 1;
+        uint64_t wanted = 0;
+        for (const Candidate& candidate : candidates_) {
+            wanted += candidate.estimated_bytes;
+        }
+        chosen_.clear();
+        if (wanted <= room) {
+            for (const Candidate& candidate : candidates_) { // everything fits: in id order, as it was found
+                chosen_.push_back(candidate.compact_id);
+            }
+        } else {
+            // Not everything fits: the longest wait, times the weight of the type, goes first. Ties go to the
+            // lowest id, so the choice never depends on anything but the state.
+            for (Candidate& candidate : candidates_) {
+                const Page& page = *pages_[candidate.compact_id / kPageIds];
+                const uint32_t local = candidate.compact_id % kPageIds;
+                const uint64_t waited = tick + 1 - page.ready_since[local];
+                const uint32_t weight = limits.type_weight != nullptr
+                                            ? limits.type_weight[EntityId::FromRaw(page.entity[local]).type()]
+                                            : 1;
+                candidate.score = (waited + 1) * weight;
+            }
+            std::sort(candidates_.begin(), candidates_.end(), [](const Candidate& a, const Candidate& b) {
+                return a.score != b.score ? a.score > b.score : a.compact_id < b.compact_id;
+            });
+            uint32_t left = room;
+            for (const Candidate& candidate : candidates_) {
+                if (candidate.estimated_bytes <= left) {
+                    left -= candidate.estimated_bytes;
+                    chosen_.push_back(candidate.compact_id);
+                }
+            }
+            std::sort(chosen_.begin(), chosen_.end()); // the format wants ascending ids
+        }
+        uint32_t written = 0;
+        for (const uint32_t compact_id : chosen_) {
+            Page& page = *pages_[compact_id / kPageIds];
+            const uint32_t local = compact_id % kPageIds;
+            const uint32_t* current = store.Find(EntityId::FromRaw(page.entity[local]));
+            if (WriteEntity(page, compact_id / kPageIds, local, tick, current, limits.max_bytes, writer,
+                            previous, stats)) {
+                ++written;
+            }
+        }
+        stats.deferred = static_cast<uint32_t>(candidates_.size()) - written;
     }
     WriteTerminator(writer);
     writer.Finish();
@@ -356,6 +473,7 @@ void ConnectionState::Confirm(uint64_t tick) {
                     ClearBit(page->outstanding, local);
                     if (!TestBit(page->stale, local)) {
                         ClearBit(page->pending, local);
+                        page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
                     }
                 }
             }

@@ -87,6 +87,15 @@ struct Rig {
         return out;
     }
 
+    std::vector<uint8_t> EncodeWith(uint64_t tick, const EncodeLimits& limits, EncodeStats* stats = nullptr) {
+        std::vector<uint8_t> out;
+        const EncodeStats written = conn.Encode(tick, store, out, limits);
+        if (stats != nullptr) {
+            *stats = written;
+        }
+        return out;
+    }
+
     // True when the receiver's newest state of `compact_id` is the store's state of the entity.
     bool ReceiverMatchesStore(EntityId id, uint32_t compact_id) const {
         const uint32_t* mine = receiver.Current(compact_id);

@@ -54,6 +54,27 @@ public:
         return bit_count_;
     }
 
+    /// A place in the output that `Rewind` can go back to.
+    struct Mark {
+        size_t size;
+        uint64_t pending;
+        uint32_t pending_bits;
+        uint64_t bit_count;
+    };
+
+    Mark GetMark() const noexcept {
+        return Mark{out_.size(), pending_, pending_bits_, bit_count_};
+    }
+
+    /// Takes back everything written since `mark`, which must come from this writer and not from before a
+    /// `Finish`. The output is as if the bits had never been written.
+    void Rewind(const Mark& mark) {
+        out_.resize(mark.size);
+        pending_ = mark.pending;
+        pending_bits_ = mark.pending_bits;
+        bit_count_ = mark.bit_count;
+    }
+
     /// Pads the last byte with zero bits. Safe to call more than once.
     void Finish();
 

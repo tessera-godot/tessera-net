@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace network_test;
@@ -534,4 +535,232 @@ TESSERA_TEST(a_type_that_players_can_see_but_that_has_no_replication_schema_is_r
     relevancy.types[kUnknownType] = TypeRelevancy{RelevancyMode::Spatial, 0.0f, 0.0f}; // never visible: fine
     ReplicationServer fine(SmallServerConfig(), relevancy, schema, grid, groups, jobs, network.Server());
     TESSERA_CHECK(fine.ConnectionCount() == 0);
+}
+
+TESSERA_TEST(server_config_defaults_for_the_budget_and_the_pacing) {
+    const ServerConfig config;
+    TESSERA_CHECK(config.rate_kbps == 100 && config.peak_kbps == 200 && config.max_buffer_bytes == 1100);
+    TESSERA_CHECK(config.resend_margin_ticks == 1 && config.min_resend_ticks == 2);
+    TESSERA_CHECK(config.max_resend_ticks == 30 && config.initial_resend_ticks == 6);
+    for (const uint8_t weight : config.type_weight) {
+        TESSERA_CHECK(weight == 1);
+    }
+}
+
+TESSERA_TEST(the_server_names_the_budget_field_it_refuses) {
+    ReplicationSchema schema = MakeTestSchema();
+    SpatialGrid grid{GridConfig{64.0f, 64.0f, 64.0f}};
+    RelevancyGroups groups;
+    ThreadPoolJobSystem jobs(1);
+    SimulatedNetwork network{NetworkConditions{}};
+    auto refused_naming = [&](auto edit, const char* field) {
+        ServerConfig config = SmallServerConfig();
+        config.rate_kbps = 100;
+        edit(config);
+        try {
+            ReplicationServer server(config, TestRelevancyConfig(), schema, grid, groups, jobs,
+                                     network.Server());
+        } catch (const std::invalid_argument& error) {
+            return std::string(error.what()).find(std::string("ServerConfig::") + field) != std::string::npos;
+        }
+        return false;
+    };
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.rate_kbps = 1'000'001; }, "rate_kbps"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.peak_kbps = 50; }, "peak_kbps"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_buffer_bytes = 63; }, "max_buffer_bytes"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_buffer_bytes = 65536; }, "max_buffer_bytes"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.resend_margin_ticks = 31; }, "resend_margin_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.min_resend_ticks = 0; }, "min_resend_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.max_resend_ticks = 256; }, "max_resend_ticks"));
+    TESSERA_CHECK(refused_naming(
+        [](ServerConfig& c) {
+            c.min_resend_ticks = 5;
+            c.max_resend_ticks = 4;
+        },
+        "max_resend_ticks"));
+    TESSERA_CHECK(refused_naming(
+        [](ServerConfig& c) {
+            c.min_resend_ticks = 2;
+            c.initial_resend_ticks = 1; // below the minimum
+        },
+        "initial_resend_ticks"));
+    TESSERA_CHECK(refused_naming([](ServerConfig& c) { c.type_weight[3] = 0; }, "type_weight"));
+    TESSERA_CHECK(!refused_naming([](ServerConfig&) {}, "rate_kbps"));
+}
+
+TESSERA_TEST(server_passes_its_budget_settings_to_the_replication_engine) {
+    ServerConfig config = SmallServerConfig();
+    config.tick_rate = 60;
+    config.rate_kbps = 80;
+    config.peak_kbps = 160;
+    config.max_buffer_bytes = 900;
+    config.resend_margin_ticks = 2;
+    config.min_resend_ticks = 3;
+    config.max_resend_ticks = 20;
+    config.initial_resend_ticks = 7;
+    config.type_weight[4] = 9;
+    ServerHarness h(config);
+    const ReplicationConfig& engine = h.server.Replication().Config();
+    TESSERA_CHECK(engine.tick_rate == 60 && engine.rate_kbps == 80 && engine.peak_kbps == 160);
+    TESSERA_CHECK(engine.max_buffer_bytes == 900 && engine.resend_margin_ticks == 2);
+    TESSERA_CHECK(engine.min_resend_ticks == 3 && engine.max_resend_ticks == 20 &&
+                  engine.initial_resend_ticks == 7);
+    TESSERA_CHECK(engine.type_weight[4] == 9 && engine.type_weight[5] == 1);
+}
+
+namespace {
+
+ServerConfig BudgetServerConfig() {
+    ServerConfig config = SmallServerConfig();
+    config.rate_kbps = 20;
+    config.peak_kbps = 20;
+    config.max_buffer_bytes = 100;
+    return config;
+}
+
+// A harness with `mobs` mobs that a player at the origin sees.
+void FillWorld(ServerHarness& h, uint32_t mobs) {
+    for (uint32_t i = 0; i < mobs; ++i) {
+        h.AddMob(static_cast<float>(i % 20) * 3.0f, static_cast<float>(i / 20) * 3.0f);
+    }
+}
+
+} // namespace
+
+TESSERA_TEST(the_round_trip_sample_is_the_server_tick_minus_the_acked_tick) {
+    ServerHarness h;
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    h.AddMob(10.0f, 10.0f);
+    FakeClient& client = h.ConnectAndGreet();
+    for (int i = 0; i < 5; ++i) {
+        h.Step(); // unconfirmed: a buffer on every tick
+    }
+    TESSERA_CHECK(h.server.Replication().ResendAfterTicks(0) == 1); // no sample yet
+    client.SendAck(h.tick - 4, 0);
+    h.Step(); // the ack is read in the server's tick h.tick - 1 (before this step's increment): 4 ticks later
+    TESSERA_CHECK(h.server.Replication().ResendAfterTicks(0) == 5); // 4 ticks and the margin of 1
+}
+
+TESSERA_TEST(only_the_newest_tick_of_an_ack_gives_a_sample) {
+    ServerHarness h;
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    h.AddMob(10.0f, 10.0f);
+    FakeClient& client = h.ConnectAndGreet();
+    for (int i = 0; i < 5; ++i) {
+        h.Step();
+    }
+    client.SendAck(h.tick - 1,
+                   0xFFFFFFFFu); // the newest tick and 32 older ones, which would give larger samples
+    h.Step();
+    TESSERA_CHECK(h.server.Replication().ResendAfterTicks(0) == 2); // one tick and the margin
+}
+
+TESSERA_TEST(a_repeated_or_forged_ack_gives_no_sample) {
+    ServerHarness h;
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    h.AddMob(10.0f, 10.0f);
+    FakeClient& client = h.ConnectAndGreet();
+    for (int i = 0; i < 5; ++i) {
+        h.Step();
+    }
+    client.SendAck(h.tick - 4, 0);
+    h.Step();
+    const uint32_t wait = h.server.Replication().ResendAfterTicks(0);
+    client.SendAck(h.tick - 5, 0);          // the same tick again
+    client.SendAck(1'000'000, 0xFFFFFFFFu); // a tick never sent
+    h.Step();
+    h.Step();
+    TESSERA_CHECK(h.server.Replication().ResendAfterTicks(0) == wait);
+}
+
+TESSERA_TEST(event_batches_are_charged_to_the_bucket) {
+    ServerConfig config = SmallServerConfig();
+    config.rate_kbps = 20; // 83 bytes a tick, enough for the largest record and the headers
+    config.peak_kbps = 2000;
+    ServerHarness h(config);
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    FillWorld(h, 40);
+    FakeClient& client = h.AddClient();
+    h.Step();
+    client.SendHello(kProtocolVersion, h.schema.Hash());
+    h.Step(); // the player is accepted, sees the world, and gets an event batch and a first state buffer
+    const int64_t full =
+        (2000 - 20) * 1250; // what a new connection starts with: 1,980 kbps saved for 10 seconds
+    const int64_t spent = full - h.server.Replication().BudgetBytes(0);
+    h.Step(); // the network delivers what was just sent
+    client.Collect();
+    size_t batch_bytes = 0, buffer_bytes = 0;
+    for (const TransportEvent& event : client.inbox) {
+        EventBatch batch;
+        StateBufferHeader header{};
+        std::span<const uint8_t> payload;
+        if (event.kind == TransportEvent::Kind::Message && Decode(event.data, &batch)) {
+            batch_bytes += event.data.size();
+        } else if (event.kind == TransportEvent::Kind::Message &&
+                   DecodeStateBuffer(event.data, &header, &payload)) {
+            buffer_bytes += payload.size() + 12;
+        }
+    }
+    TESSERA_CHECK(batch_bytes > 100 && buffer_bytes > 12);
+    // The batch is charged too (a tick of the rate, 83 bytes, came back into the bucket meanwhile).
+    TESSERA_CHECK(spent >= static_cast<int64_t>(batch_bytes + buffer_bytes) - 88);
+}
+
+TESSERA_TEST(state_buffers_respect_the_server_budget_and_cap) {
+    ServerHarness h(BudgetServerConfig());
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    FillWorld(h, 60);
+    FakeClient& client = h.ConnectAndGreet();
+    for (int i = 0; i < 100; ++i) {
+        h.Step();
+    }
+    client.Collect();
+    size_t buffers = 0, total = 0;
+    for (const FakeClient::Buffer& buffer : client.Buffers()) {
+        TESSERA_CHECK(buffer.payload.size() <= 100);
+        total += buffer.payload.size() + 12;
+        ++buffers;
+    }
+    TESSERA_CHECK(buffers >= 10);
+    TESSERA_CHECK(total <= 2500 * 4 + 200); // 20 kbps for the 3.3 seconds the 100 ticks last, and a tick
+}
+
+TESSERA_TEST(a_new_player_receives_a_busy_world_in_several_small_buffers) {
+    ServerConfig config = SmallServerConfig();
+    config.rate_kbps = 100;
+    config.peak_kbps = 200;
+    config.max_buffer_bytes = 400;
+    ServerHarness h(config);
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    FillWorld(h, 300);
+    FakeClient& client = h.ConnectAndGreet();
+    for (int i = 0; i < 40; ++i) {
+        h.Step();
+    }
+    client.Collect();
+    const std::vector<FakeClient::Buffer> buffers = client.Buffers();
+    size_t with_records = 0;
+    for (const FakeClient::Buffer& buffer : buffers) {
+        TESSERA_CHECK(buffer.payload.size() <= 400);
+        with_records += buffer.payload.size() > 1 ? 1 : 0;
+    }
+    TESSERA_CHECK(with_records >= 5); // 300 entities do not fit in one buffer of 400 bytes
+}
+
+TESSERA_TEST(a_reused_slot_starts_with_a_full_bucket) {
+    ServerConfig config = SmallServerConfig();
+    config.rate_kbps = 20;
+    config.peak_kbps = 60;
+    ServerHarness h(config);
+    h.on_connect_hook = [&](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    FakeClient& first = h.ConnectAndGreet();
+    const int64_t full = h.server.Replication().BudgetBytes(0);
+    h.server.Replication().Charge(0, 40'000); // the first player used up most of it
+    TESSERA_CHECK(h.server.Replication().BudgetBytes(0) < full - 30'000);
+    first.transport->Disconnect(0);
+    h.Step();
+    h.Step();
+    TESSERA_CHECK(h.server.ConnectionCount() == 0);
+    h.ConnectAndGreet(); // a new player takes slot 0
+    TESSERA_CHECK(h.server.Replication().BudgetBytes(0) > full - 2000);
 }

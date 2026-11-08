@@ -226,8 +226,8 @@ def network_chart():
     """The whole network phase per tick (log scale): measured value, regression guard and goal."""
     # (label, measured ms, regression guard ms, goal ms)
     rows = [
-        ("128 players, 1 thread", 66.0, 150.0, 3.3),
-        ("128 players, 8 workers", 20.8, 45.0, 1.0),
+        ("128 players, 1 thread", 49.5, 100.0, 3.3),
+        ("128 players, 8 workers", 13.9, 30.0, 1.0),
     ]
     width, height = 720, 310
     left, plot_w, top, row_h = 230, 420, 100, 54
@@ -255,7 +255,7 @@ def network_chart():
     parts.append(text(left + 112, legend_y, "regression limit", 12, INK))
     parts.append(f'<rect x="{left + 230}" y="{legend_y - 11}" width="4" height="14" fill="{GREEN}"/>')
     parts.append(text(left + 242, legend_y, "goal", 12, INK))
-    parts.append(text(24, height - 18, "Log scale. Neither goal is met yet; a player also receives 960 kbps against a goal of 100.", 11, MUTED))
+    parts.append(text(24, height - 18, "Log scale. Neither goal is met yet. A player receives 98 kbps on average, within the goal of 100.", 11, MUTED))
     return card(width, height, "Network phase: time per tick",
                 "128 players, 200,000 entities, 5% packet loss. Median of 4 runs, desktop CPU, Release build. Shorter is better.",
                 chr(10).join(parts))

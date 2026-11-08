@@ -50,7 +50,8 @@ bytes than the entity's full 64-bit id.
 **Dormancy.** An entity that is not changing goes to sleep and costs nothing until something changes it.
 
 **Priority and bandwidth budget.** Each player can only receive so much data per second. When there is too
-much to send, the most important things go first (for example, nearby players before faraway ones).
+much to send, the most important things go first. Today that means what has waited longest, weighted by the type
+of entity; nearby before faraway is not built yet.
 
 **Network LOD.** Level of detail for networking: far-away things are updated less often than near ones.
 

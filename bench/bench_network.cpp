@@ -38,15 +38,24 @@ namespace {
 // Regression limits: about twice what the path measures, so that run-to-run variation does not fail the
 // benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with one thread,
 // 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
-constexpr double kLimitOneThreadMs = 150.0;
-constexpr double kLimitEightWorkersMs = 45.0;
-constexpr double kLimitKbpsPerPlayer = 2000.0;
-constexpr double kLimitClientPollUs = 700.0;
-constexpr double kLimitMbPerPlayer = 4.0;
+constexpr double kLimitOneThreadMs = 100.0;
+constexpr double kLimitEightWorkersMs = 30.0;
+// What the budget promises, from the goal of 100 kbps on average and 200 kbps over any 10 seconds, with room
+// for the headers and the event batches that the budget does not hold back.
+constexpr double kLimitSteadyKbps = 105.0;
+constexpr double kLimitPeakKbps = 205.0;
+constexpr double kLimitResendFactor = 1.5; // records written per change when only the pacing is on
+constexpr int kLimitJoinTicks = 90;        // 3 seconds to receive everything a new player sees
+constexpr double kLimitClientPollUs = 60.0;
+constexpr double kLimitMbPerPlayer = 3.6;
 
 constexpr uint32_t kTickRate = 30;
 constexpr uint32_t kWarmupTicks = 20;
-constexpr int kRuns = 5;
+constexpr int kRuns =
+    23; // 460 ticks: a little more than 10 seconds for the budget to settle, and one more window
+constexpr int kWindowTicks = 10 * kTickRate;
+constexpr int kSteadyTicks =
+    5 * kTickRate; // the average is taken over the last of them, with the burst used up
 constexpr int kTicksPerRun = 20;
 constexpr int kJoinLimit = 600;   // ticks a join may take before it is called failed
 constexpr int kSettleLimit = 600; // the same, for the clients catching up after the world stops
@@ -316,30 +325,81 @@ struct TickCost {
     double update_ms = 0.0;  // the server's network phase: relevancy, replication, protocol and transport
 };
 
-/// A server, its clients, the network between them and the world they look at.
+ServerConfig BenchServerConfig(uint32_t players, bool budget) {
+    ServerConfig config; // the pacing and the budget are the defaults of the server
+    config.max_connections = players;
+    config.max_visible_per_connection = kMaxVisible;
+    config.tick_rate = kTickRate;
+    if (!budget) {
+        config.rate_kbps = 0; // only the pacing of the resends
+    }
+    return config;
+}
+
+/// A server, its clients, the network between them and the world they look at. `initial_clients` of 0 means
+/// one for every player of the scenario.
 class Sim {
 public:
-    Sim(const Scenario& scenario, uint32_t workers, const NetworkConditions& conditions, bool hash_bytes)
+    Sim(const Scenario& scenario, uint32_t workers, const NetworkConditions& conditions, bool hash_bytes,
+        bool budget = true, uint32_t initial_clients = 0)
         : scenario_(scenario), world_(scenario), grid_(GridConfig{128.0f, 128.0f, 128.0f}), jobs_(workers),
           network_(conditions), counted_(network_.Server(), hash_bytes), schema_(MakeSchema()) {
         world_.Build(grid_);
         eyes_ = world_.PlaceObservers();
         memory_before_ = bench::ResidentBytes();
-        ServerConfig config;
-        config.max_connections = scenario.players;
-        config.max_visible_per_connection = kMaxVisible;
-        config.tick_rate = kTickRate;
-        server_ = std::make_unique<ReplicationServer>(config, MakeRelevancy(), schema_, grid_, groups_, jobs_,
-                                                      counted_);
+        server_ =
+            std::make_unique<ReplicationServer>(BenchServerConfig(scenario.players, budget), MakeRelevancy(),
+                                                schema_, grid_, groups_, jobs_, counted_);
         server_->SetCallbacks(
             [this](ConnectionId id) {
                 server_->Relevancy().SetObservers(id, std::span<const Observer>(&eyes_[id], 1));
             },
             [](ConnectionId) {});
-        for (uint32_t i = 0; i < scenario.players; ++i) {
-            transports_.push_back(network_.AddClient());
-            clients_.push_back(std::make_unique<ClientReplica>(*transports_.back(), schema_));
+        for (uint32_t i = 0; i < (initial_clients == 0 ? scenario.players : initial_clients); ++i) {
+            AddClient();
         }
+    }
+
+    /// A new player connects. Returns its index among the clients.
+    size_t AddClient() {
+        transports_.push_back(network_.AddClient());
+        clients_.push_back(std::make_unique<ClientReplica>(*transports_.back(), schema_));
+        return clients_.size() - 1;
+    }
+
+    /// The share of the entities the connected clients can see for which they do not hold the server's
+    /// current state (that includes those they have not received yet).
+    double Divergence() {
+        const uint32_t words = schema_.Find(0)->words;
+        uint64_t visible = 0, current = 0;
+        for (const auto& client : clients_) {
+            if (client->State() != ClientState::Connected) {
+                continue;
+            }
+            visible += server_->Relevancy().VisibleCount(client->ConnectionId());
+            client->ForEachEntity([&](EntityId entity, const uint32_t* held) {
+                const uint32_t* truth = server_->Replication().Store().Find(entity);
+                bool same = truth != nullptr;
+                for (uint32_t w = 0; same && w < words; ++w) {
+                    same = held[w] == truth[w];
+                }
+                current += same ? 1 : 0;
+            });
+        }
+        return visible == 0 ? 0.0 : 1.0 - static_cast<double>(current) / static_cast<double>(visible);
+    }
+
+    /// A client has received state for everything it knows it can see, and what it knows is nearly all that
+    /// the server says it can see.
+    bool HasEverything(size_t index) {
+        const ClientReplica& client = *clients_[index];
+        if (client.State() != ClientState::Connected || client.VisibleCount() == 0) {
+            return false;
+        }
+        size_t with_state = 0;
+        client.ForEachEntity([&](EntityId, const uint32_t*) { ++with_state; });
+        const size_t visible = server_->Relevancy().VisibleCount(client.ConnectionId());
+        return with_state == client.VisibleCount() && client.VisibleCount() * 100 >= visible * 98;
     }
 
     /// One tick. `changing` moves the world and the players; without it nothing changes.
@@ -513,6 +573,11 @@ struct Measurement {
     double mb_per_player = 0.0; // server and client of one player together
     double lag_ticks = 0.0;
     double records_per_player = 0.0; // records written per player per tick
+    double steady_kbps = 0.0;        // per player, the last 5 seconds, with the saved-up burst used
+    double peak_kbps = 0.0;          // per player, the busiest 10 seconds
+    double divergence = 0.0;         // mean share of what a player sees that is not the current state
+    double complete_share = 0.0;     // share of the records that carry every property
+    double resend_wait_ticks = 0.0;  // mean ticks the server waits before an unconfirmed entity is sent again
     int settle_ticks = 0;
     Totals client_totals;
     uint64_t server_errors = 0;
@@ -540,12 +605,24 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
     const Totals clients_before = ClientTotals(sim);
 
     std::vector<double> refresh_runs, update_runs, client_runs;
-    uint64_t records = 0;
+    uint64_t records = 0, complete_records = 0;
+    std::vector<uint64_t> bytes_per_tick;
+    uint64_t sent_so_far = counted.SentTotal();
+    double divergence_sum = 0.0;
+    int divergence_samples = 0;
+    int ticks_done = 0;
     for (int run = 0; run < kRuns; ++run) {
         TickCost sum;
         for (int i = 0; i < kTicksPerRun; ++i) {
             const TickCost cost = sim.Tick(true);
             records += sim.Server().Replication().LastStats().records;
+            complete_records += sim.Server().Replication().LastStats().complete_records;
+            bytes_per_tick.push_back(counted.SentTotal() - sent_so_far);
+            sent_so_far = counted.SentTotal();
+            if (++ticks_done % 5 == 0) { // not every tick: it looks at every entity of every player
+                divergence_sum += sim.Divergence();
+                ++divergence_samples;
+            }
             sum.client_ms += cost.client_ms;
             sum.refresh_ms += cost.refresh_ms;
             sum.update_ms += cost.update_ms;
@@ -555,6 +632,28 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
         client_runs.push_back(sum.client_ms / kTicksPerRun / scenario.players * 1000.0);
     }
     result.records_per_player = static_cast<double>(records) / (kRuns * kTicksPerRun) / scenario.players;
+    result.complete_share =
+        records == 0 ? 0.0 : static_cast<double>(complete_records) / static_cast<double>(records);
+    result.divergence = divergence_samples == 0 ? 0.0 : divergence_sum / divergence_samples;
+    {
+        const auto window_kbps = [&](size_t first, size_t count) {
+            uint64_t sum = 0;
+            for (size_t i = first; i < first + count; ++i) {
+                sum += bytes_per_tick[i];
+            }
+            return static_cast<double>(sum) * 8.0 / 1000.0 / (static_cast<double>(count) / kTickRate) /
+                   scenario.players;
+        };
+        for (size_t first = 0; first + kWindowTicks <= bytes_per_tick.size(); ++first) {
+            result.peak_kbps = std::max(result.peak_kbps, window_kbps(first, kWindowTicks));
+        }
+        result.steady_kbps = window_kbps(bytes_per_tick.size() - kSteadyTicks, kSteadyTicks);
+        double wait = 0.0;
+        for (const auto& client : sim.Clients()) {
+            wait += sim.Server().Replication().ResendAfterTicks(client->ConnectionId());
+        }
+        result.resend_wait_ticks = wait / scenario.players;
+    }
     result.refresh_ms = Median(refresh_runs);
     result.update_ms = Median(update_runs);
     result.client_poll_us = Median(client_runs);
@@ -600,6 +699,61 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
     return result;
 }
 
+/// Records written per change when only the pacing of the resends is on, in the main scenario with one
+/// thread.
+struct PacingResult {
+    double records_per_change;
+    double divergence; // share of what a player sees that is not the current state
+};
+
+PacingResult PacingOnly() {
+    Sim sim(kMain, 1, Conditions(0.0), false, /*budget=*/false);
+    sim.TicksToConverge(kJoinLimit, false);
+    sim.SetLoss(0.05);
+    for (uint32_t i = 0; i < kWarmupTicks; ++i) {
+        sim.Tick(true);
+    }
+    constexpr int kTicks = 40;
+    uint64_t records = 0;
+    double divergence = 0.0;
+    int samples = 0;
+    for (int i = 0; i < kTicks; ++i) {
+        sim.Tick(true);
+        records += sim.Server().Replication().LastStats().records;
+        if (i % 5 == 0) {
+            divergence += sim.Divergence();
+            ++samples;
+        }
+    }
+    double visible = 0.0;
+    for (const auto& client : sim.Clients()) {
+        visible += static_cast<double>(sim.Server().Relevancy().VisibleCount(client->ConnectionId()));
+    }
+    visible /= kMain.players;
+    const double changes_per_tick = visible / kMain.change_period; // each entity changes once per period
+    return PacingResult{static_cast<double>(records) / kTicks / kMain.players / changes_per_tick,
+                        divergence / samples};
+}
+
+/// A player joins the main scenario while it runs, on the lossy network. Returns the ticks until it holds
+/// state for everything it can see, or -1.
+int JoinTicksIntoARunningWorld() {
+    Sim sim(kMain, 1, Conditions(0.0), false, /*budget=*/true, kMain.players - 1);
+    sim.TicksToConverge(kJoinLimit, false);
+    sim.SetLoss(0.05);
+    for (uint32_t i = 0; i < kWarmupTicks + 120; ++i) { // long enough for the others to use up their savings
+        sim.Tick(true);
+    }
+    const size_t newcomer = sim.AddClient();
+    for (int i = 1; i <= kJoinLimit; ++i) {
+        sim.Tick(true);
+        if (sim.HasEverything(newcomer)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /// A small world on the lossy network from the start, run for 40 ticks; returns a hash of every byte the
 /// server sent, in order.
 uint64_t SentBytesHash(uint32_t workers) {
@@ -629,9 +783,9 @@ void CheckNetwork() {
     std::printf("network: %u players, %u entities in a %.0f m world, %u-tick change period, 5%% loss, "
                 "1 to 2 ticks of delay each way\n",
                 kMain.players, kMain.entities, kMain.world_size, kMain.change_period);
-    std::printf(
-        "network goals (not met yet): 3.3 ms per tick with 1 thread, 1 ms with 8 workers, 100 kbps per "
-        "player\n");
+    std::printf("network goals: 3.3 ms per tick with 1 thread (not met yet), 1 ms with 8 workers (not met "
+                "yet), 100 kbps per "
+                "player on average and 200 over 10 seconds (the budget)\n");
     const Measurement one = Measure(kMain, 1);
     PrintScenario(one, 1);
     const Measurement eight = Measure(kMain, 8);
@@ -647,7 +801,12 @@ void CheckNetwork() {
     Info("  of which relevancy, replication, protocol", one.update_ms, "ms");
     Report("network phase, 8 workers, mean per tick", eight.refresh_ms + eight.update_ms, "ms",
            kLimitEightWorkersMs);
-    Report("network bandwidth per player, server to player", one.down_kbps, "kbps", kLimitKbpsPerPlayer);
+    Report("network bandwidth per player, last 5 s", one.steady_kbps, "kbps", kLimitSteadyKbps);
+    Report("network bandwidth per player, busiest 10 s", one.peak_kbps, "kbps", kLimitPeakKbps);
+    Info("network bandwidth per player, whole run", one.down_kbps, "kbps");
+    Info("network state a player holds that is not current", 100.0 * one.divergence, "%");
+    Info("network complete records, share of all", 100.0 * one.complete_share, "%");
+    Info("network resend wait the server settled on", one.resend_wait_ticks, "ticks");
     Info("  of which state buffers", one.state_kbps, "kbps");
     Info("  of which event batches", one.event_kbps, "kbps");
     Info("  of which hellos", one.hello_kbps, "kbps");
@@ -663,5 +822,10 @@ void CheckNetwork() {
     Report("network client poll, per client per tick", one.client_poll_us, "us", kLimitClientPollUs);
     Report("network memory per player (server + client)", one.mb_per_player, "MB", kLimitMbPerPlayer);
     ReportBool("network bytes sent, 1 vs 8 workers, 40 ticks", SentBytesHash(1) == SentBytesHash(8));
+    const PacingResult pacing = PacingOnly();
+    Report("network records per change, pacing only", pacing.records_per_change, "x", kLimitResendFactor);
+    Info("network state not current, no budget (pacing only)", 100.0 * pacing.divergence, "%");
+    const int join = JoinTicksIntoARunningWorld();
+    Report("network a new player receives everything", join < 0 ? 1e9 : join, "ticks", kLimitJoinTicks);
     Info("network join under 5% loss (16 players)", JoinTicksUnderLoss(), "ticks");
 }

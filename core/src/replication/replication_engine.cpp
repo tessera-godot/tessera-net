@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication/replication_engine.hpp"
 
+#include <algorithm>
 #include <stdexcept>
+#include <string>
 
 namespace tessera::net {
+
+namespace {
+
+// What a state buffer costs beyond its bytes: the message header (the tick and the number of event batches)
+// and the room a packet takes.
+constexpr uint32_t kBufferOverheadBytes = 12;
+
+} // namespace
 
 ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const ReplicationConfig& config,
                                      IJobSystem& jobs)
@@ -22,6 +32,55 @@ ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const Repl
     }
     if (config.max_unconfirmed_sends == 0 || config.max_unconfirmed_sends > 255) {
         throw std::invalid_argument("ReplicationConfig::max_unconfirmed_sends must be 1 to 255");
+    }
+    if (config.tick_rate == 0 || config.tick_rate > 1000) {
+        throw std::invalid_argument("ReplicationConfig::tick_rate must be 1 to 1000");
+    }
+    if (config.rate_kbps > 1'000'000) {
+        throw std::invalid_argument("ReplicationConfig::rate_kbps must be at most 1000000");
+    }
+    if (config.peak_kbps > 1'000'000 || (config.peak_kbps != 0 && config.peak_kbps < config.rate_kbps)) {
+        throw std::invalid_argument("ReplicationConfig::peak_kbps must be 0, or from rate_kbps to 1000000");
+    }
+    if (config.rate_kbps > 0) {
+        if (config.max_buffer_bytes < 64 || config.max_buffer_bytes > 65535) {
+            throw std::invalid_argument("ReplicationConfig::max_buffer_bytes must be 64 to 65535");
+        }
+        // A record that cannot fit in an empty buffer would never be sent.
+        const uint32_t largest_record = 4 * schema.MaxWords() + 16;
+        if (config.max_buffer_bytes < largest_record) {
+            throw std::invalid_argument("ReplicationConfig::max_buffer_bytes must hold the largest record (" +
+                                        std::to_string(largest_record) + " bytes for this schema)");
+        }
+        // A record larger than what one tick of the rate carries (with the headers of the buffer) would
+        // never be sent: under load the bucket holds about one tick.
+        const uint64_t bytes_per_tick = static_cast<uint64_t>(config.rate_kbps) * 125 / config.tick_rate;
+        if (bytes_per_tick < largest_record + kBufferOverheadBytes) {
+            throw std::invalid_argument(
+                "ReplicationConfig::rate_kbps must carry the largest record in one tick (" +
+                std::to_string(largest_record + kBufferOverheadBytes) +
+                " bytes for this schema, with the headers)");
+        }
+    }
+    if (config.resend_margin_ticks > 30) {
+        throw std::invalid_argument("ReplicationConfig::resend_margin_ticks must be 0 to 30");
+    }
+    if (config.min_resend_ticks == 0 || config.min_resend_ticks > 255) {
+        throw std::invalid_argument("ReplicationConfig::min_resend_ticks must be 1 to 255");
+    }
+    if (config.max_resend_ticks < config.min_resend_ticks || config.max_resend_ticks > 255) {
+        throw std::invalid_argument(
+            "ReplicationConfig::max_resend_ticks must be from min_resend_ticks to 255");
+    }
+    if (config.initial_resend_ticks < config.min_resend_ticks ||
+        config.initial_resend_ticks > config.max_resend_ticks) {
+        throw std::invalid_argument(
+            "ReplicationConfig::initial_resend_ticks must be from min_resend_ticks to max_resend_ticks");
+    }
+    for (const uint8_t weight : config.type_weight) {
+        if (weight == 0) {
+            throw std::invalid_argument("ReplicationConfig::type_weight must be 1 to 255 for every type");
+        }
     }
     connections_.resize(config.max_connections);
 }
@@ -77,7 +136,19 @@ void ReplicationEngine::Update(uint64_t tick) {
     jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
         for (uint32_t i = begin; i < end; ++i) {
             Entry& entry = *connections_[active_[i]];
-            entry.stats = entry.state.Encode(tick, store_, entry.output);
+            entry.bucket.Refill();
+            EncodeLimits limits;
+            limits.resend_after_ticks = entry.rtt.ResendAfter();
+            limits.type_weight = config_.type_weight.data();
+            if (!entry.bucket.Unlimited()) {
+                limits.max_bytes = static_cast<uint32_t>(
+                    std::clamp<int64_t>(entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
+            }
+            entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
+            if (!entry.bucket.Unlimited() &&
+                entry.output.size() > 1) { // more than the end marker: it is sent
+                entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) + kBufferOverheadBytes);
+            }
         }
     });
     last_stats_ = EncodeStats{};
@@ -86,8 +157,36 @@ void ReplicationEngine::Update(uint64_t tick) {
         last_stats_.records += stats.records;
         last_stats_.complete_records += stats.complete_records;
         last_stats_.skipped_unquantized += stats.skipped_unquantized;
+        last_stats_.waiting += stats.waiting;
+        last_stats_.deferred += stats.deferred;
     }
     store_.ClearChanged();
+}
+
+void ReplicationEngine::NoteRoundTrip(ConnectionId connection, uint32_t ticks) {
+    if (connection < connections_.size() && connections_[connection]) {
+        connections_[connection]->rtt.Note(ticks);
+    }
+}
+
+void ReplicationEngine::Charge(ConnectionId connection, uint32_t bytes) {
+    if (connection < connections_.size() && connections_[connection]) {
+        connections_[connection]->bucket.Charge(bytes);
+    }
+}
+
+uint32_t ReplicationEngine::ResendAfterTicks(ConnectionId connection) const noexcept {
+    if (connection >= connections_.size() || !connections_[connection]) {
+        return 0;
+    }
+    return connections_[connection]->rtt.ResendAfter();
+}
+
+int64_t ReplicationEngine::BudgetBytes(ConnectionId connection) const noexcept {
+    if (connection >= connections_.size() || !connections_[connection]) {
+        return 0;
+    }
+    return connections_[connection]->bucket.AvailableBytes();
 }
 
 std::span<const uint8_t> ReplicationEngine::Output(ConnectionId connection) const noexcept {
