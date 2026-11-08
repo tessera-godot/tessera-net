@@ -1288,3 +1288,20 @@ TESSERA_TEST(replacing_an_engine_keeps_the_grid_recording_for_the_new_one) {
     grid.Insert(MakeId(kSpatialType, 2), 4.0f, 5.0f, 6.0f);
     TESSERA_CHECK(grid.Changes().empty()); // the last engine is gone, nobody records
 }
+
+TESSERA_TEST(moving_entities_out_of_reach_in_a_nearby_index_cell_are_ignored) {
+    Fixture f(MakeConfig()); // range 100; the widest reach (500 m) sets the index cell, so 400 m is gathered
+    const EntityId close = MakeId(kSpatialType, 1);
+    const EntityId distant = MakeId(kSpatialType, 2);
+    f.grid.Insert(close, 150.0f, 0.0f, 0.0f);
+    f.grid.Insert(distant, 400.0f, 0.0f, 0.0f);
+    uint64_t tick = 0;
+    SettleViewer(f, tick);
+    Move(f, close, 50.0f);    // comes into range
+    Move(f, distant, 405.0f); // moves, but stays far out of reach
+    f.engine.Update(tick++);
+    TESSERA_CHECK(Sees(f, 0, close));
+    TESSERA_CHECK(!Sees(f, 0, distant));
+    TESSERA_CHECK(f.engine.Events(0).events.size() == 1);
+    TESSERA_CHECK(CountEvents(f.engine.Events(0), Kind::Enter) == 1);
+}

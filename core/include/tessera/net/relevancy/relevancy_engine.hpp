@@ -134,7 +134,12 @@ private:
     void MarkAllForFullEvaluation();
     void FoldGridChanges();
     void BuildChangeIndex();
-    void GatherNearbyChanges(const Observer& anchor, std::vector<uint32_t>& out) const;
+    /// Whether a change, before or after it, is within the reach of its type from any of the anchors.
+    bool IsNear(const ChangedEntity& change, std::span<const Observer> anchors) const;
+    /// Appends the changes filed around `anchor` that are within reach of any of `anchors`. Returns how many it
+    /// looked at (counted only in measurement builds; 0 otherwise).
+    uint64_t GatherNearbyChanges(const Observer& anchor, std::span<const Observer> anchors,
+                                 std::vector<uint32_t>& out) const;
     void EvaluateChanges(ConnectionId id, Connection& connection) const;
     void ApplyDestructions(Connection& connection) const;
     void EvaluateInFull(ConnectionId id, Connection& connection) const;

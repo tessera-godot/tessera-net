@@ -4,6 +4,7 @@
 
 #if TESSERA_PROFILE
 #include "network_world.hpp"
+#include "relevancy_test_support.hpp"
 #include "tessera/net/job_system.hpp"
 
 #include <chrono>
@@ -122,6 +123,34 @@ TESSERA_TEST(a_server_tick_times_the_relevancy_stages) {
     TESSERA_CHECK(Totals(Stage::Relevancy).nanoseconds >= Totals(Stage::RelFold).nanoseconds +
                                                               Totals(Stage::RelIndex).nanoseconds +
                                                               Totals(Stage::RelRegion).nanoseconds);
+}
+
+TESSERA_TEST(the_gather_keeps_only_the_changes_within_reach) {
+    // The same world as a relevancy test: range 100, and an index cell as wide as the farthest reach (500 m), so
+    // an entity 400 m away is looked at by the gather even though it can never be seen.
+    relevancy_test::Fixture f(relevancy_test::MakeConfig());
+    const EntityId close = relevancy_test::MakeId(relevancy_test::kSpatialType, 1);
+    const EntityId distant = relevancy_test::MakeId(relevancy_test::kSpatialType, 2);
+    f.grid.Insert(close, 150.0f, 0.0f, 0.0f);
+    f.grid.Insert(distant, 400.0f, 0.0f, 0.0f);
+    const Observer eye{0.0f, 0.0f, 0.0f};
+    f.engine.AddConnection(0);
+    f.engine.SetObservers(0, std::span<const Observer>(&eye, 1));
+    f.engine.Update(0);
+    f.engine.ClearEvents(0);
+
+    f.grid.ApplyMoves({PendingMove{close, 50.0f, 0.0f, 0.0f}, PendingMove{distant, 405.0f, 0.0f, 0.0f}});
+    profile::Reset();
+    f.engine.Update(1);
+
+    // The index of a small world has a few buckets, and several of the cells around the observer share one, so
+    // the gather walks the same chain more than once. Each walk looks at both entities and only the one in reach
+    // goes on to be sorted; the sorting removes the repeats.
+    using profile::Counter;
+    const uint64_t sorted = profile::Value(Counter::Sorted);
+    TESSERA_CHECK(sorted >= 1);
+    TESSERA_CHECK(profile::Value(Counter::Candidates) == 2 * sorted);
+    TESSERA_CHECK(profile::Value(Counter::Near) == 1);
 }
 
 TESSERA_TEST(the_counters_are_cleared_by_reset) {

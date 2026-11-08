@@ -459,12 +459,35 @@ void RelevancyEngine::BuildChangeIndex() {
     }
 }
 
-// Appends the changes filed in the cells that the widest reach around the anchor can touch. A change may be
-// appended more than once, and some of the changes are out of reach; the caller sorts, removes duplicates
-// and checks distances.
-void RelevancyEngine::GatherNearbyChanges(const Observer& anchor, std::vector<uint32_t>& out) const {
+// A change matters to a connection if the entity was within the reach of its type from one of the anchors
+// before the change, or is after it. Only entities of spatial types are folded into the changes, so the type
+// always has a reach.
+bool RelevancyEngine::IsNear(const ChangedEntity& change, std::span<const Observer> anchors) const {
+    const SpatialType& type =
+        spatial_types_[static_cast<size_t>(spatial_index_[EntityId::FromRaw(change.raw).type()])];
+    const double reach_squared = type.reach * type.reach;
+    for (const Observer& anchor : anchors) {
+        if (change.existed_before &&
+            DistanceSquared(anchor, change.old_x, change.old_y, change.old_z) <= reach_squared) {
+            return true;
+        }
+        if (change.exists_after &&
+            DistanceSquared(anchor, change.new_x, change.new_y, change.new_z) <= reach_squared) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Appends the changes filed in the cells that the widest reach around the anchor can touch and that are
+// within reach of one of the anchors, so that most of what the cells hold (changes far from every anchor)
+// never has to be sorted. A change may be appended more than once (filed under two cells, or found from two
+// anchors); the caller sorts and removes duplicates.
+uint64_t RelevancyEngine::GatherNearbyChanges(const Observer& anchor, std::span<const Observer> anchors,
+                                              std::vector<uint32_t>& out) const {
+    uint64_t looked_at = 0;
     if (index_head_.empty()) {
-        return;
+        return looked_at;
     }
     const double cell = static_cast<double>(index_cell_);
     const double reach = cell * (1.0 + 1e-7); // a hair more, so rounding cannot drop a boundary cell
@@ -482,11 +505,18 @@ void RelevancyEngine::GatherNearbyChanges(const Observer& anchor, std::vector<ui
                                       static_cast<int32_t>(cz)};
                 for (uint32_t entry = index_head_[std::hash<CellCoord>{}(coord)&mask]; entry != kNoEntry;
                      entry = index_next_[entry]) {
-                    out.push_back(index_entry_[entry]);
+                    const uint32_t index = index_entry_[entry];
+#if TESSERA_PROFILE
+                    ++looked_at;
+#endif
+                    if (IsNear(changed_[index], anchors)) {
+                        out.push_back(index);
+                    }
                 }
             }
         }
     }
+    return looked_at;
 }
 
 // Looks again only at the entities that changed in the grid and are within reach of one of the connection
@@ -498,12 +528,23 @@ void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) c
         return;
     }
     connection.candidates.clear();
+#if TESSERA_PROFILE
+    uint64_t looked_at = 0; // added to the profile once, after the gather
+#endif
     {
         TESSERA_PROFILE_SCOPE(RelGather);
         for (const Observer& anchor : connection.anchors) {
-            GatherNearbyChanges(anchor, connection.candidates);
+#if TESSERA_PROFILE
+            looked_at += GatherNearbyChanges(anchor, connection.anchors, connection.candidates);
+#else
+            GatherNearbyChanges(anchor, connection.anchors, connection.candidates);
+#endif
         }
     }
+#if TESSERA_PROFILE
+    TESSERA_PROFILE_COUNT(Candidates, looked_at);
+#endif
+    TESSERA_PROFILE_COUNT(Sorted, connection.candidates.size());
     {
         TESSERA_PROFILE_SCOPE(RelSortUnique);
         // The changes are ordered by entity id, so ordering their indexes keeps the results in id order.
@@ -511,7 +552,6 @@ void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) c
         connection.candidates.erase(std::unique(connection.candidates.begin(), connection.candidates.end()),
                                     connection.candidates.end());
     }
-    TESSERA_PROFILE_COUNT(Candidates, connection.candidates.size());
 #if TESSERA_PROFILE
     uint64_t near_count = 0; // added to the profile once, after the loop
 #endif

@@ -39,7 +39,7 @@ enum class Stage : uint8_t {
     RelRegion,     // the parallel region that looks at every connection, wall time
     RelDestroy,    // per connection: reporting destroyed entities
     RelFull,       // per connection: a full look around the observers (only for the connections chosen)
-    RelGather,     // per connection: gathering the changes filed near the observers
+    RelGather,     // per connection: gathering the changes filed near the observers that are within reach
     RelSortUnique, // per connection: ordering the gathered changes and dropping repeats
     RelFilter,     // per connection: testing the distance of each gathered change
     RelFinish,     // per connection: turning the decisions into events and into the visible set
@@ -49,8 +49,9 @@ enum class Stage : uint8_t {
 /// Amounts that are counted, not timed.
 enum class Counter : uint8_t {
     Changes,    // records of entities of the spatial types that changed in the grid in the tick (after folding)
-    Candidates, // changes gathered near the observers of a connection, repeats removed, added up over connections
-    Near,       // of those, the ones within reach of an observer
+    Candidates, // changes the gather looked at near the observers of a connection, repeats included, added up
+    Sorted,     // changes that go on to be sorted for a connection (repeats included), added up over connections
+    Near,       // changes within reach of an observer, repeats removed, added up over connections
     Count
 };
 
@@ -128,7 +129,7 @@ inline const char* Name(Stage stage) noexcept {
     case Stage::RelFull:
         return "relevancy: full look";
     case Stage::RelGather:
-        return "relevancy: gather candidates";
+        return "relevancy: gather and test candidates";
     case Stage::RelSortUnique:
         return "relevancy: sort candidates";
     case Stage::RelFilter:
