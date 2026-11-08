@@ -156,16 +156,18 @@ How to read this:
   changed and finding those through an index by grid cell made it 15 times faster on one thread and 6.5
   times with eight workers. See [record 0008](adr/0008-incremental-relevancy.md). A later change made each player
   test the reach of a change while gathering the changes near it, and sort only those within reach instead of all
-  it had gathered, which took it from 1.03 ms to 0.71 ms on one thread and from 0.33 ms to 0.24 ms with eight
-  workers (the program of that version is in the git history).
+  it had gathered. It matters in the network scenario (section 7), where 33,000 entities move, and changes little
+  here, where 700 do: on a quiet machine the same benchmark measured 0.80 ms on one thread and 0.24 ms with eight
+  workers before it, and 0.71 and 0.24 ms after (the program of that version is in the git history).
 - **Fast players cost more.** A player moving at 25 m/s needs a full look every 5 ticks with a 4 m tolerance.
   With half of the players doing that, a tick takes about 1.9 times as long on one thread and 1.3 times with eight workers. If your game has many fast
   players, use more workers or a larger tolerance.
 - **Scaling.** The cost follows the number of players, how many entities move near them and how fast the
   players move, not the size of the world. The smaller scenario has a quarter of the players and costs about
   3.2 times less on one thread.
-- **Variation.** The machine was running other work during the measurements, and one execution was a little
-  slower than the rest (0.79 ms on one thread).
+- **Variation.** The machine was running some background work during the measurements, and one execution was a
+  little slower than the rest (0.79 ms on one thread). An earlier version of this page gave 1.03 ms and 0.33 ms,
+  measured while the machine was busier; the same code measured 0.80 ms and 0.24 ms when it was quiet.
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far. The benchmark uses
 one observer per player and no exclusion or inclusion groups. Memory is the growth of the process's resident
@@ -284,7 +286,7 @@ its default budget: 100 kbps on average, 200 over 10 seconds, buffers of 1,100 b
 | Bytes sent with 1 and 8 workers (16 players, 20,000 entities, 40 ticks) | identical | identical | identical |
 
 **The goals for the time of the phase are not met; the goals for the bytes are.** The limits are regression guards:
-about twice what the path measures today for times and memory (the client's work is far below its limit, because
+between 1.7 and 2 times what the path measures today for times and memory (the client's work is far below its limit, because
 the limit was set while the machine was busier), so that the benchmark fails if it gets clearly
 slower, and the budget's own promise (with a little room for headers and event batches) for the bandwidth and the
 join. Bandwidth is measured over the last 5 seconds because the first seconds spend what the player saved up.
@@ -319,8 +321,10 @@ Other numbers from the same runs:
 
 Where the time of the server's `Update` goes, per tick (milliseconds), from the timing build
 (`-DTESSERA_PROFILE=ON`, one timer around each stage; medians of 4 executions of the means over the 460 ticks). The
-timers cost about 40 nanoseconds each, about 0.05 ms per tick in all. The sums are a little above the medians of the
-phase in the table above, because they are means:
+timers cost about 40 nanoseconds each, about 0.05 ms per tick in all. The sums are means over all the ticks and do
+not include quantizing (1.7 ms on one thread, 0.9 ms with eight workers), so they sit a little below the phase in the
+table above, which includes it, and a little above the phase minus quantizing, because of the timers and because the
+machine's load varied:
 
 | Stage | 1 thread | 8 workers |
 |---|---|---|
@@ -346,8 +350,11 @@ How to read this:
   Relevancy used to take about 25 ms: each player gathered about 5,100 changes near its observers in every tick,
   sorted all of them, and only about 300 were within reach. It now tests the reach while it gathers and sorts those
   300, with the same result. This scenario moves 33,000 entities per tick, about 48 times as many as the main
-  relevancy scenario (700), and the work of relevancy grows with the entities that move. The server writes 97
-  records per player per tick where it wrote 966 before the budget (see record 0010).
+  relevancy scenario (700), and the work of relevancy grows with the entities that move. Before this change the phase measured
+  about 42 ms on one thread and about 12 ms with eight workers with the timing build on a quiet machine, against 29
+  and 10 ms now, with some background load. The numbers published before, 49.5 and 13.9 ms, were taken while the
+  machine was busier. The server writes 97 records per player per tick where it wrote 966 before the budget (see
+  record 0010).
 - **Where the bytes go.** A changed entity is now written again after the player's round trip and a tick, not in
   every tick: 1.09 records per change when the budget is off, against 3.3 before. The budget then holds the rest to
   what the player was promised. One record in five is complete (19.8%): an entity that waited more than 32 ticks has lost its

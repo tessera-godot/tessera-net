@@ -41,7 +41,7 @@ enum class Stage : uint8_t {
     RelFull,       // per connection: a full look around the observers (only for the connections chosen)
     RelGather,     // per connection: gathering the changes filed near the observers that are within reach
     RelSortUnique, // per connection: ordering the gathered changes and dropping repeats
-    RelFilter,     // per connection: testing the distance of each gathered change
+    RelFilter,     // per connection: deciding what enters or leaves among the changes within reach
     RelFinish,     // per connection: turning the decisions into events and into the visible set
     Count
 };

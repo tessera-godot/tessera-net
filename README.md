@@ -70,7 +70,7 @@ with one worker or many. See the [relevancy reference](docs/reference/relevancy.
 ![Relevancy time per tick: measured value, regression limit and goal](docs/images/relevancy-update.svg)
 
 Both relevancy goals are met in the main scenario (128 players, one million entities, 700 of them moving per
-tick): about 1 ms per tick on one thread and 0.3 ms with eight workers. The engine does a full look around a
+tick): about 0.7 ms per tick on one thread and 0.24 ms with eight workers. The engine does a full look around a
 player only when they have moved a few metres; see [record 0008](docs/adr/0008-incremental-relevancy.md).
 
 **Replicated state** (`core/`): for each player, only what changed in the entities they can see, as a few

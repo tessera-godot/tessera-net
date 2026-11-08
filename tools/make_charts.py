@@ -141,8 +141,8 @@ def relevancy_chart():
     rows = [
         ("128 players, 1 M entities, 1 thread", 0.71, 1.4, 1.5),
         ("128 players, 1 M entities, 8 workers", 0.24, 0.5, 0.4),
-        ("32 players, 250 k entities, 1 thread", 0.29, None, None),
-        ("32 players, 250 k entities, 8 workers", 0.10, None, None),
+        ("32 players, 250 k entities, 1 thread", 0.22, None, None),
+        ("32 players, 250 k entities, 8 workers", 0.06, None, None),
     ]
     width, height = 720, 400
     left, plot_w, top, row_h = 270, 380, 100, 54
