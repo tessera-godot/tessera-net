@@ -32,6 +32,25 @@ enum class Stage : uint8_t {
     Select,       // per connection: choosing what fits the budget
     Write,        // per connection: writing the chosen records
     SendBuffers,  // sending the state buffers (main thread)
+    // Inside the relevancy stage. The first three run on the main thread and are nested in Relevancy; the rest run
+    // once per connection, on the workers.
+    RelFold,       // folding the changes the grid recorded into one record per entity
+    RelIndex,      // filing those changes by grid cell
+    RelRegion,     // the parallel region that looks at every connection, wall time
+    RelDestroy,    // per connection: reporting destroyed entities
+    RelFull,       // per connection: a full look around the observers (only for the connections chosen)
+    RelGather,     // per connection: gathering the changes filed near the observers
+    RelSortUnique, // per connection: ordering the gathered changes and dropping repeats
+    RelFilter,     // per connection: testing the distance of each gathered change
+    RelFinish,     // per connection: turning the decisions into events and into the visible set
+    Count
+};
+
+/// Amounts that are counted, not timed.
+enum class Counter : uint8_t {
+    Changes,    // entities whose position changed in the tick (after folding)
+    Candidates, // changes gathered near the observers of a connection, repeats removed, added up over connections
+    Near,       // of those, the ones within reach of an observer
     Count
 };
 
@@ -45,6 +64,8 @@ namespace detail {
 constexpr size_t kStages = static_cast<size_t>(Stage::Count);
 inline std::array<std::atomic<uint64_t>, kStages> g_nanoseconds{};
 inline std::array<std::atomic<uint64_t>, kStages> g_calls{};
+constexpr size_t kCounters = static_cast<size_t>(Counter::Count);
+inline std::array<std::atomic<uint64_t>, kCounters> g_counters{};
 
 } // namespace detail
 
@@ -54,6 +75,18 @@ inline void Reset() noexcept {
         detail::g_nanoseconds[i].store(0, std::memory_order_relaxed);
         detail::g_calls[i].store(0, std::memory_order_relaxed);
     }
+    for (size_t i = 0; i < detail::kCounters; ++i) {
+        detail::g_counters[i].store(0, std::memory_order_relaxed);
+    }
+}
+
+/// Adds to a counter. Call it once per connection or per tick, never once per entity.
+inline void Add(Counter counter, uint64_t amount) noexcept {
+    detail::g_counters[static_cast<size_t>(counter)].fetch_add(amount, std::memory_order_relaxed);
+}
+
+inline uint64_t Value(Counter counter) noexcept {
+    return detail::g_counters[static_cast<size_t>(counter)].load(std::memory_order_relaxed);
 }
 
 inline StageTotals Totals(Stage stage) noexcept {
@@ -84,6 +117,24 @@ inline const char* Name(Stage stage) noexcept {
         return "write";
     case Stage::SendBuffers:
         return "send buffers";
+    case Stage::RelFold:
+        return "relevancy: fold changes";
+    case Stage::RelIndex:
+        return "relevancy: change index";
+    case Stage::RelRegion:
+        return "relevancy: per-connection region";
+    case Stage::RelDestroy:
+        return "relevancy: destructions";
+    case Stage::RelFull:
+        return "relevancy: full look";
+    case Stage::RelGather:
+        return "relevancy: gather candidates";
+    case Stage::RelSortUnique:
+        return "relevancy: sort candidates";
+    case Stage::RelFilter:
+        return "relevancy: filter candidates";
+    case Stage::RelFinish:
+        return "relevancy: finish";
     case Stage::Count:
         break;
     }
@@ -93,7 +144,17 @@ inline const char* Name(Stage stage) noexcept {
 /// True for the stages that run on the workers, one scope per connection: their time is the sum over the workers
 /// (CPU time), not the time that passed.
 inline bool PerConnection(Stage stage) noexcept {
-    return stage == Stage::Scan || stage == Stage::Select || stage == Stage::Write;
+    return stage == Stage::Scan || stage == Stage::Select || stage == Stage::Write ||
+           stage == Stage::RelDestroy || stage == Stage::RelFull || stage == Stage::RelGather ||
+           stage == Stage::RelSortUnique || stage == Stage::RelFilter || stage == Stage::RelFinish;
+}
+
+/// True for the stages on the main thread that lie inside another stage (confirm inside transport, the three
+/// wall-time steps of the relevancy inside the relevancy stage), so that adding up the main thread does not count
+/// them twice.
+inline bool Nested(Stage stage) noexcept {
+    return stage == Stage::Confirm || stage == Stage::RelFold || stage == Stage::RelIndex ||
+           stage == Stage::RelRegion;
 }
 
 /// Adds the time between its construction and its destruction to a stage.
@@ -141,8 +202,12 @@ inline double TimerCostNanoseconds() {
     ::tessera::net::profile::ScopedTimer TESSERA_PROFILE_JOIN(tessera_profile_scope_, __LINE__)( \
         ::tessera::net::profile::Stage::stage)
 
+#define TESSERA_PROFILE_COUNT(counter, amount) \
+    ::tessera::net::profile::Add(::tessera::net::profile::Counter::counter, (amount))
+
 #else
 
 #define TESSERA_PROFILE_SCOPE(stage) ((void)0)
+#define TESSERA_PROFILE_COUNT(counter, amount) ((void)0)
 
 #endif

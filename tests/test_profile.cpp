@@ -87,6 +87,50 @@ TESSERA_TEST(a_server_tick_times_every_stage) {
     TESSERA_CHECK(Totals(Stage::Transport).nanoseconds >= Totals(Stage::Confirm).nanoseconds);
 }
 
+TESSERA_TEST(a_server_tick_times_the_relevancy_stages) {
+    network_test::NetParams params;
+    params.clients = 4;
+    params.rate_kbps = 20;
+    network_test::NetWorld world(params);
+    world.Play(20);
+    profile::Reset();
+    world.Play(20);
+
+    using profile::Counter;
+    using profile::Stage;
+    using profile::Totals;
+    // Once per tick: the two serial steps and the parallel region.
+    TESSERA_CHECK(Totals(Stage::RelFold).calls == 20);
+    TESSERA_CHECK(Totals(Stage::RelIndex).calls == 20);
+    TESSERA_CHECK(Totals(Stage::RelRegion).calls == 20);
+    // Once per connection and tick, inside the region.
+    TESSERA_CHECK(Totals(Stage::RelDestroy).calls == 4 * 20);
+    TESSERA_CHECK(Totals(Stage::RelFinish).calls == 4 * 20);
+    // The three parts of looking at the changes run together, and only for connections that have anchors and
+    // something changed.
+    const uint64_t looks = Totals(Stage::RelGather).calls;
+    TESSERA_CHECK(looks > 0 && looks <= 4 * 20);
+    TESSERA_CHECK(Totals(Stage::RelSortUnique).calls == looks);
+    TESSERA_CHECK(Totals(Stage::RelFilter).calls == looks);
+    // What was counted: changes, the candidates gathered, and those that turned out to be near.
+    TESSERA_CHECK(profile::Value(Counter::Changes) > 0);
+    TESSERA_CHECK(profile::Value(Counter::Near) > 0);
+    TESSERA_CHECK(profile::Value(Counter::Candidates) >= profile::Value(Counter::Near));
+    // The new stages that sit inside the relevancy stage fit in it, and are the ones marked as nested.
+    TESSERA_CHECK(profile::Nested(Stage::RelFold) && profile::Nested(Stage::RelIndex) &&
+                  profile::Nested(Stage::RelRegion) && !profile::Nested(Stage::RelGather));
+    TESSERA_CHECK(Totals(Stage::Relevancy).nanoseconds >= Totals(Stage::RelFold).nanoseconds +
+                                                              Totals(Stage::RelIndex).nanoseconds +
+                                                              Totals(Stage::RelRegion).nanoseconds);
+}
+
+TESSERA_TEST(the_counters_are_cleared_by_reset) {
+    profile::Add(profile::Counter::Changes, 5);
+    TESSERA_CHECK(profile::Value(profile::Counter::Changes) >= 5);
+    profile::Reset();
+    TESSERA_CHECK(profile::Value(profile::Counter::Changes) == 0);
+}
+
 #else
 
 TESSERA_TEST(the_profile_macro_is_empty_when_off) {

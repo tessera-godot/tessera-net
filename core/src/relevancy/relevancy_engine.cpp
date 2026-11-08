@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/relevancy/relevancy_engine.hpp"
 
+#include "tessera/net/profile.hpp"
 #include "tessera/net/relevancy/compact_ids.hpp"
 #include "tessera/net/relevancy/visible_set.hpp"
 
@@ -269,24 +270,39 @@ void RelevancyEngine::Update(uint64_t tick, uint32_t* connections_processed) {
     if (connections_processed != nullptr) {
         *connections_processed = static_cast<uint32_t>(chosen);
     }
-    FoldGridChanges();
-    BuildChangeIndex();
+    {
+        TESSERA_PROFILE_SCOPE(RelFold);
+        FoldGridChanges();
+    }
+    TESSERA_PROFILE_COUNT(Changes, changed_.size());
+    {
+        TESSERA_PROFILE_SCOPE(RelIndex);
+        BuildChangeIndex();
+    }
 
     if (!active_.empty()) {
+        TESSERA_PROFILE_SCOPE(RelRegion);
         jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
                           [&](uint32_t begin, uint32_t end, uint32_t) {
                               for (uint32_t i = begin; i < end; ++i) {
                                   const ConnectionId id = active_[i];
                                   Connection& connection = *connections_[id];
                                   connection.ids.BeginTick();
-                                  ApplyDestructions(connection);
+                                  {
+                                      TESSERA_PROFILE_SCOPE(RelDestroy);
+                                      ApplyDestructions(connection);
+                                  }
                                   connection.enter_raws.clear();
                                   connection.leave_raws.clear();
                                   if (connection.selected) {
+                                      TESSERA_PROFILE_SCOPE(RelFull);
                                       EvaluateInFull(id, connection);
                                   }
-                                  EvaluateChanges(id, connection);
-                                  FinishTick(connection);
+                                  EvaluateChanges(id, connection); // timed inside, in its own stages
+                                  {
+                                      TESSERA_PROFILE_SCOPE(RelFinish);
+                                      FinishTick(connection);
+                                  }
                               }
                           });
     }
@@ -482,52 +498,72 @@ void RelevancyEngine::EvaluateChanges(ConnectionId id, Connection& connection) c
         return;
     }
     connection.candidates.clear();
-    for (const Observer& anchor : connection.anchors) {
-        GatherNearbyChanges(anchor, connection.candidates);
-    }
-    // The changes are ordered by entity id, so ordering their indexes keeps the results in id order.
-    std::sort(connection.candidates.begin(), connection.candidates.end());
-    connection.candidates.erase(std::unique(connection.candidates.begin(), connection.candidates.end()),
-                                connection.candidates.end());
-    for (const uint32_t index : connection.candidates) {
-        const ChangedEntity& change = changed_[index];
-        const EntityId entity = EntityId::FromRaw(change.raw);
-        const SpatialType& type = spatial_types_[static_cast<size_t>(spatial_index_[entity.type()])];
-        const double reach_squared = type.reach * type.reach;
-        bool near = false;
-        double nearest_after = std::numeric_limits<double>::infinity();
+    {
+        TESSERA_PROFILE_SCOPE(RelGather);
         for (const Observer& anchor : connection.anchors) {
-            if (change.existed_before &&
-                DistanceSquared(anchor, change.old_x, change.old_y, change.old_z) <= reach_squared) {
-                near = true;
-            }
-            if (change.exists_after) {
-                const double after = DistanceSquared(anchor, change.new_x, change.new_y, change.new_z);
-                nearest_after = std::min(nearest_after, after);
-                near = near || after <= reach_squared;
-            }
-        }
-        if (!near) {
-            continue;
-        }
-        // What the connection sees of this entity, counting what the full evaluation of this tick decided.
-        const bool listed = connection.visible.Contains(change.raw);
-        const bool leaving =
-            std::binary_search(connection.leave_raws.begin(), connection.leave_raws.end(), change.raw);
-        const bool entering =
-            std::binary_search(connection.enter_raws.begin(), connection.enter_raws.end(), change.raw);
-        const bool visible_now = (listed && !leaving) || entering;
-        const bool by_distance =
-            change.exists_after && (nearest_after <= type.range * type.range ||
-                                    (type.has_margin && visible_now && nearest_after <= reach_squared));
-        const bool wanted =
-            (by_distance || groups_.IsIncludedFor(entity, id)) && !groups_.IsExcluded(entity, id);
-        if (wanted && !visible_now) {
-            connection.feed_enter.push_back(change.raw);
-        } else if (!wanted && visible_now) {
-            connection.feed_leave.push_back(change.raw);
+            GatherNearbyChanges(anchor, connection.candidates);
         }
     }
+    {
+        TESSERA_PROFILE_SCOPE(RelSortUnique);
+        // The changes are ordered by entity id, so ordering their indexes keeps the results in id order.
+        std::sort(connection.candidates.begin(), connection.candidates.end());
+        connection.candidates.erase(std::unique(connection.candidates.begin(), connection.candidates.end()),
+                                    connection.candidates.end());
+    }
+    TESSERA_PROFILE_COUNT(Candidates, connection.candidates.size());
+#if TESSERA_PROFILE
+    uint64_t near_count = 0; // added to the profile once, after the loop
+#endif
+    { // timed as the stage "filter"; the merges after it are not part of it
+        TESSERA_PROFILE_SCOPE(RelFilter);
+        for (const uint32_t index : connection.candidates) {
+            const ChangedEntity& change = changed_[index];
+            const EntityId entity = EntityId::FromRaw(change.raw);
+            const SpatialType& type = spatial_types_[static_cast<size_t>(spatial_index_[entity.type()])];
+            const double reach_squared = type.reach * type.reach;
+            bool near = false;
+            double nearest_after = std::numeric_limits<double>::infinity();
+            for (const Observer& anchor : connection.anchors) {
+                if (change.existed_before &&
+                    DistanceSquared(anchor, change.old_x, change.old_y, change.old_z) <= reach_squared) {
+                    near = true;
+                }
+                if (change.exists_after) {
+                    const double after = DistanceSquared(anchor, change.new_x, change.new_y, change.new_z);
+                    nearest_after = std::min(nearest_after, after);
+                    near = near || after <= reach_squared;
+                }
+            }
+            if (!near) {
+                continue;
+            }
+#if TESSERA_PROFILE
+            ++near_count;
+#endif
+            // What the connection sees of this entity, counting what the full evaluation of this tick
+            // decided.
+            const bool listed = connection.visible.Contains(change.raw);
+            const bool leaving =
+                std::binary_search(connection.leave_raws.begin(), connection.leave_raws.end(), change.raw);
+            const bool entering =
+                std::binary_search(connection.enter_raws.begin(), connection.enter_raws.end(), change.raw);
+            const bool visible_now = (listed && !leaving) || entering;
+            const bool by_distance =
+                change.exists_after && (nearest_after <= type.range * type.range ||
+                                        (type.has_margin && visible_now && nearest_after <= reach_squared));
+            const bool wanted =
+                (by_distance || groups_.IsIncludedFor(entity, id)) && !groups_.IsExcluded(entity, id);
+            if (wanted && !visible_now) {
+                connection.feed_enter.push_back(change.raw);
+            } else if (!wanted && visible_now) {
+                connection.feed_leave.push_back(change.raw);
+            }
+        }
+    }
+#if TESSERA_PROFILE
+    TESSERA_PROFILE_COUNT(Near, near_count);
+#endif
     MergeSorted(connection.enter_raws, connection.feed_enter, connection.merge_scratch);
     MergeSorted(connection.leave_raws, connection.feed_leave, connection.merge_scratch);
 }
