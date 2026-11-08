@@ -48,7 +48,7 @@ enum class Stage : uint8_t {
 
 /// Amounts that are counted, not timed.
 enum class Counter : uint8_t {
-    Changes,    // entities whose position changed in the tick (after folding)
+    Changes,    // records of entities of the spatial types that changed in the grid in the tick (after folding)
     Candidates, // changes gathered near the observers of a connection, repeats removed, added up over connections
     Near,       // of those, the ones within reach of an observer
     Count
