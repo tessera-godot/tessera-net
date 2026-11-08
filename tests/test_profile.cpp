@@ -3,6 +3,7 @@
 #include "test_support.hpp"
 
 #if TESSERA_PROFILE
+#include "network_world.hpp"
 #include "tessera/net/job_system.hpp"
 
 #include <chrono>
@@ -59,11 +60,38 @@ TESSERA_TEST(the_profile_timer_cost_is_small_and_reported) {
     TESSERA_CHECK(cost < 5000.0);
 }
 
+TESSERA_TEST(a_server_tick_times_every_stage) {
+    network_test::NetParams params;
+    params.clients = 4;
+    params.rate_kbps = 20; // the budget is on, so entities are selected before they are written
+    network_test::NetWorld world(params);
+    world.Play(20); // everyone connects and the first state goes out
+    profile::Reset();
+    world.Play(20);
+
+    using profile::Stage;
+    using profile::Totals;
+    // Once per server tick, whatever the number of connections.
+    TESSERA_CHECK(Totals(Stage::Transport).calls == 20);
+    TESSERA_CHECK(Totals(Stage::Relevancy).calls == 20);
+    TESSERA_CHECK(Totals(Stage::EventBatches).calls == 20);
+    TESSERA_CHECK(Totals(Stage::Mark).calls == 20);
+    TESSERA_CHECK(Totals(Stage::EncodeWall).calls == 20);
+    TESSERA_CHECK(Totals(Stage::SendBuffers).calls == 20);
+    // Once per connection and tick, in the three parts of the encoding.
+    TESSERA_CHECK(Totals(Stage::Scan).calls == 4 * 20);
+    TESSERA_CHECK(Totals(Stage::Select).calls == Totals(Stage::Scan).calls);
+    TESSERA_CHECK(Totals(Stage::Write).calls == Totals(Stage::Scan).calls);
+    // The players confirm what they receive, on the main thread and inside the transport stage.
+    TESSERA_CHECK(Totals(Stage::Confirm).calls > 0);
+    TESSERA_CHECK(Totals(Stage::Transport).nanoseconds >= Totals(Stage::Confirm).nanoseconds);
+}
+
 #else
 
 TESSERA_TEST(the_profile_macro_is_empty_when_off) {
     TESSERA_PROFILE_SCOPE(Transport); // expands to nothing: the stage name is never looked at
-    TESSERA_CHECK(TESSERA_PROFILE == 0);
+    static_assert(TESSERA_PROFILE == 0);
 }
 
 #endif

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication/replication_engine.hpp"
 
+#include "tessera/net/profile.hpp"
+
 #include <algorithm>
 #include <stdexcept>
 #include <string>
@@ -126,31 +128,39 @@ void ReplicationEngine::Update(uint64_t tick) {
         }
     }
     // Mark what changed: each entity reaches only the connections that see it, whatever their number.
-    for (const EntityId id : store_.Changed()) {
-        subscriptions_.ForEach(id, [&](uint32_t connection, uint32_t compact_id) {
-            connections_[connection]->state.MarkPendingAt(compact_id);
-        });
+    {
+        TESSERA_PROFILE_SCOPE(Mark);
+        for (const EntityId id : store_.Changed()) {
+            subscriptions_.ForEach(id, [&](uint32_t connection, uint32_t compact_id) {
+                connections_[connection]->state.MarkPendingAt(compact_id);
+            });
+        }
     }
     // Every connection reads the shared store and writes only its own state and buffer, so they can all run
     // at once.
-    jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
-        for (uint32_t i = begin; i < end; ++i) {
-            Entry& entry = *connections_[active_[i]];
-            entry.bucket.Refill();
-            EncodeLimits limits;
-            limits.resend_after_ticks = entry.rtt.ResendAfter();
-            limits.type_weight = config_.type_weight.data();
-            if (!entry.bucket.Unlimited()) {
-                limits.max_bytes = static_cast<uint32_t>(
-                    std::clamp<int64_t>(entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
-            }
-            entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
-            if (!entry.bucket.Unlimited() &&
-                entry.output.size() > 1) { // more than the end marker: it is sent
-                entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) + kBufferOverheadBytes);
-            }
-        }
-    });
+    {
+        TESSERA_PROFILE_SCOPE(EncodeWall);
+        jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
+                          [&](uint32_t begin, uint32_t end, uint32_t) {
+                              for (uint32_t i = begin; i < end; ++i) {
+                                  Entry& entry = *connections_[active_[i]];
+                                  entry.bucket.Refill();
+                                  EncodeLimits limits;
+                                  limits.resend_after_ticks = entry.rtt.ResendAfter();
+                                  limits.type_weight = config_.type_weight.data();
+                                  if (!entry.bucket.Unlimited()) {
+                                      limits.max_bytes = static_cast<uint32_t>(std::clamp<int64_t>(
+                                          entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
+                                  }
+                                  entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
+                                  if (!entry.bucket.Unlimited() &&
+                                      entry.output.size() > 1) { // more than the end marker: it is sent
+                                      entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) +
+                                                          kBufferOverheadBytes);
+                                  }
+                              }
+                          });
+    }
     last_stats_ = EncodeStats{};
     for (const uint32_t id : active_) { // added up in connection order, whatever the workers did
         const EncodeStats& stats = connections_[id]->stats;
@@ -197,6 +207,7 @@ std::span<const uint8_t> ReplicationEngine::Output(ConnectionId connection) cons
 }
 
 void ReplicationEngine::Confirm(ConnectionId connection, uint64_t tick) {
+    TESSERA_PROFILE_SCOPE(Confirm);
     if (connection < connections_.size() && connections_[connection]) {
         connections_[connection]->state.Confirm(tick);
     }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication/connection_state.hpp"
 
+#include "tessera/net/profile.hpp"
+
 #include "tessera/net/replication/record_codec.hpp"
 #include "tessera/net/replication/state_store.hpp"
 
@@ -312,53 +314,57 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
     int64_t previous = -1;
     const bool limited = limits.max_bytes > 0;
     candidates_.clear();
-    for (uint32_t page_index = 0; page_index < pages_.size(); ++page_index) {
-        Page* page = pages_[page_index].get();
-        if (page == nullptr) {
-            continue;
-        }
-        for (uint32_t word = 0; word < kBitWords; ++word) {
-            uint64_t bits = page->pending[word];
-            while (bits != 0) {
-                const uint32_t local = word * 64 + static_cast<uint32_t>(std::countr_zero(bits));
-                bits &= bits - 1;
-                const EntityId id = EntityId::FromRaw(page->entity[local]);
-                const uint32_t* current = store.Find(id);
-                if (current == nullptr) {
-                    ++stats.skipped_unquantized; // it stays pending until it has a state
-                    continue;
-                }
-                const TypeSchema& type = *schema_.Find(id.type());
-                const uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
-                const bool has_baseline = TestBit(page->has_baseline, local);
-                const bool outstanding = TestBit(page->outstanding, local);
-                if (!outstanding && has_baseline &&
-                    std::memcmp(acked, current, type.words * sizeof(uint32_t)) == 0) {
-                    ClearBit(page->pending, local); // the client already has exactly this
-                    ClearBit(page->stale, local);
-                    page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
-                    continue;
-                }
-                // Sent, not confirmed and not changed since: the send may still be on its way, so wait for
-                // it.
-                if (!TestBit(page->stale, local) && outstanding && page->sent_count[local] > 0) {
-                    const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
-                    const uint64_t last_sent = page->sent_ticks[static_cast<size_t>(local) * ring_ + newest];
-                    if (tick - last_sent < limits.resend_after_ticks) { // huge if the tick went backwards
-                        ++stats.waiting;
+    { // timed as the stage "scan"; without a budget the records are written inside it as well
+        TESSERA_PROFILE_SCOPE(Scan);
+        for (uint32_t page_index = 0; page_index < pages_.size(); ++page_index) {
+            Page* page = pages_[page_index].get();
+            if (page == nullptr) {
+                continue;
+            }
+            for (uint32_t word = 0; word < kBitWords; ++word) {
+                uint64_t bits = page->pending[word];
+                while (bits != 0) {
+                    const uint32_t local = word * 64 + static_cast<uint32_t>(std::countr_zero(bits));
+                    bits &= bits - 1;
+                    const EntityId id = EntityId::FromRaw(page->entity[local]);
+                    const uint32_t* current = store.Find(id);
+                    if (current == nullptr) {
+                        ++stats.skipped_unquantized; // it stays pending until it has a state
                         continue;
                     }
+                    const TypeSchema& type = *schema_.Find(id.type());
+                    const uint32_t* acked = page->acked.data() + static_cast<size_t>(local) * words_;
+                    const bool has_baseline = TestBit(page->has_baseline, local);
+                    const bool outstanding = TestBit(page->outstanding, local);
+                    if (!outstanding && has_baseline &&
+                        std::memcmp(acked, current, type.words * sizeof(uint32_t)) == 0) {
+                        ClearBit(page->pending, local); // the client already has exactly this
+                        ClearBit(page->stale, local);
+                        page->ready_since[local] = 0; // it waits for nothing: an old wait must not come back
+                        continue;
+                    }
+                    // Sent, not confirmed and not changed since: the send may still be on its way, so wait
+                    // for it.
+                    if (!TestBit(page->stale, local) && outstanding && page->sent_count[local] > 0) {
+                        const uint32_t newest = (page->sent_head[local] + ring_ - 1) % ring_;
+                        const uint64_t last_sent =
+                            page->sent_ticks[static_cast<size_t>(local) * ring_ + newest];
+                        if (tick - last_sent < limits.resend_after_ticks) { // huge if the tick went backwards
+                            ++stats.waiting;
+                            continue;
+                        }
+                    }
+                    if (!limited) {
+                        WriteEntity(*page, page_index, local, tick, current, 0, writer, previous, stats);
+                        continue;
+                    }
+                    if (page->ready_since[local] == 0) {
+                        page->ready_since[local] = tick + 1;
+                    }
+                    const uint32_t estimate =
+                        page->last_bytes[local] != 0 ? page->last_bytes[local] : type_full_bytes_[id.type()];
+                    candidates_.push_back(Candidate{page_index * kPageIds + local, estimate, 0});
                 }
-                if (!limited) {
-                    WriteEntity(*page, page_index, local, tick, current, 0, writer, previous, stats);
-                    continue;
-                }
-                if (page->ready_since[local] == 0) {
-                    page->ready_since[local] = tick + 1;
-                }
-                const uint32_t estimate =
-                    page->last_bytes[local] != 0 ? page->last_bytes[local] : type_full_bytes_[id.type()];
-                candidates_.push_back(Candidate{page_index * kPageIds + local, estimate, 0});
             }
         }
     }
@@ -366,46 +372,54 @@ EncodeStats ConnectionState::Encode(uint64_t tick, const StateStore& store, std:
         // Room in the buffer for records: all of it but the end marker.
         const uint32_t room = limits.max_bytes - 1;
         uint64_t wanted = 0;
-        for (const Candidate& candidate : candidates_) {
-            wanted += candidate.estimated_bytes;
-        }
-        chosen_.clear();
-        if (wanted <= room) {
-            for (const Candidate& candidate : candidates_) { // everything fits: in id order, as it was found
-                chosen_.push_back(candidate.compact_id);
-            }
-        } else {
-            // Not everything fits: the longest wait, times the weight of the type, goes first. Ties go to the
-            // lowest id, so the choice never depends on anything but the state.
-            for (Candidate& candidate : candidates_) {
-                const Page& page = *pages_[candidate.compact_id / kPageIds];
-                const uint32_t local = candidate.compact_id % kPageIds;
-                const uint64_t waited = tick + 1 - page.ready_since[local];
-                const uint32_t weight = limits.type_weight != nullptr
-                                            ? limits.type_weight[EntityId::FromRaw(page.entity[local]).type()]
-                                            : 1;
-                candidate.score = (waited + 1) * weight;
-            }
-            std::sort(candidates_.begin(), candidates_.end(), [](const Candidate& a, const Candidate& b) {
-                return a.score != b.score ? a.score > b.score : a.compact_id < b.compact_id;
-            });
-            uint32_t left = room;
+        { // timed as the stage "select"
+            TESSERA_PROFILE_SCOPE(Select);
             for (const Candidate& candidate : candidates_) {
-                if (candidate.estimated_bytes <= left) {
-                    left -= candidate.estimated_bytes;
+                wanted += candidate.estimated_bytes;
+            }
+            chosen_.clear();
+            if (wanted <= room) {
+                for (const Candidate& candidate :
+                     candidates_) { // everything fits: in id order, as it was found
                     chosen_.push_back(candidate.compact_id);
                 }
+            } else {
+                // Not everything fits: the longest wait, times the weight of the type, goes first. Ties go to
+                // the lowest id, so the choice never depends on anything but the state.
+                for (Candidate& candidate : candidates_) {
+                    const Page& page = *pages_[candidate.compact_id / kPageIds];
+                    const uint32_t local = candidate.compact_id % kPageIds;
+                    const uint64_t waited = tick + 1 - page.ready_since[local];
+                    const uint32_t weight =
+                        limits.type_weight != nullptr
+                            ? limits.type_weight[EntityId::FromRaw(page.entity[local]).type()]
+                            : 1;
+                    candidate.score = (waited + 1) * weight;
+                }
+                std::sort(candidates_.begin(), candidates_.end(), [](const Candidate& a, const Candidate& b) {
+                    return a.score != b.score ? a.score > b.score : a.compact_id < b.compact_id;
+                });
+                uint32_t left = room;
+                for (const Candidate& candidate : candidates_) {
+                    if (candidate.estimated_bytes <= left) {
+                        left -= candidate.estimated_bytes;
+                        chosen_.push_back(candidate.compact_id);
+                    }
+                }
+                std::sort(chosen_.begin(), chosen_.end()); // the format wants ascending ids
             }
-            std::sort(chosen_.begin(), chosen_.end()); // the format wants ascending ids
         }
         uint32_t written = 0;
-        for (const uint32_t compact_id : chosen_) {
-            Page& page = *pages_[compact_id / kPageIds];
-            const uint32_t local = compact_id % kPageIds;
-            const uint32_t* current = store.Find(EntityId::FromRaw(page.entity[local]));
-            if (WriteEntity(page, compact_id / kPageIds, local, tick, current, limits.max_bytes, writer,
-                            previous, stats)) {
-                ++written;
+        { // timed as the stage "write"
+            TESSERA_PROFILE_SCOPE(Write);
+            for (const uint32_t compact_id : chosen_) {
+                Page& page = *pages_[compact_id / kPageIds];
+                const uint32_t local = compact_id % kPageIds;
+                const uint32_t* current = store.Find(EntityId::FromRaw(page.entity[local]));
+                if (WriteEntity(page, compact_id / kPageIds, local, tick, current, limits.max_bytes, writer,
+                                previous, stats)) {
+                    ++written;
+                }
             }
         }
         stats.deferred = static_cast<uint32_t>(candidates_.size()) - written;
