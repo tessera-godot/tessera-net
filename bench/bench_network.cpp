@@ -567,6 +567,7 @@ struct Measurement {
     std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_ms{};
     std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_calls{};
     double update_mean_ms = 0.0; // the mean over the same ticks as the stages, not the median of the runs
+    std::array<double, static_cast<size_t>(profile::Counter::Count)> counter_per_tick{};
 #endif
     double client_poll_us = 0.0; // per client per tick
     double state_kbps = 0.0;     // per player, server to player
@@ -671,6 +672,10 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
         const profile::StageTotals totals = profile::Totals(static_cast<profile::Stage>(i));
         result.stage_ms[i] = static_cast<double>(totals.nanoseconds) / 1e6 / (kRuns * kTicksPerRun);
         result.stage_calls[i] = static_cast<double>(totals.calls) / (kRuns * kTicksPerRun);
+    }
+    for (size_t i = 0; i < result.counter_per_tick.size(); ++i) {
+        result.counter_per_tick[i] = static_cast<double>(profile::Value(static_cast<profile::Counter>(i))) /
+                                     (kRuns * kTicksPerRun);
     }
     for (const double run : update_runs) { // every run has the same number of ticks
         result.update_mean_ms += run / static_cast<double>(update_runs.size());
@@ -798,9 +803,9 @@ void PrintScenario(const Measurement& m, uint32_t workers) {
 }
 
 #if TESSERA_PROFILE
-/// The time of each stage of the server's Update, per tick, for one run of the scenario. The stages on the main
-/// thread add up to the update (what is left over is listed); those on the workers (marked cpu) are summed over
-/// the workers, so with several workers they exceed the time that passed.
+/// The time of each stage of the server's Update, per tick, for one run of the scenario. The stages on the
+/// main thread add up to the update (what is left over is listed); those on the workers (marked cpu) are
+/// summed over the workers, so with several workers they exceed the time that passed.
 void PrintStageTable(const Measurement& m, uint32_t workers) {
     using profile::Stage;
     char name[120];
@@ -813,20 +818,46 @@ void PrintStageTable(const Measurement& m, uint32_t workers) {
         std::snprintf(name, sizeof(name), "network stage, %s: %s (%s)", kind, profile::Name(stage),
                       cpu ? "cpu, summed over workers" : "wall");
         Info(name, m.stage_ms[i], "ms");
-        std::snprintf(name, sizeof(name), "network stage, %s: %s, scopes per tick", kind, profile::Name(stage));
+        std::snprintf(name, sizeof(name), "network stage, %s: %s, scopes per tick", kind,
+                      profile::Name(stage));
         Info(name, m.stage_calls[i], "calls");
         calls += m.stage_calls[i];
-        if (!cpu && stage != Stage::Confirm) { // confirm is inside transport
+        if (!cpu && !profile::Nested(stage)) { // the nested ones are inside transport or relevancy
             main_thread_ms += m.stage_ms[i];
         }
     }
+    // Inside the relevancy: what the three steps on the main thread leave out, and, with one thread, what the
+    // per-connection stages leave out of the region (with several workers those stages are summed CPU time).
+    const auto ms = [&](Stage stage) { return m.stage_ms[static_cast<size_t>(stage)]; };
+    std::snprintf(name, sizeof(name), "network relevancy not accounted for, %s", kind);
+    Info(name, ms(Stage::Relevancy) - ms(Stage::RelFold) - ms(Stage::RelIndex) - ms(Stage::RelRegion), "ms");
+    if (workers == 1) {
+        const double per_connection = ms(Stage::RelDestroy) + ms(Stage::RelFull) + ms(Stage::RelGather) +
+                                      ms(Stage::RelSortUnique) + ms(Stage::RelFilter) + ms(Stage::RelFinish);
+        Info("network relevancy region not accounted for, 1 thread", ms(Stage::RelRegion) - per_connection,
+             "ms");
+    }
+    using profile::Counter;
+    const auto count = [&](Counter counter) { return m.counter_per_tick[static_cast<size_t>(counter)]; };
+    std::snprintf(name, sizeof(name), "network relevancy: changes per tick, %s", kind);
+    Info(name, count(Counter::Changes), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates per tick, %s", kind);
+    Info(name, count(Counter::Candidates), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: near per tick, %s", kind);
+    Info(name, count(Counter::Near), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates per connection per tick, %s", kind);
+    Info(name, count(Counter::Candidates) / kMain.players, "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates for each one that is near, %s", kind);
+    Info(name, count(Counter::Near) > 0 ? count(Counter::Candidates) / count(Counter::Near) : 0.0, "x");
     std::snprintf(name, sizeof(name), "network stages on the main thread, %s: sum", kind);
     Info(name, main_thread_ms, "ms");
     std::snprintf(name, sizeof(name), "network update not accounted for, %s", kind);
     Info(name, m.update_mean_ms - main_thread_ms, "ms");
     const double timer_ns = profile::TimerCostNanoseconds();
     Info("network stage timer, cost of one scope", timer_ns, "ns");
-    std::snprintf(name, sizeof(name), "network stage timers, overhead per tick (upper bound: counts worker scopes too), %s", kind);
+    std::snprintf(name, sizeof(name),
+                  "network stage timers, overhead per tick (upper bound: counts worker scopes too), %s",
+                  kind);
     Info(name, calls * timer_ns / 1e6, "ms");
 }
 #endif
