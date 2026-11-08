@@ -841,14 +841,19 @@ void PrintStageTable(const Measurement& m, uint32_t workers) {
     const auto count = [&](Counter counter) { return m.counter_per_tick[static_cast<size_t>(counter)]; };
     std::snprintf(name, sizeof(name), "network relevancy: changes per tick, %s", kind);
     Info(name, count(Counter::Changes), "ents");
-    std::snprintf(name, sizeof(name), "network relevancy: candidates per tick, %s", kind);
+    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at by the gather per tick, %s",
+                  kind);
     Info(name, count(Counter::Candidates), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: changes sorted per tick, %s", kind);
+    Info(name, count(Counter::Sorted), "ents");
     std::snprintf(name, sizeof(name), "network relevancy: near per tick, %s", kind);
     Info(name, count(Counter::Near), "ents");
-    std::snprintf(name, sizeof(name), "network relevancy: candidates per connection per tick, %s", kind);
-    Info(name, count(Counter::Candidates) / kMain.players, "ents");
-    std::snprintf(name, sizeof(name), "network relevancy: candidates for each one that is near, %s", kind);
-    Info(name, count(Counter::Near) > 0 ? count(Counter::Candidates) / count(Counter::Near) : 0.0, "x");
+    std::snprintf(name, sizeof(name), "network relevancy: changes sorted per connection per tick, %s", kind);
+    Info(name, count(Counter::Sorted) / kMain.players, "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at for each one sorted, %s", kind);
+    Info(name, count(Counter::Sorted) > 0 ? count(Counter::Candidates) / count(Counter::Sorted) : 0.0, "x");
+    std::snprintf(name, sizeof(name), "network relevancy: sorted for each one that is near, %s", kind);
+    Info(name, count(Counter::Near) > 0 ? count(Counter::Sorted) / count(Counter::Near) : 0.0, "x");
     std::snprintf(name, sizeof(name), "network stages on the main thread, %s: sum", kind);
     Info(name, main_thread_ms, "ms");
     std::snprintf(name, sizeof(name), "network update not accounted for, %s", kind);
