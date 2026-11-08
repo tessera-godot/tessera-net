@@ -826,7 +826,7 @@ void PrintStageTable(const Measurement& m, uint32_t workers) {
     Info(name, m.update_mean_ms - main_thread_ms, "ms");
     const double timer_ns = profile::TimerCostNanoseconds();
     Info("network stage timer, cost of one scope", timer_ns, "ns");
-    std::snprintf(name, sizeof(name), "network stage timers, estimated overhead per tick, %s", kind);
+    std::snprintf(name, sizeof(name), "network stage timers, overhead per tick (upper bound: counts worker scopes too), %s", kind);
     Info(name, calls * timer_ns / 1e6, "ms");
 }
 #endif
