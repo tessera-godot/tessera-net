@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(TESSERA_BUILD_TESTS "Build the unit tests" ON)
 option(TESSERA_BUILD_BENCH "Build the acceptance benchmark" OFF)
+option(TESSERA_PROFILE "Time the stages of the network phase (measurement builds only)" OFF)
 option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).

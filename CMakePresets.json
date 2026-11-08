@@ -19,6 +19,16 @@
       }
     },
     {
+      "name": "windows-msvc-profile",
+      "displayName": "Windows (Visual Studio 2022), stage timing and benchmark",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-profile",
+      "cacheVariables": {
+        "TESSERA_PROFILE": "ON",
+        "TESSERA_BUILD_BENCH": "ON"
+      }
+    },
+    {
       "name": "linux-release",
       "displayName": "Linux (Ninja, Release)",
       "generator": "Ninja",
@@ -45,6 +55,11 @@
       "configuration": "Debug"
     },
     {
+      "name": "windows-msvc-profile-release",
+      "configurePreset": "windows-msvc-profile",
+      "configuration": "Release"
+    },
+    {
       "name": "linux-release",
       "configurePreset": "linux-release"
     }
@@ -62,6 +77,14 @@
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-profile-release",
+      "configurePreset": "windows-msvc-profile",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }

@@ -28,6 +28,12 @@ target_include_directories(tessera_net_core PUBLIC include)
 target_compile_features(tessera_net_core PUBLIC cxx_std_20)
 target_link_libraries(tessera_net_core PUBLIC Threads::Threads)
 
+# Measurement builds only: the stage timers of tessera/net/profile.hpp. PUBLIC so that the tests and the benchmark
+# see the same setting as the library.
+if(TESSERA_PROFILE)
+    target_compile_definitions(tessera_net_core PUBLIC TESSERA_PROFILE=1)
+endif()
+
 if(MSVC)
     target_compile_options(tessera_net_core PRIVATE /W4 /permissive-)
 else()

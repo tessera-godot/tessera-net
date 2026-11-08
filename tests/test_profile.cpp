@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "tessera/net/profile.hpp"
+#include "test_support.hpp"
+
+#if TESSERA_PROFILE
+#include "tessera/net/job_system.hpp"
+
+#include <chrono>
+#include <cstdint>
+
+using namespace tessera::net;
+
+namespace {
+
+void SpinFor(std::chrono::microseconds duration) {
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < duration) {
+    }
+}
+
+} // namespace
+
+TESSERA_TEST(a_profile_scope_adds_its_time_and_one_call) {
+    profile::Reset();
+    {
+        TESSERA_PROFILE_SCOPE(Transport);
+        SpinFor(std::chrono::microseconds(200));
+    }
+    TESSERA_CHECK(profile::Totals(profile::Stage::Transport).calls == 1);
+    TESSERA_CHECK(profile::Totals(profile::Stage::Transport).nanoseconds >= 200000);
+    TESSERA_CHECK(profile::Totals(profile::Stage::Scan).calls == 0);
+}
+
+TESSERA_TEST(profile_reset_clears_every_stage) {
+    for (uint8_t i = 0; i < static_cast<uint8_t>(profile::Stage::Count); ++i) {
+        profile::ScopedTimer timer(static_cast<profile::Stage>(i));
+    }
+    profile::Reset();
+    for (uint8_t i = 0; i < static_cast<uint8_t>(profile::Stage::Count); ++i) {
+        const profile::StageTotals totals = profile::Totals(static_cast<profile::Stage>(i));
+        TESSERA_CHECK(totals.calls == 0 && totals.nanoseconds == 0);
+    }
+}
+
+TESSERA_TEST(profile_scopes_from_many_threads_are_all_counted) {
+    profile::Reset();
+    ThreadPoolJobSystem jobs(4);
+    jobs.ParallelFor(64, 1, [](uint32_t begin, uint32_t end, uint32_t) {
+        for (uint32_t i = begin; i < end; ++i) {
+            TESSERA_PROFILE_SCOPE(Scan);
+        }
+    });
+    TESSERA_CHECK(profile::Totals(profile::Stage::Scan).calls == 64);
+}
+
+TESSERA_TEST(the_profile_timer_cost_is_small_and_reported) {
+    const double cost = profile::TimerCostNanoseconds();
+    TESSERA_CHECK(cost > 0.0);
+    TESSERA_CHECK(cost < 5000.0);
+}
+
+#else
+
+TESSERA_TEST(the_profile_macro_is_empty_when_off) {
+    TESSERA_PROFILE_SCOPE(Transport); // expands to nothing: the stage name is never looked at
+    TESSERA_CHECK(TESSERA_PROFILE == 0);
+}
+
+#endif
