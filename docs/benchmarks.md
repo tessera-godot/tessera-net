@@ -358,6 +358,13 @@ cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
 cmake --build --preset windows-msvc-release --target tessera_net_bench
 ./build/windows-msvc/bench/Release/tessera_net_bench.exe
 
+# the same network benchmark with a timer around each stage of the server's tick (relevancy, marking changes,
+# scanning, choosing and writing records, and so on): it prints how long each stage takes, with 1 thread and
+# with 8 workers. The timers cost about 40 nanoseconds a scope and are compiled out of every other build.
+cmake --preset windows-msvc-profile
+cmake --build --preset windows-msvc-profile-release --target tessera_net_bench
+./build/windows-msvc-profile/bench/Release/tessera_net_bench.exe network
+
 # entity table vs EnTT (section 3); downloads EnTT the first time
 cmake --preset windows-msvc -DTESSERA_BUILD_ECS_COMPARISON=ON
 cmake --build --preset windows-msvc-release --target tessera_net_ecs_comparison

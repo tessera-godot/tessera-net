@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- `TESSERA_PROFILE` build option (and the `windows-msvc-profile` preset): the network benchmark prints how long each
+  stage of the server's tick takes. The timers do not exist in any other build.
 - Pacing and a bandwidth budget for each player: an entity that was sent is sent again only after the player's
   measured round trip (plus a margin), a bucket of bytes with a rate, a peak over 10 seconds and a cap on the size
   of a buffer, and a priority (how long an entity has waited times the weight of its type) for when there is not
