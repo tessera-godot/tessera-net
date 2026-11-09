@@ -96,6 +96,17 @@ public:
     /// The client of a connection confirmed the buffer written for `tick`.
     void Confirm(ConnectionId connection, uint64_t tick);
 
+    /// Remembers that the client of a connection confirmed the buffer written for `tick`, to be applied by
+    /// `ApplyQueuedConfirms`. The server uses it for the acks it reads, which come in many at once: applying
+    /// them together lets the connections work at the same time. Unknown connections are ignored, and what is
+    /// queued for a connection is lost with it when it is removed.
+    void QueueConfirm(ConnectionId connection, uint64_t tick);
+
+    /// Applies every queued confirmation, on all connections at once. Within one connection they are applied
+    /// in the order they were queued, as `Confirm` would have, and the queues are empty afterwards. With nothing
+    /// queued it does no work.
+    void ApplyQueuedConfirms();
+
     const StateStore& Store() const noexcept {
         return store_;
     }
@@ -150,6 +161,7 @@ private:
         RoundTripEstimator rtt;
         std::vector<uint8_t> output;
         EncodeStats stats;
+        std::vector<uint64_t> queued_confirms; // ticks confirmed and not yet applied, in arrival order
     };
 
     ReplicationConfig config_;
@@ -158,7 +170,8 @@ private:
     StateStore store_;
     SubscriptionIndex subscriptions_;
     std::vector<std::unique_ptr<Entry>> connections_;
-    std::vector<uint32_t> active_; // scratch: the ids in use, ascending
+    std::vector<uint32_t> active_;     // scratch: the ids in use, ascending
+    std::vector<uint32_t> confirming_; // scratch: the ids with confirmations queued, ascending
     EncodeStats last_stats_;
 };
 

@@ -225,6 +225,34 @@ void ReplicationEngine::Confirm(ConnectionId connection, uint64_t tick) {
     }
 }
 
+void ReplicationEngine::QueueConfirm(ConnectionId connection, uint64_t tick) {
+    if (connection < connections_.size() && connections_[connection]) {
+        connections_[connection]->queued_confirms.push_back(tick);
+    }
+}
+
+void ReplicationEngine::ApplyQueuedConfirms() {
+    TESSERA_PROFILE_SCOPE(Confirm);
+    confirming_.clear();
+    for (uint32_t id = 0; id < connections_.size(); ++id) {
+        if (connections_[id] && !connections_[id]->queued_confirms.empty()) {
+            confirming_.push_back(id);
+        }
+    }
+    // Each connection confirms into its own state only, so they can all run at once; within a connection the
+    // ticks are applied in the order they arrived.
+    jobs_.ParallelFor(static_cast<uint32_t>(confirming_.size()), 1,
+                      [&](uint32_t begin, uint32_t end, uint32_t) {
+                          for (uint32_t i = begin; i < end; ++i) {
+                              Entry& entry = *connections_[confirming_[i]];
+                              for (const uint64_t tick : entry.queued_confirms) {
+                                  entry.state.Confirm(tick);
+                              }
+                              entry.queued_confirms.clear();
+                          }
+                      });
+}
+
 const ConnectionState* ReplicationEngine::Connection(ConnectionId connection) const noexcept {
     if (connection >= connections_.size() || !connections_[connection]) {
         return nullptr;

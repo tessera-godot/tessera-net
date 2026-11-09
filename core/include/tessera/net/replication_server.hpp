@@ -82,7 +82,9 @@ public:
     ReplicationServer(const ServerConfig& config, RelevancyConfig relevancy, const ReplicationSchema& schema,
                       SpatialGrid& grid, RelevancyGroups& groups, IJobSystem& jobs, ITransport& transport);
 
-    /// Called from `Update`, when a player has been accepted and when one has gone (for any reason).
+    /// Called from `Update`, when a player has been accepted and when one has gone (for any reason). They run
+    /// while the transport is being read, before the confirmations read in the same `Update` are applied (those
+    /// are applied together when the reading ends), so `Replication().Connection(id)` does not yet show them.
     void SetCallbacks(std::function<void(ConnectionId)> on_connected,
                       std::function<void(ConnectionId)> on_disconnected);
 
