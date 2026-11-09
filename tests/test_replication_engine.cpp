@@ -379,6 +379,59 @@ TESSERA_TEST(applying_with_no_queued_confirms_changes_nothing) {
     TESSERA_CHECK(run(true) == run(false));
 }
 
+namespace {
+
+// Runs everything on the calling thread and remembers the largest count any ParallelFor was asked for since
+// the last `Forget`, so a test can tell whether a stage opened a parallel region at all.
+class RecordingJobs final : public IJobSystem {
+public:
+    uint32_t WorkerCount() const noexcept override {
+        return 1;
+    }
+    void ParallelFor(uint32_t count, uint32_t grain, const Body& body) override {
+        largest_count_ = std::max(largest_count_, count);
+        for (uint32_t begin = 0; begin < count; begin += grain) {
+            body(begin, std::min(begin + grain, count), 0);
+        }
+    }
+    uint32_t LargestCount() const noexcept {
+        return largest_count_;
+    }
+    void Forget() noexcept {
+        largest_count_ = 0;
+    }
+
+private:
+    uint32_t largest_count_ = 0;
+};
+
+} // namespace
+
+TESSERA_TEST(idle_marking_and_idle_confirming_open_no_parallel_region) {
+    const ReplicationSchema schema = MakeTestSchema();
+    RecordingJobs jobs;
+    ReplicationEngine engine(schema, SmallConfig(),
+                             jobs); // no connection: encoding has nothing to run either
+    engine.Update(1);               // nothing changed: marking has nothing to run
+    engine.ApplyQueuedConfirms();   // nothing queued
+    TESSERA_CHECK(jobs.LargestCount() == 0);
+
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    const EntityId id = Spawn(table, 1.0f, 0.0f, 0.0f);
+    engine.Refresh(table);
+    const VisibilityEvent enter = Enter(id, 0);
+    engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+    engine.Update(2);
+    engine.QueueConfirm(0, 2);
+    jobs.Forget();
+    engine.ApplyQueuedConfirms();
+    TESSERA_CHECK(jobs.LargestCount() == 1); // one connection had something queued
+    jobs.Forget();
+    engine.ApplyQueuedConfirms(); // the queue was emptied by the first apply: nothing is applied again
+    TESSERA_CHECK(jobs.LargestCount() == 0);
+}
+
 TESSERA_TEST(removed_connection_frees_its_state_and_ignores_later_calls) {
     const ReplicationSchema schema = MakeTestSchema();
     ThreadPoolJobSystem jobs(1);

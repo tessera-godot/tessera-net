@@ -207,6 +207,9 @@ void ConnectionState::MarkPendingConcurrently(uint32_t compact_id) noexcept {
     if (page == nullptr) {
         return;
     }
+    // An atomic OR on a word needs the word to be aligned like a std::uint64_t.
+    static_assert(offsetof(Page, pending) % alignof(uint64_t) == 0 &&
+                  offsetof(Page, stale) % alignof(uint64_t) == 0);
     const uint32_t local = compact_id % kPageIds;
     if (TestBit(page->in_use, local)) { // read only: nothing changes who is tracked while ids are marked
         SetBitShared(page->pending, local);

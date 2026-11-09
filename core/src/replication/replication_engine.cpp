@@ -139,14 +139,17 @@ void ReplicationEngine::Update(uint64_t tick) {
         // workers that mark entities of the same connection never lose each other's bit and the result does
         // not depend on which worker marks which entity.
         const std::span<const EntityId> changed = store_.Changed();
-        jobs_.ParallelFor(
-            static_cast<uint32_t>(changed.size()), kMarkGrain, [&](uint32_t begin, uint32_t end, uint32_t) {
-                for (uint32_t i = begin; i < end; ++i) {
-                    subscriptions_.ForEach(changed[i], [&](uint32_t connection, uint32_t compact_id) {
-                        connections_[connection]->state.MarkPendingConcurrently(compact_id);
-                    });
-                }
-            });
+        if (!changed.empty()) { // nothing changed: no region, and no function object built for it
+            jobs_.ParallelFor(
+                static_cast<uint32_t>(changed.size()), kMarkGrain,
+                [&](uint32_t begin, uint32_t end, uint32_t) {
+                    for (uint32_t i = begin; i < end; ++i) {
+                        subscriptions_.ForEach(changed[i], [&](uint32_t connection, uint32_t compact_id) {
+                            connections_[connection]->state.MarkPendingConcurrently(compact_id);
+                        });
+                    }
+                });
+        }
     }
     // Every connection reads the shared store and writes only its own state and buffer, so they can all run
     // at once.
@@ -238,6 +241,9 @@ void ReplicationEngine::ApplyQueuedConfirms() {
         if (connections_[id] && !connections_[id]->queued_confirms.empty()) {
             confirming_.push_back(id);
         }
+    }
+    if (confirming_.empty()) {
+        return; // nothing queued: no region, and no function object built for it
     }
     // Each connection confirms into its own state only, so they can all run at once; within a connection the
     // ticks are applied in the order they arrived.

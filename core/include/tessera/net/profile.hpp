@@ -26,7 +26,7 @@ enum class Stage : uint8_t {
     Confirm,      // confirming ticks to the replication engine; inside Transport (main thread)
     Relevancy,    // the relevancy update (main thread)
     EventBatches, // sending and applying the visibility events (main thread)
-    Mark,         // marking who needs which changed entity (main thread)
+    Mark,         // the parallel region that marks who needs which changed entity, wall time (main thread)
     EncodeWall,   // the parallel region that encodes every connection, wall time (main thread)
     Scan,         // per connection: collecting the entities that may be sent
     Select,       // per connection: choosing what fits the budget

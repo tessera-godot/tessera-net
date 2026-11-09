@@ -99,7 +99,9 @@ public:
     /// Remembers that the client of a connection confirmed the buffer written for `tick`, to be applied by
     /// `ApplyQueuedConfirms`. The server uses it for the acks it reads, which come in many at once: applying
     /// them together lets the connections work at the same time. Unknown connections are ignored, and what is
-    /// queued for a connection is lost with it when it is removed.
+    /// queued for a connection is lost with it when it is removed. Call `ApplyQueuedConfirms` before the next
+    /// `Update`, or the queue only grows. Do not mix this with `Confirm` on one connection: the immediate call
+    /// would run ahead of the ticks already queued.
     void QueueConfirm(ConnectionId connection, uint64_t tick);
 
     /// Applies every queued confirmation, on all connections at once. Within one connection they are applied
