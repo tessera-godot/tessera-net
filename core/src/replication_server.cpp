@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/net/replication_server.hpp"
 
+#include "tessera/net/profile.hpp"
+
 #include <algorithm>
 #include <stdexcept>
 #include <string>
@@ -109,11 +111,23 @@ void ReplicationServer::Update(uint64_t tick) {
     now_tick_ = tick;
     // Whoever connected, left or confirmed something is dealt with first, so that the rest of the phase only
     // sees the players that are really there.
-    ProcessTransport();
-    relevancy_.Update(tick);
-    SendEventBatches(tick);
-    replication_.Update(tick);
-    SendStateBuffers(tick);
+    {
+        TESSERA_PROFILE_SCOPE(Transport);
+        ProcessTransport();
+    }
+    {
+        TESSERA_PROFILE_SCOPE(Relevancy);
+        relevancy_.Update(tick);
+    }
+    {
+        TESSERA_PROFILE_SCOPE(EventBatches);
+        SendEventBatches(tick);
+    }
+    replication_.Update(tick); // timed inside, in its own stages
+    {
+        TESSERA_PROFILE_SCOPE(SendBuffers);
+        SendStateBuffers(tick);
+    }
 }
 
 // The visibility events go to the player first and in order, numbered, on the reliable channel, and to the

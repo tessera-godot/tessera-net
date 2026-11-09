@@ -188,10 +188,11 @@ with every build. In a real server `tick` comes from the [tick loop](core.md).
 
 A full look around a player asks the grid for each type of entity within that type's own reach, which is much
 cheaper than one wide query. Between full looks the work is proportional to the entities that changed near the
-player. So the cost grows with the number of players, how many entities move, and how fast the players move
+player: the player gathers the changes filed around its observers, keeps only those within reach of its
+observers (before or after the change) and sorts that small set. So the cost grows with the number of players, how many entities move, and how fast the players move
 (a fast player needs a full look more often), not with the size of the world. Measured numbers, with the
 machine and the code that produced them, are on the [benchmarks page](../benchmarks.md#5-relevancy). In
-short: with 128 players among a million entities, 700 of them moving, a tick takes about 1 ms on one thread and
-about 0.3 ms with eight workers. We allow 3.3 ms on one thread for the whole network phase of such a server, so
-relevancy takes about a third of it on one thread and about a tenth with several workers. See also
+short: with 128 players among a million entities, 700 of them moving, a tick takes about 0.7 ms on one thread and
+about 0.24 ms with eight workers. We allow 3.3 ms on one thread for the whole network phase of such a server, so
+relevancy takes about a fifth of it on one thread and less than a tenth with several workers. See also
 [record 0008](../adr/0008-incremental-relevancy.md).

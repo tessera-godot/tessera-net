@@ -212,11 +212,13 @@ Measured numbers, with the machine and the code that produced them, are on the
 each see about 1,750 of them, over a network that loses 5% of what it carries and delays every message by one to
 two ticks, with a sixth of the entities changing in every tick:
 
-- **A tick of the Network phase takes about 50 ms on one thread and about 14 ms with eight workers.** The goals
-  are 3.3 ms and 1 ms. **Neither is met.** Most of the time is not in writing records (the server now writes about
-  8 times fewer of them than before and the time barely moved): it is relevancy, the protocol and the transport,
-  and this scenario moves 33,000 of 200,000 entities in every tick, about 48 times as many as the relevancy
-  benchmark moves (700).
+- **A tick of the Network phase takes about 29 ms on one thread and about 10 ms with eight workers.** The goals
+  are 3.3 ms and 1 ms. **Neither is met.** Writing records is a small part of it. On one thread the biggest part
+  is now deciding what goes into each player's buffer (about 14 ms) and then relevancy (about 11 ms); with eight
+  workers both shrink, and what is left is mostly steps that run on one thread: marking what changed, confirming
+  what arrived, and folding the changes of the grid before relevancy can share the work (about 6.5 of the 10 ms). This
+  scenario moves 33,000 of 200,000 entities in every tick, about 48 times as many as the relevancy benchmark
+  moves (700). The breakdown is in [section 7 of the benchmarks](../benchmarks.md#7-the-whole-network-path).
 - **The server sends each player 98 kbps on average and 173 kbps at the busiest 10 seconds.** The goals are 100 and
   200, and they hold: a player who has been connected a while cannot be sent more than the budget. A new player
   gets a quick start from the saved-up budget, so the first seconds are above the average.

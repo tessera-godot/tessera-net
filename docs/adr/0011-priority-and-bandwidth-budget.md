@@ -48,7 +48,8 @@ for everything, and how to keep a player's bytes within a promise.
   could only be met by raising the budget, which is a different promise. The measure is reported and not guarded.
 - **The time of the phase barely changed** (about 50 ms per tick on one thread against a goal of 3.3), because
   writing records was not where most of the time went. The next place to look is relevancy with many moving
-  entities, with a profiler.
+  entities, with a profiler. (Done since: relevancy now tests the reach while it gathers changes, and the phase
+  takes about 29 ms on one thread; see section 7 of the benchmarks.)
 - Buffers are one packet, so a lost message loses one packet's worth. A new player's first state arrives over
   several buffers: everything it sees in about 61 ticks in a running world.
 - The wait has a resolution of one tick and follows an average, so a player whose round trip suddenly grows is sent

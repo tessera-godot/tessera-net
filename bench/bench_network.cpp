@@ -11,6 +11,7 @@
 #include "tessera/net/client_replica.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
+#include "tessera/net/profile.hpp"
 #include "tessera/net/protocol.hpp"
 #include "tessera/net/replication_server.hpp"
 #include "tessera/net/transport/simulated_network.hpp"
@@ -35,11 +36,11 @@ using bench::ReportBool;
 
 namespace {
 
-// Regression limits: about twice what the path measures, so that run-to-run variation does not fail the
+// Regression limits: between 1.7 and 2 times what the path measures, so that run-to-run variation does not fail the
 // benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with one thread,
 // 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
-constexpr double kLimitOneThreadMs = 100.0;
-constexpr double kLimitEightWorkersMs = 30.0;
+constexpr double kLimitOneThreadMs = 50.0;
+constexpr double kLimitEightWorkersMs = 20.0;
 // What the budget promises, from the goal of 100 kbps on average and 200 kbps over any 10 seconds, with room
 // for the headers and the event batches that the budget does not hold back.
 constexpr double kLimitSteadyKbps = 105.0;
@@ -561,6 +562,13 @@ struct Measurement {
     bool settled = false; // converged again after the world stopped, on the lossy network
     double refresh_ms = 0.0;
     double update_ms = 0.0;
+#if TESSERA_PROFILE
+    // Per tick, over every measured tick: the time of each stage of the server's Update and how many scopes ran.
+    std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_ms{};
+    std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_calls{};
+    double update_mean_ms = 0.0; // the mean over the same ticks as the stages, not the median of the runs
+    std::array<double, static_cast<size_t>(profile::Counter::Count)> counter_per_tick{};
+#endif
     double client_poll_us = 0.0; // per client per tick
     double state_kbps = 0.0;     // per player, server to player
     double event_kbps = 0.0;
@@ -605,6 +613,9 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
     const Totals clients_before = ClientTotals(sim);
 
     std::vector<double> refresh_runs, update_runs, client_runs;
+#if TESSERA_PROFILE
+    profile::Reset(); // the joining and the warm-up are not part of the table
+#endif
     uint64_t records = 0, complete_records = 0;
     std::vector<uint64_t> bytes_per_tick;
     uint64_t sent_so_far = counted.SentTotal();
@@ -656,6 +667,20 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
     }
     result.refresh_ms = Median(refresh_runs);
     result.update_ms = Median(update_runs);
+#if TESSERA_PROFILE
+    for (size_t i = 0; i < result.stage_ms.size(); ++i) {
+        const profile::StageTotals totals = profile::Totals(static_cast<profile::Stage>(i));
+        result.stage_ms[i] = static_cast<double>(totals.nanoseconds) / 1e6 / (kRuns * kTicksPerRun);
+        result.stage_calls[i] = static_cast<double>(totals.calls) / (kRuns * kTicksPerRun);
+    }
+    for (size_t i = 0; i < result.counter_per_tick.size(); ++i) {
+        result.counter_per_tick[i] = static_cast<double>(profile::Value(static_cast<profile::Counter>(i))) /
+                                     (kRuns * kTicksPerRun);
+    }
+    for (const double run : update_runs) { // every run has the same number of ticks
+        result.update_mean_ms += run / static_cast<double>(update_runs.size());
+    }
+#endif
     result.client_poll_us = Median(client_runs);
 
     const double seconds = static_cast<double>(kRuns * kTicksPerRun) / kTickRate;
@@ -777,6 +802,71 @@ void PrintScenario(const Measurement& m, uint32_t workers) {
                 m.client_poll_us, m.down_kbps, m.ack_kbps);
 }
 
+#if TESSERA_PROFILE
+/// The time of each stage of the server's Update, per tick, for one run of the scenario. The stages on the
+/// main thread add up to the update (what is left over is listed); those on the workers (marked cpu) are
+/// summed over the workers, so with several workers they exceed the time that passed.
+void PrintStageTable(const Measurement& m, uint32_t workers) {
+    using profile::Stage;
+    char name[120];
+    const char* kind = workers == 1 ? "1 thread" : "8 workers";
+    double main_thread_ms = 0.0;
+    double calls = 0.0;
+    for (size_t i = 0; i < m.stage_ms.size(); ++i) {
+        const Stage stage = static_cast<Stage>(i);
+        const bool cpu = profile::PerConnection(stage);
+        std::snprintf(name, sizeof(name), "network stage, %s: %s (%s)", kind, profile::Name(stage),
+                      cpu ? "cpu, summed over workers" : "wall");
+        Info(name, m.stage_ms[i], "ms");
+        std::snprintf(name, sizeof(name), "network stage, %s: %s, scopes per tick", kind,
+                      profile::Name(stage));
+        Info(name, m.stage_calls[i], "calls");
+        calls += m.stage_calls[i];
+        if (!cpu && !profile::Nested(stage)) { // the nested ones are inside transport or relevancy
+            main_thread_ms += m.stage_ms[i];
+        }
+    }
+    // Inside the relevancy: what the three steps on the main thread leave out, and, with one thread, what the
+    // per-connection stages leave out of the region (with several workers those stages are summed CPU time).
+    const auto ms = [&](Stage stage) { return m.stage_ms[static_cast<size_t>(stage)]; };
+    std::snprintf(name, sizeof(name), "network relevancy not accounted for, %s", kind);
+    Info(name, ms(Stage::Relevancy) - ms(Stage::RelFold) - ms(Stage::RelIndex) - ms(Stage::RelRegion), "ms");
+    if (workers == 1) {
+        const double per_connection = ms(Stage::RelDestroy) + ms(Stage::RelFull) + ms(Stage::RelGather) +
+                                      ms(Stage::RelSortUnique) + ms(Stage::RelFilter) + ms(Stage::RelFinish);
+        Info("network relevancy region not accounted for, 1 thread", ms(Stage::RelRegion) - per_connection,
+             "ms");
+    }
+    using profile::Counter;
+    const auto count = [&](Counter counter) { return m.counter_per_tick[static_cast<size_t>(counter)]; };
+    std::snprintf(name, sizeof(name), "network relevancy: changes per tick, %s", kind);
+    Info(name, count(Counter::Changes), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at by the gather per tick, %s",
+                  kind);
+    Info(name, count(Counter::Candidates), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: changes sorted per tick, %s", kind);
+    Info(name, count(Counter::Sorted), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: near per tick, %s", kind);
+    Info(name, count(Counter::Near), "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: changes sorted per connection per tick, %s", kind);
+    Info(name, count(Counter::Sorted) / kMain.players, "ents");
+    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at for each one sorted, %s", kind);
+    Info(name, count(Counter::Sorted) > 0 ? count(Counter::Candidates) / count(Counter::Sorted) : 0.0, "x");
+    std::snprintf(name, sizeof(name), "network relevancy: sorted for each one that is near, %s", kind);
+    Info(name, count(Counter::Near) > 0 ? count(Counter::Sorted) / count(Counter::Near) : 0.0, "x");
+    std::snprintf(name, sizeof(name), "network stages on the main thread, %s: sum", kind);
+    Info(name, main_thread_ms, "ms");
+    std::snprintf(name, sizeof(name), "network update not accounted for, %s", kind);
+    Info(name, m.update_mean_ms - main_thread_ms, "ms");
+    const double timer_ns = profile::TimerCostNanoseconds();
+    Info("network stage timer, cost of one scope", timer_ns, "ns");
+    std::snprintf(name, sizeof(name),
+                  "network stage timers, estimated cost per tick (every scope times one scope's cost), %s",
+                  kind);
+    Info(name, calls * timer_ns / 1e6, "ms");
+}
+#endif
+
 } // namespace
 
 void CheckNetwork() {
@@ -790,6 +880,12 @@ void CheckNetwork() {
     PrintScenario(one, 1);
     const Measurement eight = Measure(kMain, 8);
     PrintScenario(eight, 8);
+#if TESSERA_PROFILE
+    PrintStageTable(one, 1);
+    PrintStageTable(eight, 8);
+#else
+    std::printf("network stage table: build with -DTESSERA_PROFILE=ON (preset windows-msvc-profile)\n");
+#endif
 
     ReportBool("network clients converge after joining", one.joined && eight.joined);
     ReportBool("network clients converge after the world stops", one.settled && eight.settled);

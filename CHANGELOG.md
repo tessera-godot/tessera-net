@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- `TESSERA_PROFILE` build option (and the `windows-msvc-profile` preset): the network benchmark prints how long each
+  stage of the server's tick takes. The timers do not exist in any other build.
 - Pacing and a bandwidth budget for each player: an entity that was sent is sent again only after the player's
   measured round trip (plus a margin), a bucket of bytes with a rate, a peak over 10 seconds and a cap on the size
   of a buffer, and a priority (how long an entity has waited times the weight of its type) for when there is not
@@ -22,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   relevancy over a bad network, with 128 players and with random input. See `docs/reference/networking.md`.
 - Network benchmark (128 players, 200,000 entities, 5% loss), a chart for it, and a section 7 on the
   benchmarks page. It converges; with the budget above the bytes are within the goal, and the time of the phase
-  (about 50 ms per tick on one thread against 3.3 ms) is not yet. Run `tessera_net_bench network` to run it
+  (about 29 ms per tick on one thread against 3.3 ms) is not yet. Run `tessera_net_bench network` to run it
   alone.
 - Architecture decision record 0010 (transport and protocol).
 - `ClientReplica::Disconnect()`.
@@ -57,6 +59,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   documentation structure.
 
 ### Changed
+- Relevancy tests the reach of a change while it gathers the changes filed near a player's observers, and sorts
+  only those within reach, instead of sorting everything it gathered and checking the distance afterwards. The
+  events it produces are the same. In the network benchmark, measured before and after on the same day, the phase
+  went from about 42 ms to about 29 ms on one thread and from about 12 ms to about 10 ms with eight workers. The
+  main relevancy benchmark, where only 700 entities move, changes little (about 0.8 ms to 0.7 ms on one thread,
+  0.24 ms with eight workers).
 - The relevancy engine now keeps an anchor for each observer and does a full look around a player only when an
   observer has moved `observer_tolerance` (4 m by default) from it; otherwise it reconsiders only the entities
   that changed nearby. A tick in the main benchmark scenario went from 15.4 ms to 1.03 ms on one thread and from

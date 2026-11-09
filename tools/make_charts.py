@@ -139,10 +139,10 @@ def relevancy_chart():
     """Relevancy update cost per tick (log scale): measured value, regression guard and goal."""
     # (label, measured ms, regression guard ms or None, goal ms or None)
     rows = [
-        ("128 players, 1 M entities, 1 thread", 1.03, 2.0, 1.5),
-        ("128 players, 1 M entities, 8 workers", 0.33, 0.7, 0.4),
-        ("32 players, 250 k entities, 1 thread", 0.29, None, None),
-        ("32 players, 250 k entities, 8 workers", 0.10, None, None),
+        ("128 players, 1 M entities, 1 thread", 0.71, 1.4, 1.5),
+        ("128 players, 1 M entities, 8 workers", 0.24, 0.5, 0.4),
+        ("32 players, 250 k entities, 1 thread", 0.22, None, None),
+        ("32 players, 250 k entities, 8 workers", 0.06, None, None),
     ]
     width, height = 720, 400
     left, plot_w, top, row_h = 270, 380, 100, 54
@@ -226,8 +226,8 @@ def network_chart():
     """The whole network phase per tick (log scale): measured value, regression guard and goal."""
     # (label, measured ms, regression guard ms, goal ms)
     rows = [
-        ("128 players, 1 thread", 49.5, 100.0, 3.3),
-        ("128 players, 8 workers", 13.9, 30.0, 1.0),
+        ("128 players, 1 thread", 28.9, 50.0, 3.3),
+        ("128 players, 8 workers", 10.1, 20.0, 1.0),
     ]
     width, height = 720, 310
     left, plot_w, top, row_h = 230, 420, 100, 54
