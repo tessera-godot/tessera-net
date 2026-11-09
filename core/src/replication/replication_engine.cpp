@@ -15,6 +15,10 @@ namespace {
 // and the room a packet takes.
 constexpr uint32_t kBufferOverheadBytes = 12;
 
+// How many changed entities a worker marks at a time: small enough to share tens of thousands of them among
+// eight workers, large enough that taking a block costs little next to marking it.
+constexpr uint32_t kMarkGrain = 512;
+
 } // namespace
 
 ReplicationEngine::ReplicationEngine(const ReplicationSchema& schema, const ReplicationConfig& config,
@@ -130,11 +134,19 @@ void ReplicationEngine::Update(uint64_t tick) {
     // Mark what changed: each entity reaches only the connections that see it, whatever their number.
     {
         TESSERA_PROFILE_SCOPE(Mark);
-        for (const EntityId id : store_.Changed()) {
-            subscriptions_.ForEach(id, [&](uint32_t connection, uint32_t compact_id) {
-                connections_[connection]->state.MarkPendingAt(compact_id);
+        // Blocks of changed entities go to the workers. Reading the subscriptions can overlap; the only
+        // things written are the "pending" and "changed" bits of each connection, with an atomic OR, so two
+        // workers that mark entities of the same connection never lose each other's bit and the result does
+        // not depend on which worker marks which entity.
+        const std::span<const EntityId> changed = store_.Changed();
+        jobs_.ParallelFor(
+            static_cast<uint32_t>(changed.size()), kMarkGrain, [&](uint32_t begin, uint32_t end, uint32_t) {
+                for (uint32_t i = begin; i < end; ++i) {
+                    subscriptions_.ForEach(changed[i], [&](uint32_t connection, uint32_t compact_id) {
+                        connections_[connection]->state.MarkPendingConcurrently(compact_id);
+                    });
+                }
             });
-        }
     }
     // Every connection reads the shared store and writes only its own state and buffer, so they can all run
     // at once.

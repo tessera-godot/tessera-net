@@ -186,6 +186,45 @@ TESSERA_TEST(identical_outputs_with_1_and_8_workers) {
     TESSERA_CHECK(run(1) == run(8));
 }
 
+// Many entities change in one tick and every one of them has to be marked on every connection that sees it, even
+// when the workers that mark them share the words of bits (the compact ids are scattered, as the relevancy
+// engine hands them out in practice).
+TESSERA_TEST(marking_from_eight_workers_loses_no_entity) {
+    constexpr uint32_t kEntities = 5000;
+    constexpr uint32_t kConnections = 2;
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(8);
+    ReplicationConfig config;
+    config.max_connections = kConnections;
+    config.max_visible_per_connection = kEntities;
+    ReplicationEngine engine(schema, config, jobs);
+    Table table{TableConfig{0, kMobType}};
+    std::vector<EntityId> ids;
+    for (uint32_t i = 0; i < kEntities; ++i) {
+        ids.push_back(Spawn(table, 0.0f, 0.0f, 0.0f));
+    }
+    engine.Refresh(table);
+    for (ConnectionId c = 0; c < kConnections; ++c) {
+        engine.AddConnection(c);
+        std::vector<VisibilityEvent> events;
+        for (uint32_t i = 0; i < kEntities; ++i) {
+            events.push_back(Enter(ids[i], (i * 37 + c * 11) % kEntities)); // 37 and 5000 share no factor
+        }
+        engine.ApplyVisibility(c, events);
+    }
+    for (uint64_t tick = 1; tick <= 20; ++tick) {
+        for (uint32_t i = 0; i < kEntities; ++i) {
+            MoveX(table, ids[i], static_cast<float>(tick) * 3.0f + static_cast<float>(i) * 0.01f);
+        }
+        engine.Refresh(table);
+        engine.Update(tick);
+        TESSERA_CHECK(engine.LastStats().records == kEntities * kConnections);
+        for (ConnectionId c = 0; c < kConnections; ++c) {
+            engine.Confirm(c, tick); // everything sent is now confirmed, so only a new mark makes it pending
+        }
+    }
+}
+
 TESSERA_TEST(removed_connection_frees_its_state_and_ignores_later_calls) {
     const ReplicationSchema schema = MakeTestSchema();
     ThreadPoolJobSystem jobs(1);

@@ -227,6 +227,20 @@ TESSERA_TEST(a_replaced_entity_is_reported_as_stopped_before_the_new_one_started
     TESSERA_CHECK(connection.CompactIdOf(b) == 3 && connection.CompactIdOf(a) == kInvalidCompactId);
 }
 
+TESSERA_TEST(mark_pending_concurrently_flags_like_mark_pending_at_and_ignores_the_same_ids) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ConnectionState connection(schema, 1000, kMaxAge);
+    const EntityId a = MakeEntity(kMobType, 10);
+    const VisibilityEvent events[] = {Enter(a, 4)};
+    connection.ApplyEvents(events);
+    connection.MarkPendingConcurrently(4);
+    TESSERA_CHECK(connection.IsPending(4));
+    connection.MarkPendingConcurrently(5);    // free: nothing happens
+    connection.MarkPendingConcurrently(5000); // beyond the maximum: nothing happens
+    TESSERA_CHECK(!connection.IsPending(5) && !connection.IsPending(5000));
+    TESSERA_CHECK(connection.Visible().size() == 1 && connection.Visible()[0].raw == a.raw());
+}
+
 TESSERA_TEST(mark_pending_at_flags_a_compact_id_without_looking_the_entity_up) {
     const ReplicationSchema schema = MakeTestSchema();
     ConnectionState connection(schema, 1000, kMaxAge);
