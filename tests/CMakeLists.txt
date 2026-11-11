@@ -12,3 +12,8 @@ else()
 endif()
 
 add_test(NAME tessera_net_tests COMMAND tessera_net_tests)
+
+# The ENet transport has its own test executable, so that the main one is the same with or without ENet.
+if(TESSERA_BUILD_ENET)
+    add_subdirectory(enet)
+endif()

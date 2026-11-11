@@ -39,3 +39,41 @@ if(MSVC)
 else()
     target_compile_options(tessera_net_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+# The ENet transport (docs/adr/0003-library-policy.md: an optional library, behind our own interface). It exists
+# only with -DTESSERA_BUILD_ENET=ON; the first configure then downloads ENet.
+if(TESSERA_BUILD_ENET)
+    include(FetchContent)
+    FetchContent_Declare(enet
+        GIT_REPOSITORY https://github.com/lsalzman/enet.git
+        GIT_TAG v1.3.18
+        GIT_SHALLOW TRUE)
+    # ENet's own code is built without warnings (they are not ours to fix). Its default /W3 is dropped first, so
+    # that /w does not make the compiler warn about replacing it; the function keeps that change local.
+    function(tessera_fetch_enet)
+        if(MSVC)
+            string(REPLACE "/W3" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+            string(REPLACE "/W3" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+            string(REPLACE "/W3" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+        endif()
+        FetchContent_MakeAvailable(enet)
+        set(TESSERA_ENET_INCLUDE_DIR "${enet_SOURCE_DIR}/include" CACHE INTERNAL "ENet headers, for the tests and the benchmarks")
+        if(MSVC)
+            target_compile_options(enet PRIVATE /w)
+        endif()
+    endfunction()
+    tessera_fetch_enet()
+
+    add_library(tessera_net_enet STATIC src/transport/enet_transport.cpp)
+    target_link_libraries(tessera_net_enet PUBLIC tessera_net_core PRIVATE enet)
+    target_include_directories(tessera_net_enet PRIVATE ${TESSERA_ENET_INCLUDE_DIR})
+    target_compile_definitions(tessera_net_enet PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(WIN32)
+        target_link_libraries(tessera_net_enet PUBLIC ws2_32 winmm) # ENet's own target does not carry them
+    endif()
+    if(MSVC)
+        target_compile_options(tessera_net_enet PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(tessera_net_enet PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
