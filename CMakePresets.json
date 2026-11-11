@@ -29,6 +29,16 @@
       }
     },
     {
+      "name": "windows-msvc-enet",
+      "displayName": "Windows (Visual Studio 2022), ENet transport and head-to-head programs",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-enet",
+      "cacheVariables": {
+        "TESSERA_BUILD_ENET": "ON",
+        "TESSERA_BUILD_BENCH": "ON"
+      }
+    },
+    {
       "name": "linux-release",
       "displayName": "Linux (Ninja, Release)",
       "generator": "Ninja",
@@ -60,6 +70,16 @@
       "configuration": "Release"
     },
     {
+      "name": "windows-msvc-enet-release",
+      "configurePreset": "windows-msvc-enet",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-enet-debug",
+      "configurePreset": "windows-msvc-enet",
+      "configuration": "Debug"
+    },
+    {
       "name": "linux-release",
       "configurePreset": "linux-release"
     }
@@ -85,6 +105,22 @@
       "name": "windows-msvc-profile-release",
       "configurePreset": "windows-msvc-profile",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-enet-release",
+      "configurePreset": "windows-msvc-enet",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-enet-debug",
+      "configurePreset": "windows-msvc-enet",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }

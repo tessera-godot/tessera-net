@@ -9,6 +9,7 @@ the programs that produce them.
 | [`ecs-comparison/`](ecs-comparison/) | The entity table against a general-purpose ECS (EnTT) | CMake, C++20; downloads EnTT on first configure |
 | [`godot-nodes/`](godot-nodes/) | One million Godot nodes against the entity table | Godot 4.5 or newer, godot-cpp, SCons |
 | [`godot-replication/`](godot-replication/) | Godot's built-in replication as entities grow | Godot 4.x, Python with `psutil` |
+| [`head-to-head/`](head-to-head/) | The same scenario on a Tessera Net server over real sockets (ENet), alone or alternating with the Godot baseline | CMake with `-DTESSERA_BUILD_ENET=ON` (downloads ENet), Python with `psutil` |
 
 ## Data core and ECS comparison
 
@@ -24,6 +25,8 @@ machine is busy. The network benchmark takes the longest; run it alone by adding
 name of the program. The word `network-curve` runs the network path at five amounts of change per tick (the
 first moves about one entity, to measure the fixed cost) and fits a line to the time of the phase; it takes a few
 minutes and is not part of the full run (add `reverse` to play the points from the busiest to the quietest).
+The word `indicator` prints only the time of one `WriteRecord`, which shows how busy the machine is (quiet is
+about 47 ns); the head-to-head script records it next to its results.
 
 ## Godot nodes
 

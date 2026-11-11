@@ -205,6 +205,10 @@ void CheckDeterminism() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string_view(argv[1]) == "indicator") {
+        bench::Info("WriteRecord indicator", WriteRecordIndicatorNs(), "ns"); // only the load indicator
+        return 0;
+    }
     std::printf("Tessera Net data core: acceptance benchmark (%u hardware threads)\n", std::thread::hardware_concurrency());
     std::printf("%-46s %12s %-6s %-28s\n", "criterion", "measured", "", "result");
     if (argc > 1 && std::string_view(argv[1]) == "network-curve") {
