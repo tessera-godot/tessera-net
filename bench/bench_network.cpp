@@ -7,6 +7,7 @@
 #include "bench_network.hpp"
 
 #include "bench_memory.hpp"
+#include "bench_replication.hpp"
 #include "bench_report.hpp"
 #include "tessera/net/client_replica.hpp"
 #include "tessera/net/entity_table.hpp"
@@ -272,6 +273,11 @@ public:
         grid.ApplyMoves(moves_);
     }
 
+    /// How many entities the last call of ChangeSome moved.
+    size_t MovedLastTick() const {
+        return moves_.size();
+    }
+
     std::vector<Observer> PlaceObservers() {
         std::vector<Observer> eyes(scenario_.players);
         const float margin = scenario_.world_size / 10.0f;
@@ -519,6 +525,9 @@ public:
     uint64_t Tick() const {
         return tick_;
     }
+    size_t MovedLastTick() const {
+        return world_.MovedLastTick();
+    }
 
 private:
     Scenario scenario_;
@@ -586,6 +595,7 @@ struct Measurement {
     double divergence = 0.0;         // mean share of what a player sees that is not the current state
     double complete_share = 0.0;     // share of the records that carry every property
     double resend_wait_ticks = 0.0;  // mean ticks the server waits before an unconfirmed entity is sent again
+    double moved_per_tick = 0.0;     // entities that changed per tick, over the measured ticks
     int settle_ticks = 0;
     Totals client_totals;
     uint64_t server_errors = 0;
@@ -616,7 +626,7 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
 #if TESSERA_PROFILE
     profile::Reset(); // the joining and the warm-up are not part of the table
 #endif
-    uint64_t records = 0, complete_records = 0;
+    uint64_t records = 0, complete_records = 0, moved = 0;
     std::vector<uint64_t> bytes_per_tick;
     uint64_t sent_so_far = counted.SentTotal();
     double divergence_sum = 0.0;
@@ -628,6 +638,7 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
             const TickCost cost = sim.Tick(true);
             records += sim.Server().Replication().LastStats().records;
             complete_records += sim.Server().Replication().LastStats().complete_records;
+            moved += sim.MovedLastTick();
             bytes_per_tick.push_back(counted.SentTotal() - sent_so_far);
             sent_so_far = counted.SentTotal();
             if (++ticks_done % 5 == 0) { // not every tick: it looks at every entity of every player
@@ -643,6 +654,7 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
         client_runs.push_back(sum.client_ms / kTicksPerRun / scenario.players * 1000.0);
     }
     result.records_per_player = static_cast<double>(records) / (kRuns * kTicksPerRun) / scenario.players;
+    result.moved_per_tick = static_cast<double>(moved) / (kRuns * kTicksPerRun);
     result.complete_share =
         records == 0 ? 0.0 : static_cast<double>(complete_records) / static_cast<double>(records);
     result.divergence = divergence_samples == 0 ? 0.0 : divergence_sum / divergence_samples;
@@ -795,6 +807,35 @@ int JoinTicksUnderLoss() {
     return sim.TicksToConverge(kJoinLimit, false);
 }
 
+/// A scenario like `base` in which each entity changes once every `period` ticks.
+constexpr Scenario WithChangePeriod(const Scenario& base, uint32_t period) noexcept {
+    return Scenario{base.players, base.entities, base.world_size, period};
+}
+
+// The change periods of the curve, which move about 1,000, 3,000, 10,000 and 33,333 entities per tick in the
+// main scenario. The last one is the main scenario itself.
+constexpr uint32_t kCurvePeriods[4] = {200, 67, 20, 6};
+constexpr uint32_t kCurveSteadyTicks = 40; // the ticks of the byte comparison, after the warm-up
+
+/// A hash of every byte the server sends in a full-size scenario: players join on a clean network, then the
+/// network starts to lose 5% and the world moves for the warm-up and 40 more ticks. It is a run of its own,
+/// so that hashing does not enter the time of the measured ones.
+uint64_t PointBytesHash(const Scenario& scenario, uint32_t workers) {
+    Sim sim(scenario, workers, Conditions(0.0), true);
+    sim.TicksToConverge(kJoinLimit, false);
+    sim.SetLoss(0.05);
+    for (uint32_t i = 0; i < kWarmupTicks + kCurveSteadyTicks; ++i) {
+        sim.Tick(true);
+    }
+    return sim.Counters().Hash();
+}
+
+void PrintCurveRow(uint32_t period, uint32_t workers, const Measurement& m) {
+    std::printf("%6u  %11.1f  %7u  %8.2f  %13.2f  %9.2f  %15.2f  %19.2f  %13.2f\n", period, m.moved_per_tick,
+                workers, m.refresh_ms + m.update_ms, m.refresh_ms, m.update_ms, m.steady_kbps,
+                m.records_per_player, 100.0 * m.divergence);
+}
+
 void PrintScenario(const Measurement& m, uint32_t workers) {
     std::printf("  %u worker%s: network phase %.2f ms (quantizing %.2f ms, update %.2f ms); clients %.1f us "
                 "each; %.0f kbps per player down, %.0f up\n",
@@ -924,4 +965,72 @@ void CheckNetwork() {
     const int join = JoinTicksIntoARunningWorld();
     Report("network a new player receives everything", join < 0 ? 1e9 : join, "ticks", kLimitJoinTicks);
     Info("network join under 5% loss (16 players)", JoinTicksUnderLoss(), "ticks");
+}
+
+void CheckNetworkCurve(bool reverse) {
+    std::array<uint32_t, 4> periods{};
+    for (size_t i = 0; i < periods.size(); ++i) {
+        periods[i] = kCurvePeriods[reverse ? periods.size() - 1 - i : i];
+    }
+    std::printf("network curve: %u players, %u entities, %.0f m world, 5%% loss, periods", kMain.players,
+                kMain.entities, kMain.world_size);
+    for (const uint32_t period : periods) {
+        std::printf(" %u", period);
+    }
+    std::printf("\n");
+    Info("network curve: WriteRecord indicator, before the points", WriteRecordIndicatorNs(), "ns");
+    std::printf("%6s  %11s  %7s  %8s  %13s  %9s  %15s  %19s  %13s\n", "period", "moved/tick", "workers",
+                "phase ms", "quantizing ms", "update ms", "kbps (last 5 s)", "records/player/tick",
+                "not current %");
+
+    // The fit and the residuals are kept in the order of the periods, whatever order they run in.
+    std::array<double, 4> moved_of{};
+    std::array<std::array<double, 4>, 2> phase_of{};
+    char name[120];
+    for (const uint32_t period : periods) {
+        const size_t slot =
+            static_cast<size_t>(std::find(std::begin(kCurvePeriods), std::end(kCurvePeriods), period) -
+                                std::begin(kCurvePeriods));
+        const Scenario scenario = WithChangePeriod(kMain, period);
+        const Measurement one = Measure(scenario, 1);
+        const Measurement eight = Measure(scenario, 8);
+        PrintCurveRow(period, 1, one);
+        PrintCurveRow(period, 8, eight);
+        moved_of[slot] = one.moved_per_tick;
+        phase_of[0][slot] = one.refresh_ms + one.update_ms;
+        phase_of[1][slot] = eight.refresh_ms + eight.update_ms;
+
+        std::snprintf(name, sizeof(name), "network curve, period %u: clients converge", period);
+        ReportBool(name, one.joined && one.settled && eight.joined && eight.settled);
+        std::snprintf(name, sizeof(name), "network curve, period %u: bytes sent, 1 vs 8 workers", period);
+        const uint64_t hash_one = PointBytesHash(scenario, 1);
+        const uint64_t hash_eight = PointBytesHash(scenario, 8);
+        ReportBool(name, hash_one == hash_eight);
+    }
+    Info("network curve: WriteRecord indicator, after the points", WriteRecordIndicatorNs(), "ns");
+
+    // y = a + b * x, with x the entities that moved per tick (measured, not nominal) and y the phase in ms.
+    const std::vector<double> x(moved_of.begin(), moved_of.end());
+    bool linear = true;
+    for (size_t k = 0; k < 2; ++k) {
+        const char* kind = k == 0 ? "1 thread" : "8 workers";
+        const std::vector<double> y(phase_of[k].begin(), phase_of[k].end());
+        const bench::LineFit fit = bench::FitLine(x, y);
+        std::snprintf(name, sizeof(name), "network curve fit, %s: fixed cost a", kind);
+        Info(name, fit.intercept, "ms");
+        std::snprintf(name, sizeof(name), "network curve fit, %s: cost per moved entity b", kind);
+        Info(name, fit.slope * 1000.0, "us"); // ms per entity to microseconds
+        std::snprintf(name, sizeof(name), "network curve fit, %s: R squared", kind);
+        Info(name, fit.r2, "");
+        for (size_t i = 0; i < std::size(kCurvePeriods); ++i) {
+            const double residual = y[i] - (fit.intercept + fit.slope * x[i]);
+            std::snprintf(name, sizeof(name), "network curve fit, %s: residual at period %u", kind,
+                          kCurvePeriods[i]);
+            Info(name, residual, "ms");
+            if (std::abs(residual) > 0.10 * y[i]) {
+                linear = false;
+            }
+        }
+    }
+    std::printf("network curve: %s\n", linear ? "linear within 10%" : "not linear");
 }
