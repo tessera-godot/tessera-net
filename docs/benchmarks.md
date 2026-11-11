@@ -463,18 +463,18 @@ m/s along each ground axis), only the position replicated at 20 Hz, and 8 bot cl
 see every entity. Everything runs over localhost. Our server has one thread, a fixed tick of 20 Hz, every entity
 visible to every client and no byte budget; its clients are `tessera_h2h_bot` programs, and Godot's are Godot
 processes. Each size was run three times per system, alternating the two (the one that went first changed every
-round), with 25 seconds of measurement after all the bots had connected. The tables give the median of the three
+round), measured from the 8th to the 25th second after all the bots had connected (17 seconds). The tables give the median of the three
 and, in brackets, the lowest and the highest.
 
-| Entities | System | Server CPU (1 core = 100%) | Our server's own busy time | Server frames (Godot) or ticks (ours) per second | Work per frame or tick, ms |
+| Entities | System | Server CPU (1 core = 100%) | Our server's own busy time | Server frames (Godot) or ticks (ours) per second | Tick time, ms (ours only) |
 |---|---|---|---|---|---|
-| 500 | Godot | 12.3% (12.2 to 12.7) | n/a | 60 (60 to 60) | 5.66 (3.98 to 6.62) |
+| 500 | Godot | 12.3% (12.2 to 12.7) | n/a | 60 (60 to 60) | n/a |
 | 500 | Tessera Net | 2.5% (0.7 to 2.9) | 1.3% (1.2 to 1.3) | 20 (20 to 20) | 0.63 (0.60 to 0.66) |
-| 2,000 | Godot | 32.9% (31.3 to 34.7) | n/a | 60 (60 to 60) | 16.34 (14.32 to 18.93) |
+| 2,000 | Godot | 32.9% (31.3 to 34.7) | n/a | 60 (60 to 60) | n/a |
 | 2,000 | Tessera Net | 5.6% (3.3 to 5.7) | 3.6% (3.5 to 3.9) | 20 (20 to 20) | 1.78 (1.77 to 1.95) |
-| 5,000 | Godot | 72.6% (70.8 to 73.3) | n/a | 54.5 (51.3 to 57.0) | 47.44 (42.29 to 57.63) |
+| 5,000 | Godot | 72.6% (70.8 to 73.3) | n/a | 54.5 (51.3 to 57.0) | n/a |
 | 5,000 | Tessera Net | 10.3% (10.1 to 11.3) | 8.6% (8.4 to 10.1) | 20 (20 to 20) | 4.32 (4.18 to 5.04) |
-| 10,000 | Godot | 96.1% (92.6 to 99.7) | n/a | 8.6 (7.2 to 10.4) | 125.23 (118.02 to 125.26) |
+| 10,000 | Godot | 96.1% (92.6 to 99.7) | n/a | 8.6 (7.2 to 10.4) | n/a |
 | 10,000 | Tessera Net | 16.9% (15.3 to 17.4) | 15.7% (15.4 to 17.3) | 20 (20 to 20) | 7.82 (7.70 to 8.66) |
 
 | Entities | System | Bandwidth per client, KB/s | Bytes per position update |
@@ -490,10 +490,12 @@ and, in brackets, the lowest and the highest.
 
 Server CPU is the user plus system time of the server process as the operating system accounts it, with one core as
 100%, the same way as in section 1. The operating system charges CPU time in slices of the scheduler, so for a server
-that works for under a millisecond per tick and sleeps in between, the figure can read too low: our runs at 500
-entities read 2.5, 2.9 and 0.7%. For that reason our server also measures the time it spends working in each tick
-with its own clock (the second column, ours only); at 500 entities that is 1.2 to 1.3%. Both are published, and Godot
-has only the first. The gains below use the first for both systems, so the 500-entity row, whose best case rests on
+that works for under a millisecond per tick and sleeps in between, the figure is unreliable in both directions: our
+runs at 500 entities read 2.5, 2.9 and 0.7%, while the server's own clock says 1.2 to 1.3%. For that reason our
+server also measures the time it spends working in each tick with its own clock (the second column and the tick time,
+ours only). Both are published, and Godot has only the first. Godot's own per-frame time (the `process_ms_avg` of its
+script) is not shown: the figure does not behave like a mean time of work per frame (at 2,000 entities it would be
+more than the measured CPU allows), so we do not know what it measures and do not compare it with ours. The gains below use the first for both systems, so the 500-entity row, whose best case rests on
 the 0.7% reading, should be read with care. Bytes per update is the bandwidth per client divided by the entities and
 by 20 updates per second. Bandwidth is what ENet put on the sockets, read from ENet's own counters on both sides.
 
@@ -511,8 +513,10 @@ of ours and the highest Godot figure over the lowest of ours:
 
 - **Our server kept its 20 Hz tick at every size**, in all twelve runs, and did its work in 0.63 ms (500 entities) to
   7.82 ms (10,000) of the 50 ms it has per tick. In the same scenario the Godot server used 72.6% of a core at 5,000
-  entities and lost its frame rate at 10,000. Its figure is the frame rate of its main loop (target 60), ours is the rate of
-  a fixed tick (target 20); they are not the same quantity, and the tables only put them side by side.
+  entities, began to lose its frame rate there (51.3 to 57.0 frames per second instead of 60) and was saturated at
+  10,000. Its figure is the frame rate of its main loop (target 60), ours is the rate of a fixed tick (target 20);
+  they are not the same quantity, and the tables only put them side by side. The tick time is our own measure and
+  has no counterpart for Godot.
 - **At 10,000 entities the Godot server is saturated**: about a whole core and 8.6 frames per second instead of 60. It
   is not sending what the scenario asks for, so its bandwidth and bytes per update (which fall to 10.1) are not like for
   like there, and the gains at that size say less than they would if it kept up. Read them as a floor for the
@@ -522,7 +526,8 @@ of ours and the highest Godot figure over the lowest of ours:
   not reliable in this setup (the bots' output reaches it in blocks), so we did not use it and make no claim about
   the Godot bots' final state.
 - **The numbers for Godot differ from section 1.** Section 1 is one run per size from an earlier session; these are the
-  median of three runs from the same session as ours, and the machine was busier (see the conditions). At 5,000 entities
+  median of three runs from the same session as ours, and the load on the machine was different (it was not recorded for section 1;
+  see the conditions here). At 5,000 entities
   the Godot server is where its frame rate falls fastest: the three runs here went from 51.3 to 57.0 frames per second
   and the one in section 1 gave 26.8, so a small change in load moves that row a lot. The tables above are the ones to
   compare with ours.
@@ -550,7 +555,7 @@ comes from that and not only from efficiency:
 
 - **Different loops.** The Godot server runs its scene tree at up to 60 frames per second with a physics step at
   30 Hz that moves the entities, and its synchronizers replicate at 20 Hz. Our server is a table of entities, has no
-  scene tree and no physics engine, and moves the entities with one loop in a fixed tick of 20 Hz. Our "work per tick"
+  scene tree and no physics engine, and moves the entities with one loop in a fixed tick of 20 Hz. Our tick time
   includes that loop.
 - **Different bytes on the wire.** Godot sends each position as a `Vector3` of floats with its own protocol; we send a
   position quantized to 1 cm, written against the last state the client confirmed (see
@@ -586,10 +591,12 @@ random, instead of all of them. Three rounds each, the same machine and the same
 | 10,000 | 447.4 (4.5%) | 6.2% (4.9 to 6.3) | 5.3% (5.3 to 5.6) | 2.67 (2.66 to 2.80) | 34.60 (34.30 to 34.90) | 3.96 (3.93 to 3.99) |
 
 All six runs converged in the sense that each bot saw as many entities as the server said that connection could see (a
-bot holds only part of the world here, so the whole-state checksum of the main tables does not apply). The first CPU
-column reads too low at 2,000 entities, for the reason given above. The processor load before these runs was 4.2% to 16.2%, and the short test took 86.2 and 51.4 ns around the
+bot holds only part of the world here, so the whole-state checksum of the main tables does not apply). Bytes per update here is the
+bandwidth per client divided by the entities that client sees (the figure in the second column), not by the entities
+of the world. The first CPU column is unreliable at 2,000 entities, for the reason given above. The processor load before these runs was 4.2% to 16.2%, and the short test took 86.2 and 51.4 ns around the
 2,000-entity runs and 53.4 and 51.2 around the 10,000 ones.
 
+## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
 [`bench/README.md`](../bench/README.md)):

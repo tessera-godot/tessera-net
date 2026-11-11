@@ -17,8 +17,8 @@ licensed, is one small C library that CMake can fetch, and has no dependencies b
 
 ## Decision
 - **ENet 1.3.18, behind `ITransport`.** `EnetServerTransport` and `EnetClientTransport` implement the interface in
-  [`enet_transport.hpp`](../../core/include/tessera/net/transport/enet_transport.hpp). No other file of ours includes
-  an ENet header, and the public header includes none either.
+  [`enet_transport.hpp`](../../core/include/tessera/net/transport/enet_transport.hpp). Outside the transport's source and
+  its tests, no file of ours includes an ENet header, and the public header includes none either.
 - **Optional.** The code is built only with `-DTESSERA_BUILD_ENET=ON` (off by default). The option downloads ENet with
   `FetchContent` at a fixed tag. With the option off nothing is downloaded, no target is added, and the 495 tests and
   the benchmark lines that do not depend on time are the same as before.
@@ -27,7 +27,13 @@ licensed, is one small C library that CMake can fetch, and has no dependencies b
   we read `enet_peer_send` in the 1.3.18 source, and without it a packet larger than one datagram is split into
   fragments that ENet sends as reliable ones, so the "unreliable" message would be sent again until it arrived. With the
   flag, losing one fragment loses the whole message, which is what the contract says (and what record 0010 warned
-  about for large messages).
+  about for large messages). One exception, in ENet 1.3.18: at the rollover of the channel's 16-bit sequence number,
+  one unreliable packet in every 65,536 is sent as a reliable one (`peer.c`, `enet_peer_send`), so that one is sent again
+  until it arrives. It does not affect correctness.
+- **A silent peer** is detected with ENet's default timeouts (`enet.h`, 1.3.18): a limit of 32, a minimum of 5,000 ms
+  and a maximum of 30,000 ms. The connection is dropped when a reliable packet has gone unanswered for 30 s, or for 5 s
+  once it has been sent 6 times. `EnetClientConfig::timeout_ms` sets this for the client's side only; we do not tune the
+  server's. `Poll` and `Send` (and `Flush`) must be called from one thread.
 - **Connection ids come from a counter of ours**, starting at 1 and never used again, not from ENet's slot number
   (ENet reuses slots). The client sees the server as connection 0.
 - **`Disconnect` is `enet_peer_disconnect_later`**, so the messages sent before it still go out first; the side that

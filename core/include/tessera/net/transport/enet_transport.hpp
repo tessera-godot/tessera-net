@@ -14,7 +14,13 @@ namespace tessera::net {
 //
 // Channels: a reliable message goes on ENet channel 0 as a reliable packet, so it arrives, once and in order.
 // An unreliable message goes on ENet channel 1 as an unreliable packet that may be split into fragments; if
-// one fragment is lost the whole message is lost, and nothing is sent again.
+// one fragment is lost the whole message is lost, and nothing is sent again (except that ENet 1.3.18 sends
+// one unreliable packet in every 65,536 on a channel as a reliable one, at the rollover of its sequence
+// number).
+//
+// A peer that goes silent is detected with ENet's default timeouts (1.3.18: a limit of 32, a minimum of 5,000
+// ms and a maximum of 30,000 ms; the client's follow `timeout_ms`). `Poll`, `Send` and `Flush` must be called
+// from one thread.
 //
 // `Stats` counts what `Send` accepted and what `Poll` handed over, in message bytes. ENet does not say which
 // message a lost packet carried, so `messages_lost` is always 0 here; `Wire` has the bytes that went through

@@ -259,12 +259,15 @@ in [record 0013](../adr/0013-enet-as-the-first-real-transport.md).
 
 - **Channels.** A reliable message is a reliable packet on ENet channel 0; an unreliable message is an unreliable
   packet on channel 1, split into fragments if it is larger than a datagram. If one fragment is lost the whole message
-  is lost, and nothing is sent again.
+  is lost, and nothing is sent again (the one exception, in ENet 1.3.18, is that one unreliable packet in every 65,536 on a
+  channel is sent as a reliable one, at the rollover of its sequence number).
 - **Connections.** The server listens on `EnetServerConfig::port` (0 lets the system choose, and `Port()` says which);
   the constructor throws `std::runtime_error` with the cause if the socket cannot be opened. The client's
   constructor asks for the connection, and `Connected` arrives from `Poll` when ENet confirms it; `timeout_ms` is how
   long it waits without an answer, also while connecting. Ids are as in the contract above: the server sees 1, 2, 3 and
-  never reuses one, and a client sees the server as 0. `Disconnect` lets the messages sent before it go out first.
+  never reuses one, and a client sees the server as 0. `Disconnect` lets the messages sent before it go out first. A peer that goes silent is detected with ENet's default
+  timeouts (a limit of 32, a minimum of 5,000 ms and a maximum of 30,000 ms in 1.3.18; the server's are not tuned, the
+  client's follow `timeout_ms`). `Poll`, `Send` and `Flush` must be called from one thread.
 - **`Flush()`.** `Send` queues, and the datagrams leave on `Flush()` or on the next `Poll`. Call it on the server
   after `Update`, and on the client after `Poll` (the client's confirmation is sent inside `Poll`).
 - **Statistics.** `Stats()` counts the message bytes that `Send` accepted and `Poll` handed over. ENet does not say

@@ -46,8 +46,8 @@ if(TESSERA_BUILD_ENET)
     include(FetchContent)
     FetchContent_Declare(enet
         GIT_REPOSITORY https://github.com/lsalzman/enet.git
-        GIT_TAG v1.3.18
-        GIT_SHALLOW TRUE)
+        # The commit of the tag v1.3.18, so that what is fetched does not depend on the tag staying where it is.
+        GIT_TAG 2662c0de09e36f2a2030ccc2c528a3e4c9e8138a)
     # ENet's own code is built without warnings (they are not ours to fix). Its default /W3 is dropped first, so
     # that /w does not make the compiler warn about replacing it; the function keeps that change local.
     function(tessera_fetch_enet)

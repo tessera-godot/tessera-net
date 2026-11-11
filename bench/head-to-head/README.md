@@ -45,9 +45,14 @@ every bot has connected and, optionally, the percentage of entities that move (1
 | `--out <file>` | Writes every result as JSON |
 | `--timeout S` | Seconds to wait for a run beyond its length (150 by default) |
 
-Each result is one JSON line with the keys of the Godot script plus `update_ms_avg`, `transport_ms_avg` (the
-part of the tick spent in the transport), `bytes_per_update`, `lag_ms_avg`, `converged` and `checksum_server`.
-`update_ms_avg` includes `transport_ms_avg`. Bandwidth is what ENet put on the sockets, the quantity the Godot
+Each result is one JSON line with the keys of the Godot script plus `server_busy_pct_of_one_core` (the server's
+own clock, one core is 100%), `update_ms_avg`, `transport_ms_avg` (the part of the tick spent in the transport),
+`bytes_per_update`, `visible_mean` (only with `--relevancy spatial`), `lag_ms_avg`, `converged` and
+`checksum_server`. `process_ms_avg`, `process_ms_max` and `physics_ms_avg` have the same key names as the output of
+the Godot script but mean different things: ours is the server's own measured tick time (the whole tick, and the
+movement of the entities within it). `update_ms_avg` covers the server's `Update`, which holds most of
+`transport_ms_avg` (reading and sending); the flush that hands the datagrams to the socket is timed outside
+`Update` and is counted in `transport_ms_avg` only. Bandwidth is what ENet put on the sockets, the quantity the Godot
 script reads from its own ENet host. `converged` is true when every bot holds the same state as the server;
 the script exits with 1 if any run of ours did not converge.
 
