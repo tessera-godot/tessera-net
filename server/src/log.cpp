@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/server/log.hpp"
 
+#include <utility>
+
 namespace tessera::server {
 
 std::string_view LogLevelName(LogLevel level) noexcept {
@@ -15,6 +17,18 @@ std::string_view LogLevelName(LogLevel level) noexcept {
         return "error";
     }
     return "info";
+}
+
+Logger::Logger(LogLevel minimum, LogSink sink) : minimum_(minimum), sink_(std::move(sink)) {}
+
+void Logger::Log(LogLevel level, std::string_view message) {
+    if (!Enabled(level) || !sink_) {
+        return;
+    }
+    std::string line(LogLevelName(level));
+    line += ' ';
+    line += message;
+    sink_(line);
 }
 
 std::optional<LogLevel> ParseLogLevel(std::string_view name) {
