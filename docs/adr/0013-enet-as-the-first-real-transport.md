@@ -47,8 +47,8 @@ licensed, is one small C library that CMake can fetch, and has no dependencies b
   [benchmarks page](../benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario) (8 clients, every entity
   moving, 20 Hz, localhost, one thread), the part of our tick spent in the transport (reading, sending and flushing) is 0.28
   ms at 500 entities and 1.81 ms at 10,000, which is 45% and 23% of the tick (0.63 and 7.82 ms). The rest of the tick is
-  the server's own `Update`. All the sizes keep the 20 Hz tick: at 10,000 entities the server uses about 17% of
-  one core.
+  the server's own `Update`. All the sizes keep the 20 Hz tick: at 10,000 entities the server uses 16.9% of
+  one core (15.7% by its own clock).
 - **What the comparison shows.** In that scenario, over real sockets, our server used 4.9, 5.9, 7.0 and 5.7 times less
   CPU than the Godot server (median of three alternated rounds at 500, 2,000, 5,000 and 10,000 entities) and sent 4.8, 4.6,
   5.0 and 2.6 times fewer bytes to each client (at 500 entities the operating system's CPU reading of our server is
@@ -63,8 +63,8 @@ licensed, is one small C library that CMake can fetch, and has no dependencies b
   latency, on one machine with background load, on Windows, with only positions replicated. It says that the server and
   the transport work over sockets and what they cost in this scenario, not how a game would behave on the internet.
 - **The numbers are on a busy machine.** Programs of everyday work were running and could not be closed; the processor load
-  before the runs went from 4.5% to 98.5%, and the short test the benchmark prints (writing one position record) took 52
-  to 98 ns against 47 when the machine is quiet. Medians and ranges are on the benchmarks page, so that the spread is
+  before the runs went from 4.5% to 98.5%, and the short test the benchmark prints (writing one position record) took 52.5
+  to 97.6 ns against 47 when the machine is quiet. Medians and ranges are on the benchmarks page, so that the spread is
   visible.
 - **The default build did not change.** With the option off, the build and the 495 tests are the same; with it on, a
   separate executable, `tessera_net_enet_tests`, holds the 16 tests of the transport (connection and disconnection in

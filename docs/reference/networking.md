@@ -32,9 +32,9 @@ C++20 and does not depend on Godot. Include files are under `tessera/net/`, and 
      ITransport  <--- network --->  ITransport
 ```
 
-The server and the client only know `ITransport`. Today there is one implementation, `SimulatedNetwork`, which
-lives in memory. A transport over real sockets is a later step; it has to respect the contract below, and nothing
-above it changes.
+The server and the client only know `ITransport`. There are two implementations: `SimulatedNetwork`, which lives in
+memory, and an optional transport over real sockets built on ENet (see
+[Over real sockets](#over-real-sockets-enet)). Both respect the contract below, and nothing above them changes.
 
 ## The transport
 
@@ -242,10 +242,123 @@ two ticks, with a sixth of the entities changing in every tick:
 What lowers the time is next: making relevancy and replication faster. What would make the budget feel better is
 sending what is near the player more often than what is far, which is not built yet.
 
+## Over real sockets (ENet)
+
+`EnetServerTransport` and `EnetClientTransport` are implementations of `ITransport` over UDP, built on
+[ENet](https://github.com/lsalzman/enet). They exist only when you ask for them, because ENet is downloaded on the
+first configure:
+
+```powershell
+cmake --preset windows-msvc-enet        # or any configure with -DTESSERA_BUILD_ENET=ON
+cmake --build --preset windows-msvc-enet-release
+```
+
+Then link `tessera_net_enet` to your target and include `tessera/net/transport/enet_transport.hpp`. With the
+option off nothing is downloaded and nothing about the default build changes. The reasons for the choices below are
+in [record 0013](../adr/0013-enet-as-the-first-real-transport.md).
+
+- **Channels.** A reliable message is a reliable packet on ENet channel 0; an unreliable message is an unreliable
+  packet on channel 1, split into fragments if it is larger than a datagram. If one fragment is lost the whole message
+  is lost, and nothing is sent again.
+- **Connections.** The server listens on `EnetServerConfig::port` (0 lets the system choose, and `Port()` says which);
+  the constructor throws `std::runtime_error` with the cause if the socket cannot be opened. The client's
+  constructor asks for the connection, and `Connected` arrives from `Poll` when ENet confirms it; `timeout_ms` is how
+  long it waits without an answer, also while connecting. Ids are as in the contract above: the server sees 1, 2, 3 and
+  never reuses one, and a client sees the server as 0. `Disconnect` lets the messages sent before it go out first.
+- **`Flush()`.** `Send` queues, and the datagrams leave on `Flush()` or on the next `Poll`. Call it on the server
+  after `Update`, and on the client after `Poll` (the client's confirmation is sent inside `Poll`).
+- **Statistics.** `Stats()` counts the message bytes that `Send` accepted and `Poll` handed over. ENet does not say
+  which message a lost packet carried, so `messages_lost` is always 0 here. `Wire()` has the bytes that went through
+  the sockets, ENet's own headers included.
+- **Left out.** Encryption, authentication, reconnecting into an old session, and any tuning of ENet. Only Windows
+  has been built and measured, and only on localhost.
+
+A server, one entity and one player over a UDP port on this machine; the rest is the example at the end of this
+page.
+
+```cpp
+#include <chrono>
+#include <cstdint>
+#include <thread>
+
+#include "tessera/net/client_replica.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/replication_server.hpp"
+#include "tessera/net/spatial_grid.hpp"
+#include "tessera/net/transport/enet_transport.hpp"
+
+using namespace tessera::net;
+
+// 1. The same world, schema and server as in the simulated example; only the transport changes.
+struct MobColumns {
+    float x[kPageSlots];
+    float y[kPageSlots];
+    float z[kPageSlots];
+};
+ReplicationSchema schema;
+schema.AddType(1,
+               {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x), TESSERA_COLUMN(MobColumns, y),
+                                             TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
+EntityTable<MobColumns> table(TableConfig{0, 1});
+SpatialGrid grid(GridConfig{64.0f, 64.0f, 64.0f});
+RelevancyConfig relevancy;
+relevancy.types[1] = TypeRelevancy{RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
+
+// 2. The server listens on a UDP port (0 lets the system choose; `Port()` says which).
+EnetServerConfig listen;
+listen.bind_address = "127.0.0.1";
+listen.port = 0;
+EnetServerTransport transport(listen);
+
+ThreadPoolJobSystem jobs(1);
+RelevancyGroups groups;
+ServerConfig config;
+config.max_connections = 8;
+config.max_visible_per_connection = 1024;
+ReplicationServer server(config, relevancy, schema, grid, groups, jobs, transport);
+
+// 3. One entity that every player sees.
+const EntityId mob = table.Create();
+const auto where = table.Find(mob);
+MobColumns& columns = table.Columns(where->page);
+columns.x[where->slot] = 120.5f;
+columns.y[where->slot] = 0.0f;
+columns.z[where->slot] = -40.25f;
+table.MarkDirty(mob);
+grid.Insert(mob, 120.5f, 0.0f, -40.25f);
+server.Relevancy().OnEntityCreated(mob);
+
+// 4. A player connects to that port and says hello by itself.
+EnetClientConfig dial;
+dial.server_address = "127.0.0.1";
+dial.server_port = transport.Port();
+EnetClientTransport client_transport(dial);
+ClientReplica client(client_transport, schema);
+
+// 5. Every tick: the client reads, the server runs its network phase, and both hand the datagrams to
+//    the socket. Call `Flush` after `Poll` (the confirmation) and after `Update` (the state).
+for (uint64_t tick = 0; tick < 100 && client.WordsOf(mob) == nullptr; ++tick) {
+    client.Poll();
+    client_transport.Flush();
+    server.Refresh(table);
+    server.Update(tick);
+    transport.Flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+
+const uint32_t* quantized = client.WordsOf(mob);
+TESSERA_CHECK(client.State() == ClientState::Connected);
+TESSERA_CHECK(client.VisibleCount() == 1);
+TESSERA_CHECK(quantized != nullptr &&
+              quantized[0] == 512'050); // x = 120.5 m is 512,050 steps from -5,000 m
+```
+
 ## Known limits
 
 - One server process, one grid, one set of tables with a single shard.
-- The simulated network is an approximation (see above), and nothing here has met a real network yet.
+- The simulated network is an approximation (see above). The ENet transport has only been run on localhost, with no
+  packet loss and no latency, and only on Windows.
 - A forged but well-formed message is accepted (see "What the contract does not cover").
 - A large message is lost far more often than a small one, which is why a state buffer is limited to 1,100 bytes
   by default: a player who joins a busy area gets its first state over several buffers instead of one.
@@ -260,8 +373,7 @@ sending what is near the player more often than what is far, which is not built 
 
 ## Coming next
 
-A transport over real sockets (so far only the simulated one exists), a dedicated server program, the Godot
-extension that exposes the client, and priority by distance.
+A dedicated server program, the Godot extension that exposes the client, and priority by distance.
 
 ## Example
 

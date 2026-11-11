@@ -451,7 +451,145 @@ the benchmark prints (writing one position record) was 45 to 66 nanoseconds acro
 machine is quiet. The stress point measured 31.6 ms (8.7 ms with eight workers) in the main table above, in an earlier
 session, and 38.1 ms (10.8 ms) in this one, so the shape of the curve matters more than the absolute values.
 
-## Reproduce
+## 8. Tessera Net and Godot's built-in replication, same scenario
+
+Section 1 measured Godot's built-in replication on its own. Here the same scenario runs on a Tessera Net server
+over real sockets (ENet, see [record 0013](adr/0013-enet-as-the-first-real-transport.md)), one system after the
+other on the same machine and in the same session. Source: [`bench/head-to-head`](../bench/head-to-head/); the
+Godot side is the unchanged [`bench/godot-replication`](../bench/godot-replication/).
+
+The scenario: 500, 2,000, 5,000 or 10,000 entities in a world of 2 km by 2 km, every one of them moving (up to 5
+m/s along each ground axis), only the position replicated at 20 Hz, and 8 bot clients, each a separate process, that
+see every entity. Everything runs over localhost. Our server has one thread, a fixed tick of 20 Hz, every entity
+visible to every client and no byte budget; its clients are `tessera_h2h_bot` programs, and Godot's are Godot
+processes. Each size was run three times per system, alternating the two (the one that went first changed every
+round), with 25 seconds of measurement after all the bots had connected. The tables give the median of the three
+and, in brackets, the lowest and the highest.
+
+| Entities | System | Server CPU (1 core = 100%) | Our server's own busy time | Server frames (Godot) or ticks (ours) per second | Work per frame or tick, ms |
+|---|---|---|---|---|---|
+| 500 | Godot | 12.3% (12.2 to 12.7) | n/a | 60 (60 to 60) | 5.66 (3.98 to 6.62) |
+| 500 | Tessera Net | 2.5% (0.7 to 2.9) | 1.3% (1.2 to 1.3) | 20 (20 to 20) | 0.63 (0.60 to 0.66) |
+| 2,000 | Godot | 32.9% (31.3 to 34.7) | n/a | 60 (60 to 60) | 16.34 (14.32 to 18.93) |
+| 2,000 | Tessera Net | 5.6% (3.3 to 5.7) | 3.6% (3.5 to 3.9) | 20 (20 to 20) | 1.78 (1.77 to 1.95) |
+| 5,000 | Godot | 72.6% (70.8 to 73.3) | n/a | 54.5 (51.3 to 57.0) | 47.44 (42.29 to 57.63) |
+| 5,000 | Tessera Net | 10.3% (10.1 to 11.3) | 8.6% (8.4 to 10.1) | 20 (20 to 20) | 4.32 (4.18 to 5.04) |
+| 10,000 | Godot | 96.1% (92.6 to 99.7) | n/a | 8.6 (7.2 to 10.4) | 125.23 (118.02 to 125.26) |
+| 10,000 | Tessera Net | 16.9% (15.3 to 17.4) | 15.7% (15.4 to 17.3) | 20 (20 to 20) | 7.82 (7.70 to 8.66) |
+
+| Entities | System | Bandwidth per client, KB/s | Bytes per position update |
+|---|---|---|---|
+| 500 | Godot | 183.1 (178.2 to 183.1) | 18.75 (18.25 to 18.75) |
+| 500 | Tessera Net | 38.4 (38.4 to 38.6) | 3.93 (3.93 to 3.95) |
+| 2,000 | Godot | 710.0 (710.0 to 712.7) | 18.18 (18.18 to 18.25) |
+| 2,000 | Tessera Net | 153.1 (152.7 to 153.1) | 3.92 (3.91 to 3.92) |
+| 5,000 | Godot | 1,874.5 (1,666.5 to 1,877.5) | 19.20 (17.07 to 19.23) |
+| 5,000 | Tessera Net | 378.2 (378.2 to 380.4) | 3.87 (3.87 to 3.89) |
+| 10,000 | Godot | 1,977.2 (1,696.9 to 2,259.3) | 10.12 (8.69 to 11.57) |
+| 10,000 | Tessera Net | 759.1 (757.0 to 763.5) | 3.89 (3.88 to 3.91) |
+
+Server CPU is the user plus system time of the server process as the operating system accounts it, with one core as
+100%, the same way as in section 1. The operating system charges CPU time in slices of the scheduler, so for a server
+that works for under a millisecond per tick and sleeps in between, the figure can read too low: our runs at 500
+entities read 2.5, 2.9 and 0.7%. For that reason our server also measures the time it spends working in each tick
+with its own clock (the second column, ours only); at 500 entities that is 1.2 to 1.3%. Both are published, and Godot
+has only the first. The gains below use the first for both systems, so the 500-entity row, whose best case rests on
+the 0.7% reading, should be read with care. Bytes per update is the bandwidth per client divided by the entities and
+by 20 updates per second. Bandwidth is what ENet put on the sockets, read from ENet's own counters on both sides.
+
+The gains, as the median of Godot divided by the median of ours; in brackets, the lowest Godot figure over the highest
+of ours and the highest Godot figure over the lowest of ours:
+
+| Entities | CPU | Bandwidth per client |
+|---|---|---|
+| 500 | 4.9x (4.2x to 18.1x) | 4.8x (4.6x to 4.8x) |
+| 2,000 | 5.9x (5.5x to 10.5x) | 4.6x (4.6x to 4.7x) |
+| 5,000 | 7.0x (6.3x to 7.3x) | 5.0x (4.4x to 5.0x) |
+| 10,000 | 5.7x (5.3x to 6.5x) | 2.6x (2.2x to 3.0x) |
+
+### What the tables show
+
+- **Our server kept its 20 Hz tick at every size**, in all twelve runs, and did its work in 0.63 ms (500 entities) to
+  7.82 ms (10,000) of the 50 ms it has per tick. In the same scenario the Godot server used 72.6% of a core at 5,000
+  entities and lost its frame rate at 10,000. Its figure is the frame rate of its main loop (target 60), ours is the rate of
+  a fixed tick (target 20); they are not the same quantity, and the tables only put them side by side.
+- **At 10,000 entities the Godot server is saturated**: about a whole core and 8.6 frames per second instead of 60. It
+  is not sending what the scenario asks for, so its bandwidth and bytes per update (which fall to 10.1) are not like for
+  like there, and the gains at that size say less than they would if it kept up. Read them as a floor for the
+  difference in throughput, not as the difference at equal work.
+- **Every one of our twelve runs converged.** After the entities stopped moving, the checksum of each bot's state was
+  the server's, and each bot saw every one of the N entities. The baseline script's own count of what its bots see was
+  not reliable in this setup (the bots' output reaches it in blocks), so we did not use it and make no claim about
+  the Godot bots' final state.
+- **The numbers for Godot differ from section 1.** Section 1 is one run per size from an earlier session; these are the
+  median of three runs from the same session as ours, and the machine was busier (see the conditions). At 5,000 entities
+  the Godot server is where its frame rate falls fastest: the three runs here went from 51.3 to 57.0 frames per second
+  and the one in section 1 gave 26.8, so a small change in load moves that row a lot. The tables above are the ones to
+  compare with ours.
+
+### What the transport costs in our tick
+
+ENet's part of our tick (reading datagrams, sending messages and handing them to the socket), measured by the server
+with its own clock, in milliseconds per tick:
+
+| Entities | Transport | Whole tick | Share of the tick |
+|---|---|---|---|
+| 500 | 0.28 (0.27 to 0.30) | 0.63 (0.60 to 0.66) | 45% (44% to 45%) |
+| 2,000 | 0.54 (0.49 to 0.55) | 1.78 (1.77 to 1.95) | 28% (28% to 31%) |
+| 5,000 | 1.03 (1.02 to 1.17) | 4.32 (4.18 to 5.04) | 24% (23% to 24%) |
+| 10,000 | 1.81 (1.80 to 1.98) | 7.82 (7.70 to 8.66) | 23% (23% to 23%) |
+
+The share is a large part of a very short tick at 500 entities and about a quarter of the tick from 2,000 on. The
+transport takes at most 1.81 ms of the 50 ms that a tick of 20 Hz allows, so in this scenario it is not what limits
+the server; the rest of the tick is the server's own `Update`, the movement of the entities and its bookkeeping.
+
+### What is different between the two servers
+
+The comparison puts two programs that do different work side by side, and some of the difference in the tables
+comes from that and not only from efficiency:
+
+- **Different loops.** The Godot server runs its scene tree at up to 60 frames per second with a physics step at
+  30 Hz that moves the entities, and its synchronizers replicate at 20 Hz. Our server is a table of entities, has no
+  scene tree and no physics engine, and moves the entities with one loop in a fixed tick of 20 Hz. Our "work per tick"
+  includes that loop.
+- **Different bytes on the wire.** Godot sends each position as a `Vector3` of floats with its own protocol; we send a
+  position quantized to 1 cm, written against the last state the client confirmed (see
+  [record 0009](adr/0009-replicated-state.md)). Part of the gap in bytes per update (about 19 against about 4) is that
+  design choice, not only a more efficient implementation.
+- **Visibility.** Every entity is visible to every client in the main tables, as in the baseline, so our relevancy
+  engine does not do any filtering here. The extra table below turns it on.
+- **A friendly network.** Localhost, no packet loss and no latency, so nothing about resends, the budget or a slow
+  link is exercised, and only the position is replicated.
+- **One machine and one system.** An AMD Ryzen 9 5900X on Windows 11, with a headless Godot 4.7.2 server; nothing was
+  measured on Linux.
+
+### The machine during the runs
+
+The machine was doing other work and its load could not be closed: programs of everyday work (editors, a 3D modelling
+tool, the antivirus and the like) were running. The processor load measured for a second before each run went from
+4.5% to 98.5% (median 17%), and it was above 90% before two runs (Godot at 500 entities, round 2, and ours at 500,
+round 3). The short test the benchmark prints (writing one position record, 47 ns when the machine is quiet) took
+91.9 and 97.6 ns before and after the 500-entity runs, 52.6 and 52.5 at 2,000, 52.8 and 53.8 at 5,000, and 54.3 and
+88.8 at 10,000. The alternation and the three rounds are there to spread that noise over both systems, and the
+ranges in the tables show how much it moved the results; a quiet machine would give different, probably more
+consistent, numbers.
+
+### Extra: spatial relevancy on (something Godot's built-in replication does not do)
+
+This table is not part of the comparison above and must not be read against it. It is our server only, with the
+spatial relevancy turned on: each of the 8 clients sees only the entities within 250 m of a fixed point, drawn at
+random, instead of all of them. Three rounds each, the same machine and the same load as above.
+
+| Entities | Seen by each client (mean) | Server CPU (1 core = 100%) | Own busy time | Tick, ms | Bandwidth per client, KB/s | Bytes per update |
+|---|---|---|---|---|---|---|
+| 2,000 | 86.1 (4.3%) | 0.1% (0.0 to 3.3) | 1.4% (1.4 to 1.4) | 0.70 (0.70 to 0.72) | 6.71 (6.69 to 6.75) | 3.99 (3.98 to 4.01) |
+| 10,000 | 447.4 (4.5%) | 6.2% (4.9 to 6.3) | 5.3% (5.3 to 5.6) | 2.67 (2.66 to 2.80) | 34.60 (34.30 to 34.90) | 3.96 (3.93 to 3.99) |
+
+All six runs converged in the sense that each bot saw as many entities as the server said that connection could see (a
+bot holds only part of the world here, so the whole-state checksum of the main tables does not apply). The first CPU
+column reads too low at 2,000 entities, for the reason given above. The processor load before these runs was 4.2% to 16.2%, and the short test took 86.2 and 51.4 ns around the
+2,000-entity runs and 53.4 and 51.2 around the 10,000 ones.
+
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
 [`bench/README.md`](../bench/README.md)):
@@ -483,6 +621,19 @@ cmake --build --preset windows-msvc-profile-release --target tessera_net_bench
 cmake --preset windows-msvc -DTESSERA_BUILD_ECS_COMPARISON=ON
 cmake --build --preset windows-msvc-release --target tessera_net_ecs_comparison
 ./build/windows-msvc/bench/ecs-comparison/Release/tessera_net_ecs_comparison.exe
+```
+
+Section 8, the comparison with Godot's built-in replication, needs ENet (downloaded on the first configure, only with
+`-DTESSERA_BUILD_ENET=ON`), a Godot console executable and Python with `psutil`. The command is the one that produced
+the tables, with the arguments of the Godot script (the programs, the sizes, the bots, the seconds, the percentage
+of entities that move); the machine takes about 20 minutes for it and should be left alone meanwhile:
+
+```powershell
+cmake --preset windows-msvc-enet
+cmake --build --preset windows-msvc-enet-release
+python bench/head-to-head/run.py build/windows-msvc-enet/bench/head-to-head/Release/tessera_h2h_server.exe 500,2000,5000,10000 8 25 100 --rounds 3 --godot <path to the Godot console executable> --silence build/windows-msvc-enet/bench/Release/tessera_net_bench.exe --out results.json
+# the extra table: our server alone with the spatial relevancy on
+python bench/head-to-head/run.py build/windows-msvc-enet/bench/head-to-head/Release/tessera_h2h_server.exe 2000,10000 8 25 100 --relevancy spatial --rounds 3 --silence build/windows-msvc-enet/bench/Release/tessera_net_bench.exe --out spatial.json
 ```
 
 The charts are plain SVG files generated by `python tools/make_charts.py` (no dependencies). The numbers are

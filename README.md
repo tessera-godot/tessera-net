@@ -7,8 +7,8 @@ Part of **Tessera**, a family of open-source tools for building large multiplaye
 > **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
 > job system), a relevancy engine (deciding what each player sees), replicated state (turning what
 > changed into small buffers for each player) and a server and a client that exchange them over a simulated
-> network are implemented and tested. A transport over real sockets, the Godot plugin and the dedicated server
-> are not built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for
+> network, or over real sockets with the optional ENet transport, are implemented and tested. The Godot plugin
+> and the dedicated server are not built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for
 > progress.
 
 ## Why this exists
@@ -17,6 +17,13 @@ Godot's built-in multiplayer is great for small games. It replicates every visib
 which stops scaling at a few thousand entities. In our baseline measurement a single server core handled
 roughly 0.85 million entity updates per second at about 19 bytes each, and degraded sharply above
 2,000 entities with 8 clients. Open-world survival games need far more than that.
+
+We have since run the same scenario on a Tessera Net server over real sockets (8 clients, every entity moving,
+localhost, one machine, our server on one thread). It kept a fixed 20 Hz tick from 500 to 10,000 entities, with
+4.9 to 7.0 times less CPU than Godot's built-in replication and 2.6 to 5.0 times fewer bytes sent to each client;
+at 10,000 entities the Godot server was at the limit of one core. Part of that gap is design (positions
+quantized to 1 cm, no scene tree, no physics) and not only efficiency, and the machine had background load. The
+table, the ranges and the caveats are in the [comparison](docs/benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario).
 
 This project builds the missing pieces so Godot developers can make those games:
 
@@ -102,7 +109,8 @@ one thread (the goal is 10 million) and about 44% efficiency with eight workers 
 numbers and what is left to improve are in [record 0009](docs/adr/0009-replicated-state.md).
 
 **Networking** (`core/`): a transport interface that moves whole messages on a reliable and an unreliable
-channel, a simulated network in memory that loses, repeats and delays them, five messages, a
+channel, a simulated network in memory that loses, repeats and delays them, an optional transport over real
+sockets (ENet, see [record 0013](docs/adr/0013-enet-as-the-first-real-transport.md)), five messages, a
 `ReplicationServer` that runs the whole network phase of a tick, and a `ClientReplica` that applies what arrives
 and confirms it. Tests run the real server and real players over a bad network and check that every player ends
 up with exactly what the server has. See the [networking reference](docs/reference/networking.md).

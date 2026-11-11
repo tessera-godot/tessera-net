@@ -31,7 +31,7 @@ standalone server. This guarantees client and server agree on the rules.
    [replicated state reference](reference/replicated-state.md).
 5. **Transport**: behind an interface, so the network library can be replaced. The interface, a simulated
    network, the protocol, the server and the client are implemented; see the
-   [networking reference](reference/networking.md). A transport over real sockets is not.
+   [networking reference](reference/networking.md). An optional transport over real sockets (ENet) exists too.
 6. **Prediction**: input commands, reconciliation, proxies.
 7. **Jobs**: work split across CPU cores.
 

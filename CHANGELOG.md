@@ -7,6 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- An optional transport over real sockets: `EnetServerTransport` and `EnetClientTransport`, implementations of
+  `ITransport` on ENet 1.3.18 (MIT), built only with `-DTESSERA_BUILD_ENET=ON` (off by default; the option
+  downloads ENet, and with it off the build and the 495 tests are unchanged). Sixteen tests in their own executable,
+  `tessera_net_enet_tests`, and the `windows-msvc-enet` preset. A section "Over real sockets (ENet)" in the networking
+  reference, with an example that is compiled and run as a test, and architecture decision record 0013.
+- `bench/head-to-head`: `tessera_h2h_server` and `tessera_h2h_bot` (the Godot baseline scenario on a Tessera Net server
+  over ENet) and `run.py`, which runs them, checks that every bot ends with the server's state, and can alternate
+  them with the Godot baseline. `tessera_net_bench indicator` prints the time of one `WriteRecord`, the check of how busy
+  the machine is.
+- Section 8 of the benchmarks page, Tessera Net and Godot's built-in replication in the same scenario (500 to 10,000
+  entities, 8 clients, 20 Hz, localhost, median of three alternated rounds): our server kept its 20 Hz tick at every
+  size with 4.9 to 7.0 times less CPU and 2.6 to 5.0 times fewer bytes sent to each client, with the caveats on the page
+  (the Godot server was saturated at 10,000 entities, the two programs do different work, and the machine had
+  background load); and a separate table with the spatial relevancy on.
 - `tessera_net_bench network-curve`: the network benchmark at five amounts of change per tick (about 1, 1,000, 2,985,
   10,000 and 33,333 entities moving), with 1 thread and 8 workers, a fitted line as information, and a check that the
   bytes sent are the same with 1 and 8 workers at every point. A chart for it, a subsection of section 7 on the
