@@ -222,8 +222,8 @@ public:
                     const bool closed_here = it->second.closed;
                     connections_.erase(it);
                     if (!closed_here) {
-                        out.push_back(
-                            TransportEvent{TransportEvent::Kind::Disconnected, id, Channel::ReliableOrdered, {}});
+                        out.push_back(TransportEvent{TransportEvent::Kind::Disconnected, id,
+                                                     Channel::ReliableOrdered, {}});
                     }
                 }
                 break;

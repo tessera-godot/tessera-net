@@ -78,7 +78,7 @@ std::string FormatLogLine(std::chrono::system_clock::time_point when, LogLevel l
     unsigned month = 0;
     unsigned day = 0;
     DateOfDay(days, year, month, day);
-    char stamp[48];
+    char stamp[96]; // room for the widest numbers, so that the compiler can see nothing is cut
     std::snprintf(stamp, sizeof(stamp), "%04d-%02u-%02uT%02d:%02d:%02d.%03dZ ", year, month, day,
                   static_cast<int>(ms_of_day / 3600000), static_cast<int>(ms_of_day / 60000 % 60),
                   static_cast<int>(ms_of_day / 1000 % 60), static_cast<int>(ms_of_day % 1000));
