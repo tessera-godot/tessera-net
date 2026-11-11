@@ -7,6 +7,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- The dedicated server as a library, `tessera_server` (in `server/`), built only with `-DTESSERA_BUILD_SERVER=ON`
+  (off by default; with it off the build and the 495 tests are unchanged). Settings from a file and from arguments
+  with clear errors, a fixed-rate tick loop (`ServerHost`) around a game that implements `IGameLogic`, a clean stop that
+  is safe from a signal handler, a log with time stamps and levels, an optional summary line (tick, players, bytes
+  per second) and a `shard_id` that reaches the entity ids.
+- `tessera_example_server`, a small game on a real UDP port over ENet, as the model for your own server, and tests for it:
+  the library on a simulated network, the example over ENet in loopback, and a script that starts it as a process and
+  sends it signals.
+- The `windows-msvc-server` preset, Linux presets (`linux-debug`, `linux-server-*` and `linux-enet-*`), and a CI
+  workflow that builds and tests Ubuntu (GCC and Clang) and Windows (MSVC), in Release and Debug, with and without ENet,
+  with warnings as errors.
+- A section "Running a server" in the networking reference, `server/README.md` and architecture decision record 0014.
+- A section about running the checks of the CI locally in `CONTRIBUTING.md`.
+
+### Changed
+- Portability fixes found while preparing the Linux build: a function that only an assertion uses is marked as such, and
+  the events of the ENet transport are built with all their members. No behavior changes.
+
+## [0.1.0-alpha] - 2026-11-11
+
+### Added
 - An optional transport over real sockets: `EnetServerTransport` and `EnetClientTransport`, implementations of
   `ITransport` on ENet 1.3.18 (MIT), built only with `-DTESSERA_BUILD_ENET=ON` (off by default; the option
   downloads ENet, and with it off the build and the 495 tests are unchanged). Sixteen tests in their own executable,
