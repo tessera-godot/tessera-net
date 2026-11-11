@@ -66,7 +66,7 @@ depends on how many entities move, so the goal for it is written by entities mov
 The 1,000 row is a reference load that has not been checked against real games; with it the phase takes 3.5 ms on one
 thread and 1.2 ms with eight workers. The rows for 2,985, 10,000 and 33,333 are today's measurements rounded up, so
 the benchmark says when the phase gets worse, and 3.3 and 1 ms stay as the horizon at the stress point. These values
-are a proposal; see [record 0012](docs/adr/0012-network-phase-as-a-curve.md) and the
+are the goals; see [record 0012](docs/adr/0012-network-phase-as-a-curve.md) and the
 [curve](docs/benchmarks.md#the-time-of-the-phase-by-entities-moving). See also the
 [benchmarks](docs/benchmarks.md#5-relevancy) and the [network section](docs/benchmarks.md#7-the-whole-network-path).
 

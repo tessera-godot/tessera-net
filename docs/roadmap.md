@@ -22,7 +22,7 @@ Replication is built in slices:
 | Transport and client side | A transport interface, a simulated network, the protocol, the server and the client, end-to-end tests with many simulated players | First version done, bytes within the goal; the time is close to its goal at 1,000 moving entities per tick and far from it at 33,333 ([benchmarks](benchmarks.md#7-the-whole-network-path)); a transport over real sockets to come |
 
 The time of the network phase is a curve, not a point: it grows with the entities that move in a tick, and the goal for it
-is now written that way (a proposal, [record 0012](adr/0012-network-phase-as-a-curve.md); the measured curve is in the
+is now written that way ([record 0012](adr/0012-network-phase-as-a-curve.md); the measured curve is in the
 [benchmarks](benchmarks.md#the-time-of-the-phase-by-entities-moving)):
 
 | Entities moving per tick | One thread | Eight workers |

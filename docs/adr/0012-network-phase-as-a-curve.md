@@ -1,6 +1,6 @@
 # 0012. The time of the network phase as a curve
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 
 ## Context
@@ -89,4 +89,4 @@ show whether it settles at 100.
   from `bench/bench_network.cpp` (the `network-curve` mode) and are on the [benchmarks
   page](../benchmarks.md#the-time-of-the-phase-by-entities-moving). At every point the bytes sent are the same with 1
   and with 8 workers, in all four executions.
-- This record stays Proposed until the values in the table are chosen.
+- The values in the table were chosen on 2026-11-11 and are the goals from now on.
