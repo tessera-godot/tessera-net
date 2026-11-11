@@ -22,8 +22,8 @@ cmake --build --preset windows-msvc-release
 Run benchmarks only in a Release build, and close other heavy programs first: the numbers vary when the
 machine is busy. The network benchmark takes the longest; run it alone by adding the word `network` after the
 name of the program. The word `network-curve` runs the network path at five amounts of change per tick (the
-first moves about one entity, to measure the fixed cost) and fits a line to the time of the phase; it takes a few minutes and is not part of the full run (add `reverse` to
-play the points from the busiest to the quietest).
+first moves about one entity, to measure the fixed cost) and fits a line to the time of the phase; it takes a few
+minutes and is not part of the full run (add `reverse` to play the points from the busiest to the quietest).
 
 ## Godot nodes
 

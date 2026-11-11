@@ -262,7 +262,7 @@ def network_chart():
 
 def network_curve_chart():
     """The network phase against the entities that move in a tick: measured medians joined by segments."""
-    # (entities moving per tick, one thread ms, eight workers ms): medians of 4 executions of `network-curve`
+    # (entities moving per tick, one thread ms, eight workers ms): medians of 4 runs of `network-curve`
     data = [
         (1, 1.19, 0.64),
         (1000, 3.51, 1.23),
@@ -271,6 +271,7 @@ def network_curve_chart():
         (33333, 38.08, 10.81),
     ]
     stress_goal = (33333, 3.3, 1.0)  # the long-term goals, at the stress point
+    reference = (1000, 3.3, 1.0, 3.51, 1.23)  # the goals at the reference load and the medians there
     width, height = 720, 432
     left, right, top, bottom = 70, 676, 90, 320
     x_max, y_max = 35000.0, 40.0
@@ -300,20 +301,29 @@ def network_curve_chart():
         for row in data[-2:]:
             parts.append(text(x_of(row[0]) - 8, y_of(row[index]) - 10, f"{row[index]:.2f}", 11, color, "end", "bold"))
     gx = x_of(stress_goal[0])
-    for goal, label in ((stress_goal[1], "goal 3.3 ms"), (stress_goal[2], "goal 1 ms")):
+    for goal, label, lift in ((stress_goal[1], "goal 3.3 ms", 7), (stress_goal[2], "goal 1 ms", 7)):
         y = y_of(goal)
         parts.append(f'<line x1="{gx - 8:.1f}" y1="{y:.1f}" x2="{gx + 8:.1f}" y2="{y:.1f}" stroke="{GREEN}" stroke-width="3"/>')
-        parts.append(text(gx - 14, y + 4, label, 11, GREEN, "end"))
+        parts.append(text(gx - 14, y - lift, label, 11, GREEN, "end"))
+    # The reference load: the original goals at 1,000 moving entities, next to the measured medians.
+    rx = x_of(reference[0])
+    for goal in reference[1:3]:
+        y = y_of(goal)
+        parts.append(f'<line x1="{rx - 8:.1f}" y1="{y:.1f}" x2="{rx + 8:.1f}" y2="{y:.1f}" stroke="{GREEN}" stroke-width="3"/>')
+    parts.append(f'<line x1="{rx:.1f}" y1="{top + 40}" x2="{rx:.1f}" y2="{y_of(reference[1]) - 10:.1f}" stroke="{MUTED}" stroke-dasharray="3 3"/>')
+    parts.append(text(rx + 8, top + 52, "At 1,000 moving (reference load):", 11, MUTED))
+    parts.append(text(rx + 8, top + 68, f"{reference[3]:.2f} ms against a goal of 3.3 ms, one thread", 11, BLUE, "start", "bold"))
+    parts.append(text(rx + 8, top + 84, f"{reference[4]:.2f} ms against a goal of 1.0 ms, eight workers", 11, AMBER, "start", "bold"))
     legend_y = 394
     parts.append(f'<rect x="{left}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{BLUE}"/>')
     parts.append(text(left + 22, legend_y, "one thread", 12, INK))
     parts.append(f'<rect x="{left + 120}" y="{legend_y - 11}" width="14" height="14" rx="3" fill="{AMBER}"/>')
     parts.append(text(left + 142, legend_y, "eight workers", 12, INK))
     parts.append(f'<rect x="{left + 260}" y="{legend_y - 11}" width="14" height="4" fill="{GREEN}"/>')
-    parts.append(text(left + 282, legend_y, "long-term goal at the stress point", 12, INK))
+    parts.append(text(left + 282, legend_y, "goals at 1,000 moving and at the stress point", 12, INK))
     parts.append(text(24, height - 14, "Measured medians joined by straight lines. With one entity moving: 1.19 ms and 0.64 ms.", 11, MUTED))
     return card(width, height, "Network phase: time per tick by entities moving",
-                "128 players, 200,000 entities, 5% packet loss. Median of 4 executions, desktop CPU, Release build. Shorter is better.",
+                "128 players, 200,000 entities, 5% packet loss. Median of 4 runs, desktop CPU, Release build. Shorter is better.",
                 chr(10).join(parts))
 
 

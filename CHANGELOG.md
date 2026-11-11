@@ -7,7 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
-- 	essera_net_bench network-curve: the network benchmark at five amounts of change per tick (about 1, 1,000, 2,985,
+- `tessera_net_bench network-curve`: the network benchmark at five amounts of change per tick (about 1, 1,000, 2,985,
   10,000 and 33,333 entities moving), with 1 thread and 8 workers, a fitted line as information, and a check that the
   bytes sent are the same with 1 and 8 workers at every point. A chart for it, a subsection of section 7 on the
   benchmarks page, and architecture decision record 0012 (proposed). The time of the phase grows with the entities

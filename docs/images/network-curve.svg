@@ -2,7 +2,7 @@
 <title>Network phase: time per tick by entities moving</title>
 <rect x="0.5" y="0.5" width="719" height="431" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
 <text x="24" y="34" font-size="17" fill="#1f2937" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">Network phase: time per tick by entities moving</text>
-<text x="24" y="54" font-size="12" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">128 players, 200,000 entities, 5% packet loss. Median of 4 executions, desktop CPU, Release build. Shorter is better.</text>
+<text x="24" y="54" font-size="12" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">128 players, 200,000 entities, 5% packet loss. Median of 4 runs, desktop CPU, Release build. Shorter is better.</text>
 <line x1="70" y1="320.0" x2="676" y2="320.0" stroke="#e5e7eb"/>
 <text x="60" y="324.0" font-size="11" fill="#6b7280" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">0</text>
 <line x1="70" y1="262.5" x2="676" y2="262.5" stroke="#e5e7eb"/>
@@ -40,14 +40,20 @@
 <text x="235.14285714285714" y="283.1475" font-size="11" fill="#d97706" text-anchor="end" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">4.67</text>
 <text x="639.1370857142857" y="247.84249999999997" font-size="11" fill="#d97706" text-anchor="end" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">10.81</text>
 <line x1="639.1" y1="301.0" x2="655.1" y2="301.0" stroke="#16a34a" stroke-width="3"/>
-<text x="633.1370857142857" y="305.025" font-size="11" fill="#16a34a" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal 3.3 ms</text>
+<text x="633.1370857142857" y="294.025" font-size="11" fill="#16a34a" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal 3.3 ms</text>
 <line x1="639.1" y1="314.2" x2="655.1" y2="314.2" stroke="#16a34a" stroke-width="3"/>
-<text x="633.1370857142857" y="318.25" font-size="11" fill="#16a34a" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal 1 ms</text>
+<text x="633.1370857142857" y="307.25" font-size="11" fill="#16a34a" text-anchor="end" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goal 1 ms</text>
+<line x1="79.3" y1="301.0" x2="95.3" y2="301.0" stroke="#16a34a" stroke-width="3"/>
+<line x1="79.3" y1="314.2" x2="95.3" y2="314.2" stroke="#16a34a" stroke-width="3"/>
+<line x1="87.3" y1="130" x2="87.3" y2="291.0" stroke="#6b7280" stroke-dasharray="3 3"/>
+<text x="95.31428571428572" y="142" font-size="11" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">At 1,000 moving (reference load):</text>
+<text x="95.31428571428572" y="158" font-size="11" fill="#2563eb" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">3.51 ms against a goal of 3.3 ms, one thread</text>
+<text x="95.31428571428572" y="174" font-size="11" fill="#d97706" text-anchor="start" font-weight="bold" font-family="Segoe UI, Helvetica, Arial, sans-serif">1.23 ms against a goal of 1.0 ms, eight workers</text>
 <rect x="70" y="383" width="14" height="14" rx="3" fill="#2563eb"/>
 <text x="92" y="394" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">one thread</text>
 <rect x="190" y="383" width="14" height="14" rx="3" fill="#d97706"/>
 <text x="212" y="394" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">eight workers</text>
 <rect x="330" y="383" width="14" height="4" fill="#16a34a"/>
-<text x="352" y="394" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">long-term goal at the stress point</text>
+<text x="352" y="394" font-size="12" fill="#1f2937" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">goals at 1,000 moving and at the stress point</text>
 <text x="24" y="418" font-size="11" fill="#6b7280" text-anchor="start" font-weight="normal" font-family="Segoe UI, Helvetica, Arial, sans-serif">Measured medians joined by straight lines. With one entity moving: 1.19 ms and 0.64 ms.</text>
 </svg>

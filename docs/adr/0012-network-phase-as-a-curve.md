@@ -14,16 +14,16 @@ gave 31.6 and 8.7 ms for the same scenario before; see the conditions in the con
 One point does not say how the cost grows with the load, and that scenario is much heavier than most games. How many
 entities exist says little about how many move: Epic's documentation for its
 [Replication Graph](https://dev.epicgames.com/documentation/en-us/unreal-engine/replication-graph-in-unreal-engine)
-says a Fortnite Battle Royale game starts with 100 players and about 50,000 replicated actors, and a server pays for
-the ones that change, not for the ones that exist. We needed the cost at several loads before we could say what a
-goal for it means.
+says a Fortnite Battle Royale game starts with 100 players and about 50,000 replicated actors. A server pays for the
+ones that change, not for the ones that exist, which is why we measure by entities moving. We needed the cost at
+several loads before we could say what a goal for it means.
 
 ## Decision
 - **The goals for the phase are written by entities moving per tick**, for 128 players and the reference world
   (200,000 entities in 4,500 m by 4,500 m, 5% packet loss, the default budget of 100 kbps).
 - **3.3 ms and 1 ms stay as the long-term goal at the stress point**, 33,333 moving entities per tick.
 - **Near term, the original goals apply to a reference load of 1,000 moving entities per tick**, and the heavier
-  points have limits that say "do not get worse than today". The reference load is our estimate of a busy game; we
+  points have ceilings that say "do not get worse than today". The reference load is our estimate of a busy game; we
   have not checked it against real games.
 
 | Entities moving per tick | One thread | Eight workers |
@@ -35,7 +35,9 @@ goal for it means.
 | 33,333, long term | 3.3 ms | 1.0 ms |
 
 The values for 2,985, 10,000 and 33,333 are the measured medians below rounded up to the next half millisecond.
-They are floors against getting worse, not aims.
+They are ceilings against getting worse, not aims. On this busy machine the slowest of the four executions already
+goes over them (7.76 > 7.0, 17.67 > 17.0, 40.33 > 38.5 and 11.30 > 11.0 ms), and the median of the `network` mode,
+40.1 ms, is also above 38.5.
 
 The curve, from `tessera_net_bench network-curve`, in milliseconds per tick (median of 4 executions, range in
 brackets):
@@ -51,14 +53,17 @@ brackets):
 The periods that give these loads (an entity changes every 200,000, 200, 67, 20 or 6 ticks) are the only thing that
 differs from the main scenario; the last row is that scenario.
 
-The curve is not a straight line. A least-squares line through the five medians has a fixed cost of 3.16 ms and
-1.08 us per moving entity on one thread (R squared 0.98), and 1.11 ms and 0.29 us with eight workers (0.99), but
-the residuals reach 3 ms on one thread, and the fitted fixed cost is 2.7 times the 1.19 ms we measured with one
-entity moving. The line is a rough summary and does not describe the shape. The shape is this: the cost per moving
-entity is highest in the middle, about 1.7 us between 1,000 and 2,985, 1.4 us up to 10,000, and falls to 0.9 us
-between 10,000 and 33,333. From about 10,000 on the byte budget limits what is written (95 to 97 records per player
-per tick), so the encoding stops growing, and the price is paid in how current a player's copy is (70% of it not
-current at the top).
+The curve is not a straight line. A least-squares line has a fixed cost of 3.16 ms and 1.08 us per moving entity on
+one thread (R squared 0.98), and 1.11 ms and 0.29 us with eight workers (0.99); these are the medians of the four
+fits, one per execution, not a line through the five medians. Either way, the residuals reach 3 ms on one thread, and
+the fitted fixed cost is 2.7 times the 1.19 ms we measured with one entity moving. The line is a rough summary and
+does not describe the shape. The shape is this: the cost per moving entity falls as the load grows. Between
+consecutive points it is about 2.3 us up to 1,000 entities moving, 1.7 us up to 2,985, 1.4 us up to 10,000 and 0.9 us
+up to 33,333 on one thread (0.59, 0.52, 0.34 and 0.26 us with eight workers). From about 10,000 on the records written
+per player stop growing (95 to 97 per tick), and the share of a player's copy that is not current is 70% at the top.
+At 10,000 the figure for the last five seconds is 118 kbps, above the 100 kbps average, which the server can reach for
+a while using what a quiet connection saved up (the budget allows 200 kbps over any 10 seconds); this run does not
+show whether it settles at 100.
 
 ## Consequences
 - **The new wording loosens what we promised for heavy loads, and we say so.** The old goal was the same 3.3 ms
@@ -69,18 +74,19 @@ current at the top).
   point as the horizon, and the stress point is still far from it.
 - **What the curve suggests, without promising anything.** With almost nothing moving the server is already near
   its goals (1.19 and 0.64 ms), so the players, the base relevancy and the transport are not the problem. The cost
-  grows with movement from 1,000 to 10,000 entities, before the budget limits the encoding, and that is where
-  gathering and testing candidates and choosing what fits the budget weigh most. That is where further work should
-  look first, with a profiler.
+  grows with movement from 1,000 to 10,000 entities, while the records written per player still grow, and that is
+  where gathering and testing candidates and choosing what fits the budget probably weigh most; a profile at those
+  points will tell. That is where further work should look first.
 - **The reference load is a guess.** 1,000 moving entities per tick is a load we chose, not one measured in a real
   game, and the table should be revisited when we have one.
-- **The measurements were taken on a busy machine.** Programs of everyday work were running and could not be
-  closed; the idle CPU was between 45% and 100% before the runs, and the short test that the benchmark prints for
-  this (writing one position record) took 45 to 66 ns against 47 when the machine is quiet. The stress point
-  measured 34.1 ms in an earlier session and 38.1 ms in the one reported here, so the shape of the curve matters more than the
-  absolute values, and the floors above would need a re-measure on a quiet machine before anyone relies on them.
+- **The measurements were taken on a busy machine.** Programs of everyday work were running and could not be closed;
+  the processor was at 45% to 100% load before the executions (80%, 100%, 88% and 45%), and the short test that the
+  benchmark prints for this (writing one position record) took 45 to 66 ns against 47 when the machine is quiet. The
+  stress point measured 31.6 ms (8.7 ms with eight workers) in the main table above, in an earlier session, and 38.1
+  ms (10.8 ms) in this one, so the shape of the curve matters more than the absolute values, and the ceilings above
+  would need a re-measure on a quiet machine before anyone relies on them.
 - The numbers are from an in-memory simulator, one machine and one build, with the packet loss simulated. They come
-  from `bench/bench_network.cpp` (the `network-curve` mode) and are on the
-  [benchmarks page](../benchmarks.md#7-the-whole-network-path). At every point the bytes sent are the same with 1
+  from `bench/bench_network.cpp` (the `network-curve` mode) and are on the [benchmarks
+  page](../benchmarks.md#the-time-of-the-phase-by-entities-moving). At every point the bytes sent are the same with 1
   and with 8 workers, in all four executions.
 - This record stays Proposed until the values in the table are chosen.

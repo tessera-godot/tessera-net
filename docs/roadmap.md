@@ -34,7 +34,7 @@ is now written that way (a proposal, [record 0012](adr/0012-network-phase-as-a-c
 | 33,333, long term | 3.3 ms | 1.0 ms |
 
 The 1,000 row is a reference load that has not been checked against real games. The next steps follow the curve: the
-cost between 1,000 and 10,000 moving entities, where the budget does not yet limit the work, is where to look first.
+cost between 1,000 and 10,000 moving entities, where the records written per player still grow, is where to look first.
 
 Later: lag compensation, visual state-tree editor, large-world streaming tools.
 

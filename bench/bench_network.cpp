@@ -817,6 +817,8 @@ constexpr Scenario WithChangePeriod(const Scenario& base, uint32_t period) noexc
 // last one is the main scenario itself.
 constexpr uint32_t kCurvePeriods[5] = {200000, 200, 67, 20, 6};
 constexpr size_t kCurvePoints = std::size(kCurvePeriods);
+static_assert(kCurvePeriods[kCurvePoints - 1] == kMain.change_period,
+              "the last point of the curve is the main scenario");
 constexpr uint32_t kCurveSteadyTicks = 40; // the ticks of the byte comparison, after the warm-up
 
 /// A hash of every byte the server sends in a full-size scenario: players join on a clean network, then the

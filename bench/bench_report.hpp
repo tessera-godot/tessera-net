@@ -56,8 +56,9 @@ struct LineFit {
     double r2; // share of the variation in y that the line explains
 };
 
-/// With fewer than two points, or with every x equal, there is no slope to find: the result is the mean of y
-/// as the intercept, a slope of 0 and an r2 of 0. With every y equal the line is exact and r2 is 1.
+/// With fewer than two points, or with every x equal, there is no slope to find: the slope is 0 and the r2 is
+/// 0, and the intercept is the mean of y: 0 for no points and the y value for one point. With every y
+/// equal the line is exact and r2 is 1.
 inline LineFit FitLine(const std::vector<double>& x, const std::vector<double>& y) {
     const size_t n = std::min(x.size(), y.size());
     if (n == 0) {

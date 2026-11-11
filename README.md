@@ -110,7 +110,7 @@ up with exactly what the server has. See the [networking reference](docs/referen
 ![Network phase: time per tick, measured value, regression limit and goal](docs/images/network-phase.svg)
 
 Players converge and the bytes are within the goal, but the time of the phase is not: with 128 players in a world
-of 200,000 entities, a sixth of them changing in every tick and 5% of packets lost, the phase takes about 32 ms per
+of 200,000 entities, a sixth of them changing in every tick and 5% of packets lost, the phase takes 32 to 38 ms per
 tick on one thread (the goal is 3.3 ms at 1,000 moving entities per tick, and this world moves 33,333) and the server sends about 98 kbps to each player (the goal is 100). That
 holds because every player has a budget of bytes, and the price is that each entity reaches a player less often
 than it changes when the world changes more than the budget carries. The numbers are in
