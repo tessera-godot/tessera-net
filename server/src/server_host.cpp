@@ -36,7 +36,8 @@ ServerHost::ServerHost(const ServerConfig& config, IGameLogic& logic, net::ITran
       replication_(setup_.replication, setup_.relevancy, *setup_.schema, grid_, groups_, jobs_, transport_),
       loop_(net::TickConfig{static_cast<double>(config_.tick_rate_hz)}, jobs_),
       context_{config_.shard_id, config_.tick_rate_hz, replication_, grid_, groups_, jobs_, log_,
-               [this] { RequestStop(); }} {
+               [this] { RequestStop(); }},
+      summary_(config_.summary_interval_s, log_) {
     loop_.SetPhaseHandler(net::Phase::Simulate,
                           [this](net::PhaseContext& tick) { logic_.OnTick(tick.dt_seconds); });
     loop_.SetPhaseHandler(net::Phase::Network, [this](net::PhaseContext& tick) {
@@ -44,6 +45,8 @@ ServerHost::ServerHost(const ServerConfig& config, IGameLogic& logic, net::ITran
         if (flush_transport_) {
             flush_transport_();
         }
+        summary_.OnTick(SummaryReporter::Clock::now(), tick.tick, replication_.ConnectionCount(),
+                        transport_.Stats());
     });
 }
 

@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // A test run that dies (an uncaught exception, a failed assertion) must end with an error code and a line on
 // the console, not with a dialog that waits for someone to press a button. This is linked into the server
 // test programs only.

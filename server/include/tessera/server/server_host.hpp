@@ -75,6 +75,7 @@ private:
     net::ReplicationServer replication_;
     net::TickLoop loop_;
     ServerContext context_;
+    SummaryReporter summary_;
     std::atomic<bool> stop_{false};
     bool started_ = false;
     bool shut_down_ = false;
