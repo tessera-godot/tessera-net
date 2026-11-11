@@ -812,9 +812,11 @@ constexpr Scenario WithChangePeriod(const Scenario& base, uint32_t period) noexc
     return Scenario{base.players, base.entities, base.world_size, period};
 }
 
-// The change periods of the curve, which move about 1,000, 3,000, 10,000 and 33,333 entities per tick in the
-// main scenario. The last one is the main scenario itself.
-constexpr uint32_t kCurvePeriods[4] = {200, 67, 20, 6};
+// The change periods of the curve, which move about 1, 1,000, 3,000, 10,000 and 33,333 entities per tick in
+// the main scenario. The first is almost still, so that the fixed cost is measured, not extrapolated; the
+// last one is the main scenario itself.
+constexpr uint32_t kCurvePeriods[5] = {200000, 200, 67, 20, 6};
+constexpr size_t kCurvePoints = std::size(kCurvePeriods);
 constexpr uint32_t kCurveSteadyTicks = 40; // the ticks of the byte comparison, after the warm-up
 
 /// A hash of every byte the server sends in a full-size scenario: players join on a clean network, then the
@@ -968,7 +970,7 @@ void CheckNetwork() {
 }
 
 void CheckNetworkCurve(bool reverse) {
-    std::array<uint32_t, 4> periods{};
+    std::array<uint32_t, kCurvePoints> periods{};
     for (size_t i = 0; i < periods.size(); ++i) {
         periods[i] = kCurvePeriods[reverse ? periods.size() - 1 - i : i];
     }
@@ -984,8 +986,8 @@ void CheckNetworkCurve(bool reverse) {
                 "not current %");
 
     // The fit and the residuals are kept in the order of the periods, whatever order they run in.
-    std::array<double, 4> moved_of{};
-    std::array<std::array<double, 4>, 2> phase_of{};
+    std::array<double, kCurvePoints> moved_of{};
+    std::array<std::array<double, kCurvePoints>, 2> phase_of{};
     char name[120];
     for (const uint32_t period : periods) {
         const size_t slot =
