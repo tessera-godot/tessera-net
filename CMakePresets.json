@@ -29,11 +29,21 @@
       }
     },
     {
+      "name": "windows-msvc-server",
+      "displayName": "Windows (Visual Studio 2022), server library and its tests",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-server",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON"
+      }
+    },
+    {
       "name": "windows-msvc-enet",
-      "displayName": "Windows (Visual Studio 2022), ENet transport and head-to-head programs",
+      "displayName": "Windows (Visual Studio 2022), server, ENet transport and head-to-head programs",
       "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build/windows-msvc-enet",
       "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
         "TESSERA_BUILD_ENET": "ON",
         "TESSERA_BUILD_BENCH": "ON"
       }
@@ -68,6 +78,16 @@
       "name": "windows-msvc-profile-release",
       "configurePreset": "windows-msvc-profile",
       "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-server-release",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-server-debug",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Debug"
     },
     {
       "name": "windows-msvc-enet-release",
@@ -105,6 +125,22 @@
       "name": "windows-msvc-profile-release",
       "configurePreset": "windows-msvc-profile",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-server-release",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-server-debug",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }

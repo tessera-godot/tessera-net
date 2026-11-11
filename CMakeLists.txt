@@ -14,6 +14,7 @@ option(TESSERA_BUILD_BENCH "Build the acceptance benchmark" OFF)
 option(TESSERA_PROFILE "Time the stages of the network phase (measurement builds only)" OFF)
 option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
 option(TESSERA_BUILD_ENET "Build the ENet transport, its tests and the head-to-head programs (downloads ENet)" OFF)
+option(TESSERA_BUILD_SERVER "Build the server library, its example and its tests" OFF)
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
@@ -21,6 +22,10 @@ add_subdirectory(core)
 if(TESSERA_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+if(TESSERA_BUILD_SERVER)
+    add_subdirectory(server)
 endif()
 
 if(TESSERA_BUILD_BENCH)
