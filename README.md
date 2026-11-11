@@ -42,16 +42,32 @@ Read the full [motivation](docs/motivation.md) and the [benchmarks](docs/benchma
 | Goal | Target |
 |---|---|
 | Replication throughput | at least 10 million entity updates per second per core |
-| Network phase per tick, 128 clients | 3.3 ms or less on one thread |
+| Network phase per tick, 128 clients | 3.3 ms on one thread and 1 ms with eight workers, at 1,000 moving entities per tick (table below) |
 | Position update size | 8 bytes or less |
 | Idle (dormant) entity | zero CPU and zero bytes per tick |
 | Registered entities | 1 million, cost proportional to changes |
 
-These are targets, not results. Measured numbers are published as they exist, including the ones that miss
+These are targets, not results, and the one for the network phase depends on the load (see below). Measured numbers are published as they exist, including the ones that miss
 their target. For example, the relevancy engine takes about 0.7 ms per tick on one thread for 128 players among a
 million entities, against a goal of 1.5 ms; a first version took 15 ms. Replicated state, on the other hand,
 writes about 5.8 million updates per second on one thread against a goal of 10 million, and the whole network
-phase takes about 32 ms per tick on one thread (9 ms with eight workers) for 128 players in a large, busy world, against a goal of 3.3 ms (1 ms). See the
+phase takes 32 to 38 ms per tick on one thread (9 to 11 ms with eight workers, depending on how busy the machine
+was) for 128 players when a sixth of 200,000 entities changes in every tick, against 3.3 ms (1 ms). That is the heaviest load we built, and the time of the phase
+depends on how many entities move, so the goal for it is written by entities moving per tick:
+
+| Entities moving per tick | One thread | Eight workers |
+|---|---|---|
+| 1,000 (reference load) | 3.3 ms | 1.0 ms |
+| 2,985 | 7.0 ms | 2.5 ms |
+| 10,000 | 17.0 ms | 5.0 ms |
+| 33,333 (stress point) | 38.5 ms | 11.0 ms |
+| 33,333, long term | 3.3 ms | 1.0 ms |
+
+The 1,000 row is a reference load that has not been checked against real games; with it the phase takes 3.5 ms on one
+thread and 1.2 ms with eight workers. The rows for 2,985, 10,000 and 33,333 are today's measurements rounded up, so
+the benchmark says when the phase gets worse, and 3.3 and 1 ms stay as the horizon at the stress point. These values
+are a proposal; see [record 0012](docs/adr/0012-network-phase-as-a-curve.md) and the
+[curve](docs/benchmarks.md#the-time-of-the-phase-by-entities-moving). See also the
 [benchmarks](docs/benchmarks.md#5-relevancy) and the [network section](docs/benchmarks.md#7-the-whole-network-path).
 
 ## What exists today
@@ -95,7 +111,7 @@ up with exactly what the server has. See the [networking reference](docs/referen
 
 Players converge and the bytes are within the goal, but the time of the phase is not: with 128 players in a world
 of 200,000 entities, a sixth of them changing in every tick and 5% of packets lost, the phase takes about 32 ms per
-tick on one thread (the goal is 3.3 ms) and the server sends about 98 kbps to each player (the goal is 100). That
+tick on one thread (the goal is 3.3 ms at 1,000 moving entities per tick, and this world moves 33,333) and the server sends about 98 kbps to each player (the goal is 100). That
 holds because every player has a budget of bytes, and the price is that each entity reaches a player less often
 than it changes when the world changes more than the budget carries. The numbers are in
 [record 0011](docs/adr/0011-priority-and-bandwidth-budget.md) and on the

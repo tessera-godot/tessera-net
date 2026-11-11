@@ -388,6 +388,62 @@ against 47 when the machine is quiet, so the times are pessimistic by something 
 code after the change ran right after one of the code before it, so the comparison between the two is fair even
 though the absolute times are not those of a quiet machine.
 
+### The time of the phase by entities moving
+
+The main scenario above is one point: a sixth of the 200,000 entities change in every tick. To see how the time
+grows with the load, the benchmark can run the same scenario with fewer changes (`network-curve`, see Reproduce).
+Only how often an entity changes differs: every 200,000, 200, 67, 20 or 6 ticks, which is about 1, 1,000, 2,985,
+10,000 and 33,333 entities moving per tick. The last is the main scenario, and it reproduces its bandwidth (98.08
+kbps), records (96.92 per player per tick) and the share of a player's copy that is not current (70.16%) exactly.
+At every point the bytes sent are the same with 1 and with 8 workers, in all four executions.
+
+![Network phase time per tick by entities moving, with one thread and with eight workers](images/network-curve.svg)
+
+| Entities moving per tick | Phase, 1 thread (ms) | Phase, 8 workers (ms) | kbps per player | Records per player per tick | Not current |
+|---|---|---|---|---|---|
+| 1 | 1.19 (1.16 to 1.26) | 0.64 (0.63 to 0.66) | 7.29 | 0.96 | 0.02% |
+| 1,000 | 3.51 (2.85 to 3.61) | 1.23 (1.21 to 1.38) | 40.13 | 10.32 | 0.87% |
+| 2,985 | 6.90 (6.32 to 7.76) | 2.26 (2.09 to 2.43) | 102.15 | 28.94 | 2.57% |
+| 10,000 | 16.98 (15.90 to 17.67) | 4.67 (4.47 to 4.93) | 118.42 | 95.48 | 8.66% |
+| 33,333 | 38.08 (37.46 to 40.33) | 10.81 (10.30 to 11.30) | 98.08 | 96.92 | 70.16% |
+
+Median of 4 executions, range in brackets. Bandwidth, records and the last column are the same in all four, because
+they do not depend on the machine. With 1 and 1,000 entities moving the bytes stay well under the budget (100 kbps
+on average), so the server sends everything that changes; at 2,985 they are at it, from 10,000 on the budget limits what is written and the
+copy that players hold gets older.
+
+A line fitted by least squares through the five medians has a fixed cost of 3.16 ms (2.62 to 3.34) and 1.08 us per
+moving entity (1.07 to 1.14) on one thread, R squared 0.98, and 1.11 ms (1.06 to 1.23) and 0.29 us (0.28 to 0.31)
+with eight workers, R squared 0.99. That is a rough summary and does not describe the shape: the residuals reach 3
+ms on one thread, and the fitted fixed cost is 2.7 times the 1.19 ms measured with one entity moving, so it should
+not be read as the fixed cost. What the curve shows:
+- **With almost nothing moving the server is close to its goals**: 1.19 ms on one thread and 0.64 ms with eight
+  workers, against 3.3 and 1.
+- **The cost per moved entity is highest in the middle of the curve and falls at the top.** It is about 1.7 us per
+  entity between 1,000 and 2,985 moving, 1.4 us up to 10,000 and 0.9 us up to 33,333, because from about 10,000 the
+  byte budget limits what is written (95 to 97 records per player per tick).
+- **The goals are far at the stress point and close at 1,000 moving entities**: 38.1 ms is 11.5 times 3.3 ms and
+  10.8 ms is 10.8 times 1 ms, while at 1,000 the phase takes 1.06 and 1.2 times its goals.
+
+The goals by entities moving are in [record 0012](adr/0012-network-phase-as-a-curve.md), which is still a proposal:
+
+| Entities moving per tick | One thread | Eight workers |
+|---|---|---|
+| 1,000 (reference load) | 3.3 ms | 1.0 ms |
+| 2,985 | 7.0 ms | 2.5 ms |
+| 10,000 | 17.0 ms | 5.0 ms |
+| 33,333 (stress point) | 38.5 ms | 11.0 ms |
+| 33,333, long term | 3.3 ms | 1.0 ms |
+
+The 1,000 row is a reference load that has not been checked against real games. The rows for 2,985, 10,000 and 33,333 are the
+measured medians rounded up to half a millisecond, so that the benchmark says when the phase gets worse; the long
+term row is the original goal.
+
+Conditions: as above, but this machine was busier. Programs of everyday work were running and could not be closed,
+and the idle CPU was between 45% and 100% before the four executions (80%, 100%, 88% and 45%). The speed of the short test
+that the benchmark prints (writing one position record) was 45 to 66 nanoseconds across the executions, against 47
+when the machine is quiet. The stress point measured 34.1 ms in an earlier session and 38.1 ms in this one, so the
+shape of the curve matters more than the absolute values.
 ## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
@@ -399,6 +455,11 @@ Windows, from the repository root (details and prerequisites for each benchmark 
 cmake --preset windows-msvc -DTESSERA_BUILD_BENCH=ON
 cmake --build --preset windows-msvc-release --target tessera_net_bench
 ./build/windows-msvc/bench/Release/tessera_net_bench.exe
+
+# the network path at five amounts of change per tick (about 1, 1,000, 2,985, 10,000 and 33,333 entities moving), with
+# the fit; it takes a few minutes, is not part of the full run, and accepts the word `reverse` to play the points
+# from the busiest to the quietest
+./build/windows-msvc/bench/Release/tessera_net_bench.exe network-curve
 
 # the same network benchmark with a timer around each stage of the server's tick (relevancy, marking changes,
 # scanning, choosing and writing records, and so on): it prints how long each stage takes, with 1 thread and
