@@ -10,7 +10,7 @@ before speed.
 | 2 | Schema and code generation (C++ server side, GDScript client side) | Planned |
 | 3 | Replication: relevancy, dormancy, priority, bandwidth budget, delta, quantization, transport | In progress |
 | 4 | Input, prediction and reconciliation; movement and proxies | Planned |
-| 5 | Standalone server, export from the editor, network profiler | Planned |
+| 5 | Standalone server, export from the editor, network profiler | In progress |
 
 Replication is built in slices:
 
@@ -19,7 +19,7 @@ Replication is built in slices:
 | Relevancy | Which entities each player sees: ranges per type, groups, short ids, incremental updates | Done ([benchmarks](benchmarks.md#5-relevancy)) |
 | Replicated state | Which properties are sent, quantization, changes only | First version done, slower than its goal ([benchmarks](benchmarks.md#6-replicated-state)); more property kinds and a faster path to come |
 | Priority and bandwidth budget | What goes first when there is too much to send, and how often to repeat what is not confirmed | First version done: bytes within the goal, priority by distance to come ([benchmarks](benchmarks.md#7-the-whole-network-path)) |
-| Transport and client side | A transport interface, a simulated network, the protocol, the server and the client, end-to-end tests with many simulated players | First version done, bytes within the goal; the time is close to its goal at 1,000 moving entities per tick and far from it at 33,333 ([benchmarks](benchmarks.md#7-the-whole-network-path)); an optional transport over real sockets (ENet, [record 0013](adr/0013-enet-as-the-first-real-transport.md)) exists, and a head-to-head run against Godot's built-in replication is measured ([benchmarks](benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario)); a production server program is still to come |
+| Transport and client side | A transport interface, a simulated network, the protocol, the server and the client, end-to-end tests with many simulated players | First version done, bytes within the goal; the time is close to its goal at 1,000 moving entities per tick and far from it at 33,333 ([benchmarks](benchmarks.md#7-the-whole-network-path)); an optional transport over real sockets (ENet, [record 0013](adr/0013-enet-as-the-first-real-transport.md)) exists, and a head-to-head run against Godot's built-in replication is measured ([benchmarks](benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario)); a server library with a small example program ([record 0014](adr/0014-the-server-as-a-library-plus-an-example.md)) and a CI workflow for Ubuntu and Windows are added; prediction and the Godot side are still to come |
 
 The time of the network phase is a curve, not a point: it grows with the entities that move in a tick, and the goal for it
 is now written that way ([record 0012](adr/0012-network-phase-as-a-curve.md); the measured curve is in the

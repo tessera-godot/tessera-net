@@ -7,9 +7,10 @@ Part of **Tessera**, a family of open-source tools for building large multiplaye
 > **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
 > job system), a relevancy engine (deciding what each player sees), replicated state (turning what
 > changed into small buffers for each player) and a server and a client that exchange them over a simulated
-> network, or over real sockets with the optional ENet transport, are implemented and tested. The Godot plugin
-> and the dedicated server are not built yet, so nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for
-> progress.
+> network, or over real sockets with the optional ENet transport, are implemented and tested. A dedicated server
+> (a library for your game's logic and a small example program) is there too, and so is a CI workflow that builds and
+> tests it. The Godot plugin is not built yet, and the server is built and tested on Windows so far, so nothing here is
+> ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -31,7 +32,7 @@ This project builds the missing pieces so Godot developers can make those games:
 - **Dormancy**: entities that are not changing cost nothing.
 - **Delta compression and quantization**: small packets, small bills.
 - **Multi-threaded replication**: spreads the work across CPU cores.
-- **A standalone dedicated server**: a lean binary that does not need the Godot engine.
+- **A standalone dedicated server**: a lean program that does not need the Godot engine (a library plus an example, see [`server/`](server/README.md)).
 - **Prediction and reconciliation** for smooth movement under lag.
 - **Editor tools**: configure everything from the Godot editor, no networking PhD required.
 
@@ -142,11 +143,24 @@ Windows (Visual Studio 2022 with the C++ workload, CMake 3.21+):
 ./tools/build.ps1
 ```
 
-Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+):
+Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++):
 
 ```bash
 ./tools/build.sh
 ```
+
+The server library, the example server and the ENet transport are options. These are the presets that build them (the
+same ones the CI workflow uses; on Linux they are `linux-server-release`, `linux-enet-release` and their `-debug` twins):
+
+```powershell
+cmake --preset windows-msvc-server      # the server library and its tests
+cmake --preset windows-msvc-enet        # the same, with ENet, the example server and the head-to-head programs
+```
+
+The [CI workflow](.github/workflows/ci.yml) builds and tests both on Ubuntu (GCC and Clang) and on Windows (MSVC), in
+Release and Debug, with warnings as errors.
+
+[![CI](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml/badge.svg)](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml)
 
 To also build and run the acceptance benchmark (Release builds only):
 
@@ -162,7 +176,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 |---|---|
 | `core/` | The engine-independent C++ library (the heart of the project) |
 | `extension/` | The Godot GDExtension that exposes the core to the editor and GDScript |
-| `server/` | The standalone dedicated server program |
+| `server/` | The dedicated server: a library for your game's logic and a small example program |
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
 | `tests/` | Automated tests |
