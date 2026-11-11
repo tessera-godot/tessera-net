@@ -17,3 +17,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0009](0009-replicated-state.md) | Replicated state against the last confirmed state, accepted at its measured cost | Accepted |
 | [0010](0010-transport-and-protocol.md) | Transport by messages, a protocol with numbered event batches, accepted at its measured cost | Accepted |
 | [0011](0011-priority-and-bandwidth-budget.md) | Resends by measured round trip, priority by waiting time and weight, and a byte budget for each player | Accepted |
+| [0012](0012-network-phase-as-a-curve.md) | The time of the network phase as a curve, goals by moving entities | Proposed |
