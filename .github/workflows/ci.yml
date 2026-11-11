@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch or pull request makes the run that is still going useless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux, ${{ matrix.compiler }}, ${{ matrix.config }}, ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        config: [release, debug]
+        # server: the server library and its tests. enet: the same plus the ENet transport, the example server
+        # and their tests.
+        mode: [server, enet]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      # A warning in our C++ code fails the build. ENet is C and is not affected.
+      CXXFLAGS: -Werror
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ninja if it is missing
+        run: command -v ninja || sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: cmake --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Build
+        run: cmake --build --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Default build keeps its tests
+        if: matrix.mode == 'server'
+        run: |
+          result="$(build/linux-server-${{ matrix.config }}/tests/tessera_net_tests | tail -n 1)"
+          echo "$result"
+          test "$result" = "495 tests, 0 failures"
+
+  windows:
+    name: Windows, MSVC, ${{ matrix.config }}, ${{ matrix.mode }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [release, debug]
+        mode: [server, enet]
+    env:
+      # A warning in our C++ code fails the build. ENet is C and is not affected.
+      CXXFLAGS: /WX
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
