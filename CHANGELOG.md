@@ -7,6 +7,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- `tessera_net_bench network-curve`: the network benchmark at five amounts of change per tick (about 1, 1,000, 2,985,
+  10,000 and 33,333 entities moving), with 1 thread and 8 workers, a fitted line as information, and a check that the
+  bytes sent are the same with 1 and 8 workers at every point. A chart for it, a subsection of section 7 on the
+  benchmarks page, and architecture decision record 0012. The time of the phase grows with the entities
+  that move: 1.19 ms on one thread with about one moving, 3.51 ms with 1,000 and 38.08 ms with 33,333, and the curve
+  is not a straight line.
 - `TESSERA_PROFILE` build option (and the `windows-msvc-profile` preset): the network benchmark prints how long each
   stage of the server's tick takes. The timers do not exist in any other build.
 - Pacing and a bandwidth budget for each player: an entity that was sent is sent again only after the player's
@@ -59,6 +65,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   documentation structure.
 
 ### Changed
+- The goal for the time of the network phase is now written by the entities that move in a tick: 3.3 ms on one thread
+  and 1 ms with eight workers at 1,000 moving entities (a reference load), limits that say not to get worse at 2,985,
+  10,000 and 33,333, and 3.3 and 1 ms kept as the long-term goal at 33,333. See record 0012.
 - The server marks what changed and applies the players' confirmations on the workers instead of on one thread.
   Both used to take a share of the phase that no number of workers could shrink; with eight workers each now takes
   about 0.5 ms instead of 2.1 and 1.6. Measured before and after in the same session on a busy machine, the phase

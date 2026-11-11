@@ -207,6 +207,10 @@ void CheckDeterminism() {
 int main(int argc, char** argv) {
     std::printf("Tessera Net data core: acceptance benchmark (%u hardware threads)\n", std::thread::hardware_concurrency());
     std::printf("%-46s %12s %-6s %-28s\n", "criterion", "measured", "", "result");
+    if (argc > 1 && std::string_view(argv[1]) == "network-curve") {
+        CheckNetworkCurve(argc > 2 && std::string_view(argv[2]) == "reverse"); // not part of the full run
+        return bench::Failures() == 0 ? 0 : 1;
+    }
     if (argc > 1 && std::string_view(argv[1]) == "network") {
         CheckNetwork(); // only the network path, which takes the longest
         return bench::Failures() == 0 ? 0 : 1;

@@ -310,6 +310,10 @@ double MeasureWriteRecordNs() {
 
 } // namespace
 
+double WriteRecordIndicatorNs() {
+    return MeasureWriteRecordNs();
+}
+
 void CheckReplication() {
     double bits = 0;
     const double write_ns = MeasureRecordWriteNs(&bits);
