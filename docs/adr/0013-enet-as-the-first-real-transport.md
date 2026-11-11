@@ -1,6 +1,6 @@
 # 0013. ENet as the first real transport
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 
 ## Context

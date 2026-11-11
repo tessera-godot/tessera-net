@@ -222,7 +222,7 @@ two ticks, with a sixth of the entities changing in every tick:
   moves (700). The breakdown is in [section 7 of the benchmarks](../benchmarks.md#7-the-whole-network-path). With fewer
   entities moving the phase is much closer: about 3.5 ms on one thread and 1.2 ms with eight workers at 1,000 moving
   entities per tick. How the time grows with the load is in
-  [the curve](../benchmarks.md#the-time-of-the-phase-by-entities-moving), and the goals by load are proposed in
+  [the curve](../benchmarks.md#the-time-of-the-phase-by-entities-moving), and the goals by load are in
   [record 0012](../adr/0012-network-phase-as-a-curve.md).
 - **The server sends each player 98 kbps on average and 173 kbps at the busiest 10 seconds.** The goals are 100 and
   200, and they hold: a player who has been connected a while cannot be sent more than the budget. A new player

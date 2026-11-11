@@ -431,7 +431,7 @@ cost. What the curve shows:
 - **The goals are far at the stress point and close at 1,000 moving entities**: 38.1 ms is 11.5 times 3.3 ms and
   10.8 ms is 10.8 times 1 ms, while at 1,000 the phase takes 1.06 and 1.2 times its goals.
 
-The goals by entities moving are in [record 0012](adr/0012-network-phase-as-a-curve.md), which is still a proposal:
+The goals by entities moving are in [record 0012](adr/0012-network-phase-as-a-curve.md):
 
 | Entities moving per tick | One thread | Eight workers |
 |---|---|---|
