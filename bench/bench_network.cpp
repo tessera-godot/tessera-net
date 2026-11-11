@@ -36,11 +36,11 @@ using bench::ReportBool;
 
 namespace {
 
-// Regression limits: between 1.7 and 2 times what the path measures, so that run-to-run variation does not fail the
+// Regression limits: between 1.6 and 1.9 times what the path measures, so that run-to-run variation does not fail the
 // benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with one thread,
 // 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
 constexpr double kLimitOneThreadMs = 50.0;
-constexpr double kLimitEightWorkersMs = 20.0;
+constexpr double kLimitEightWorkersMs = 16.0;
 // What the budget promises, from the goal of 100 kbps on average and 200 kbps over any 10 seconds, with room
 // for the headers and the event batches that the budget does not hold back.
 constexpr double kLimitSteadyKbps = 105.0;

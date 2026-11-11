@@ -24,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   relevancy over a bad network, with 128 players and with random input. See `docs/reference/networking.md`.
 - Network benchmark (128 players, 200,000 entities, 5% loss), a chart for it, and a section 7 on the
   benchmarks page. It converges; with the budget above the bytes are within the goal, and the time of the phase
-  (about 29 ms per tick on one thread against 3.3 ms) is not yet. Run `tessera_net_bench network` to run it
+  (about 32 ms per tick on one thread against 3.3 ms) is not yet. Run `tessera_net_bench network` to run it
   alone.
 - Architecture decision record 0010 (transport and protocol).
 - `ClientReplica::Disconnect()`.
@@ -59,6 +59,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   documentation structure.
 
 ### Changed
+- The server marks what changed and applies the players' confirmations on the workers instead of on one thread.
+  Both used to take a share of the phase that no number of workers could shrink; with eight workers each now takes
+  about 0.5 ms instead of 2.1 and 1.6. Measured before and after in the same session on a busy machine, the phase
+  went from 11.8 ms to 8.7 ms with eight workers; with one thread it stays at about 31.5 ms, since there is nothing to
+  share. The confirmations of the acks read in a tick are now queued while the transport is read and applied together
+  when the reading ends (`ReplicationEngine::QueueConfirm` and `ApplyQueuedConfirms`; `Confirm` still applies at
+  once), so the connect and disconnect callbacks do not yet see them. The times of the earlier entries below were
+  taken on a quieter machine. The network benchmark's limit for eight workers is now 16 ms.
+- `tools/bench_compare.ps1` runs two builds of the network benchmark one after the other and prints the median
+  and the range of each, for machines that are busy with other work.
 - Relevancy tests the reach of a change while it gathers the changes filed near a player's observers, and sorts
   only those within reach, instead of sorting everything it gathered and checking the distance afterwards. The
   events it produces are the same. In the network benchmark, measured before and after on the same day, the phase

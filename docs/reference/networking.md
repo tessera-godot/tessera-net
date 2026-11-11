@@ -126,8 +126,9 @@ cannot be right.
 `ReplicationServer::Update(tick)` is the whole Network phase. In order:
 
 1. **Read the transport.** New players are greeted (`ClientHello` checked against the version, the schema hash
-   and the free slots), players that left are removed, and each ack confirms to the replication engine the ticks
-   it confirms for the first time.
+   and the free slots), players that left are removed, and each ack queues for the replication engine the ticks
+   it confirms for the first time. When the reading ends, the queued confirmations are applied together, one player
+   per worker, in the order they arrived for each player.
 2. **Relevancy.** The relevancy engine updates what each player sees.
 3. **Event batches.** For each player with events, one numbered `EventBatch` goes out on the reliable channel,
    and the same events go to the replication engine.
@@ -212,11 +213,11 @@ Measured numbers, with the machine and the code that produced them, are on the
 each see about 1,750 of them, over a network that loses 5% of what it carries and delays every message by one to
 two ticks, with a sixth of the entities changing in every tick:
 
-- **A tick of the Network phase takes about 29 ms on one thread and about 10 ms with eight workers.** The goals
+- **A tick of the Network phase takes about 32 ms on one thread and about 9 ms with eight workers.** The goals
   are 3.3 ms and 1 ms. **Neither is met.** Writing records is a small part of it. On one thread the biggest part
-  is now deciding what goes into each player's buffer (about 14 ms) and then relevancy (about 11 ms); with eight
-  workers both shrink, and what is left is mostly steps that run on one thread: marking what changed, confirming
-  what arrived, and folding the changes of the grid before relevancy can share the work (about 6.5 of the 10 ms). This
+  is now deciding what goes into each player's buffer (about 16 ms) and then relevancy (about 13 ms); with eight
+  workers both shrink, and what is left that runs on one thread is mostly folding the changes of the grid and
+  filing them by cell before relevancy can share the work (about 3 of the 9 ms). This
   scenario moves 33,000 of 200,000 entities in every tick, about 48 times as many as the relevancy benchmark
   moves (700). The breakdown is in [section 7 of the benchmarks](../benchmarks.md#7-the-whole-network-path).
 - **The server sends each player 98 kbps on average and 173 kbps at the busiest 10 seconds.** The goals are 100 and

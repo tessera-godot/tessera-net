@@ -273,34 +273,34 @@ its default budget: 100 kbps on average, 200 over 10 seconds, buffers of 1,100 b
 
 | Measure | Result (median of 4 executions, range) | Limit | Goal |
 |---|---|---|---|
-| Network phase per tick, 1 thread | 28.9 ms (28.4 to 29.0) | 50 ms | 3.3 ms |
-| Network phase per tick, 8 workers | 10.1 ms (9.9 to 10.2) | 20 ms | 1 ms |
+| Network phase per tick, 1 thread | 31.6 ms (30.7 to 36.4) | 50 ms | 3.3 ms |
+| Network phase per tick, 8 workers | 8.7 ms (8.5 to 10.6) | 16 ms | 1 ms |
 | Bandwidth per player, the last 5 seconds | 98.1 kbps | 105 kbps | 100 kbps |
 | Bandwidth per player, the busiest 10 seconds | 173 kbps | 205 kbps | 200 kbps |
 | Records written per change, with the budget off | 1.09 | 1.5 | |
 | A new player receives everything it sees | 61 ticks | 90 ticks | |
 | Memory per player (server and client together) | 1.8 MB (1.78 in all four) | 3.6 MB | |
-| Client work per tick, per client | 11.5 us (11.5 to 11.9) | 60 us | |
+| Client work per tick, per client | 12.2 us (11.8 to 13.7) | 60 us | |
 | Every client sees what the server has, after joining | yes | yes | yes |
 | ... and after the world stops changing | 68 ticks | | |
 | Bytes sent with 1 and 8 workers (16 players, 20,000 entities, 40 ticks) | identical | identical | identical |
 
 **The goals for the time of the phase are not met; the goals for the bytes are.** The limits are regression guards:
-between 1.7 and 2 times what the path measures today for times and memory (the client's work is far below its limit, because
+between 1.6 and 1.9 times what the path measures today for the times and for memory (the client's work is far below its limit, because
 the limit was set while the machine was busier), so that the benchmark fails if it gets clearly
 slower, and the budget's own promise (with a little room for headers and event batches) for the bandwidth and the
 join. Bandwidth is measured over the last 5 seconds because the first seconds spend what the player saved up.
 
-The four executions, per tick (milliseconds, unless marked). Of the phase, about 1.7 ms on one thread (0.9 ms with
+The four executions, per tick (milliseconds, unless marked). Of the phase, about 1.9 ms on one thread (1.1 ms with
 eight workers) is quantizing the entities that changed and the rest is the server's `Update`. Everything else in
 the table above, and the numbers below, were identical in the four, because they do not depend on the machine:
 
 | Execution | Phase, 1 thread | Phase, 8 workers | Client, one `Poll` (us) |
 |---|---|---|---|
-| 1 | 28.9 | 10.2 | 11.5 |
-| 2 | 28.9 | 10.2 | 11.9 |
-| 3 | 28.4 | 10.1 | 11.5 |
-| 4 | 29.0 | 9.9 | 11.5 |
+| 1 | 31.6 | 8.8 | 13.7 |
+| 2 | 36.4 | 10.6 | 12.1 |
+| 3 | 30.7 | 8.5 | 12.3 |
+| 4 | 31.5 | 8.7 | 11.8 |
 
 Other numbers from the same runs:
 
@@ -322,39 +322,42 @@ Other numbers from the same runs:
 Where the time of the server's `Update` goes, per tick (milliseconds), from the timing build
 (`-DTESSERA_PROFILE=ON`, one timer around each stage; medians of 4 executions of the means over the 460 ticks). The
 timers cost about 40 nanoseconds each, about 0.05 ms per tick in all. The sums are means over all the ticks and do
-not include quantizing (1.7 ms on one thread, 0.9 ms with eight workers), so they sit a little below the phase in the
+not include quantizing (1.9 ms on one thread, 1.1 ms with eight workers), so they sit a little below the phase in the
 table above, which includes it, and a little above the phase minus quantizing, because of the timers and because the
 machine's load varied:
 
 | Stage | 1 thread | 8 workers |
 |---|---|---|
-| Relevancy | 11.1 | 4.4 |
-| &nbsp;&nbsp;folding the changes of the grid and filing them by cell (one thread) | 2.2 | 3.0 |
-| &nbsp;&nbsp;looking at each player (time that passed) | 8.9 | 1.4 |
-| Deciding what each player gets (time that passed) | 13.7 | 2.1 |
-| Marking what changed (one thread) | 1.9 | 1.9 |
-| Reading the transport and confirming what arrived (one thread) | 1.4 | 1.4 |
-| Visibility events and sending the buffers (one thread) | 0.25 | 0.26 |
-| **The server's `Update`** | **28.3** | **10.0** |
+| Relevancy | 12.7 | 4.7 |
+| &nbsp;&nbsp;folding the changes of the grid and filing them by cell (one thread) | 2.4 | 3.0 |
+| &nbsp;&nbsp;looking at each player (time that passed) | 10.3 | 1.8 |
+| Deciding what each player gets (time that passed) | 16.4 | 2.6 |
+| Marking what changed (time that passed) | 2.1 | 0.5 |
+| Reading the transport and confirming what arrived (time that passed) | 1.6 | 0.5 |
+| Visibility events and sending the buffers (one thread) | 0.3 | 0.3 |
+| **The server's `Update`** | **33.1** | **8.7** |
 
-Deciding what each player gets adds up, over the workers, to 5.0 ms of finding the entities that may be sent, 6.4 ms
-of choosing what fits the budget and 2.2 ms of writing the records with one thread (6.2, 7.1 and 2.7 ms with eight
-workers). In relevancy, looking at a player is gathering and testing the candidates (5.5 ms), sorting what
-passed (0.6 ms) and deciding what enters or leaves among those (2.0 ms); the gather looks at about 17 candidates for
+Deciding what each player gets adds up, over the workers, to 6.9 ms of finding the entities that may be sent, 6.9 ms
+of choosing what fits the budget and 2.5 ms of writing the records with one thread (9.0, 7.8 and 3.3 ms with eight
+workers). In relevancy, looking at a player is gathering and testing the candidates (6.5 ms), sorting what
+passed (0.6 ms) and deciding what enters or leaves among those (2.2 ms); the gather looks at about 17 candidates for
 each change within reach.
 
 How to read this:
 - **Where the time goes.** The table above is from the timing build (see Reproduce). On one thread, deciding what
-  goes into each player's buffer takes the most (about 14 ms: finding the entities that may be sent, choosing what
-  fits the budget, and writing the records, of which writing is the smallest part), then relevancy (about 11 ms).
-  Relevancy used to take about 25 ms: each player gathered about 5,100 changes near its observers in every tick,
-  sorted all of them, and only about 300 were within reach. It now tests the reach while it gathers and sorts those
-  300, with the same result. This scenario moves 33,000 entities per tick, about 48 times as many as the main
-  relevancy scenario (700), and the work of relevancy grows with the entities that move. Before this change the phase measured
-  about 42 ms on one thread and about 12 ms with eight workers with the timing build on a quiet machine, against 29
-  and 10 ms now, with some background load. The numbers published before, 49.5 and 13.9 ms, were taken while the
-  machine was busier. The server writes 97 records per player per tick where it wrote 966 before the budget (see
-  record 0010).
+  goes into each player's buffer takes the most (about 16 ms: finding the entities that may be sent, choosing what
+  fits the budget, and writing the records, of which writing is the smallest part), then relevancy (about 13 ms).
+  Relevancy used to take about twice that: each player gathered about 5,100 changes near its observers in every
+  tick, sorted all of them, and only about 300 were within reach. It now tests the reach while it gathers and sorts
+  those 300, with the same result. This scenario moves 33,000 entities per tick, about 48 times as many as the main
+  relevancy scenario (700), and the work of relevancy grows with the entities that move. Marking what changed and
+  applying the players' confirmations used to run on one thread (2.1 and 1.6 ms); they now run on the workers, and
+  with eight workers each takes about 0.5 ms. Measured before and after in the same session, with the machine
+  equally busy, the phase went from 11.8 ms to 8.7 ms with eight workers and stayed at about 31.5 ms on one thread,
+  where there is nothing to share. A first session, on a busier machine, gave 12.7 to 9.8 ms with eight workers and
+  36.3 to 35.7 ms with one thread. The numbers published before, 28.9 and 10.1 ms, were taken while the machine was
+  quieter (see the conditions below); the same code measured 31.5 and 11.8 ms in this session. The server writes 97
+  records per player per tick where it wrote 966 before the budget (see record 0010).
 - **Where the bytes go.** A changed entity is now written again after the player's round trip and a tick, not in
   every tick: 1.09 records per change when the budget is off, against 3.3 before. The budget then holds the rest to
   what the player was promised. One record in five is complete (19.8%): an entity that waited more than 32 ticks has lost its
@@ -366,11 +369,11 @@ How to read this:
   players still converge: 68 ticks after the world stops changing they hold exactly what the server has. A world
   that changes less, or players with a larger budget, have a smaller gap. Giving priority to what is near the player
   would make the gap matter less, and is not built yet.
-- **Eight workers.** They make the phase 2.9 times faster. About 6.5 of the 10 ms are steps that one thread runs:
-  marking what changed (section 6), reading the transport and confirming what arrived, and, inside relevancy,
-  folding the changes of the grid and filing them by cell before the players can be looked at in parallel. What
-  runs on the workers (looking at each player, deciding what each player gets) scales well: 6.6 times for the
-  decision, 6.4 times for the look at each player.
+- **Eight workers.** They make the phase 3.6 times faster. About 3.3 of the 8.7 ms of `Update` are steps that one
+  thread runs: folding the changes of the grid and filing them by cell before the players can be looked at in
+  parallel (3.0 ms), and the events and the sending (0.3 ms). Marking what changed and applying the confirmations
+  are shared among the workers. What runs on the workers (looking at each player, deciding what each player gets)
+  scales well: 5.8 times for the look at each player, 6.3 times for the decision.
 - **Bytes counted** are those of the messages, without the headers of IP, UDP or a network library.
 - **Joining.** A new player joins the running world on the lossy network, and gets everything it sees in 61 ticks
   (about two seconds), with its first state spread over buffers of at most 1,100 bytes instead of one of tens of
@@ -378,9 +381,12 @@ How to read this:
   the start.
 
 Conditions: Release build (MSVC), the same desktop machine as above, Windows only so far, one observer per player and
-no groups. The heavy programs on the machine during the measurements were closed, but some background load
-remained. The speed of a short test that the benchmark prints for this purpose (writing one position record) was 51
-to 54 nanoseconds in the full runs, against 47 when the machine is quiet, so the times may be a little pessimistic.
+no groups. Programs that are part of everyday work (an editor's helper process, a container runtime) were running
+during the measurements, and the machine was at about 40% load while idle. The speed of a short test that the
+benchmark prints for this purpose (writing one position record) was 57 to 59 nanoseconds in the four full runs,
+against 47 when the machine is quiet, so the times are pessimistic by something like a fifth. Each execution of the
+code after the change ran right after one of the code before it, so the comparison between the two is fair even
+though the absolute times are not those of a quiet machine.
 
 ## Reproduce
 
@@ -400,6 +406,10 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 cmake --preset windows-msvc-profile
 cmake --build --preset windows-msvc-profile-release --target tessera_net_bench
 ./build/windows-msvc-profile/bench/Release/tessera_net_bench.exe network
+
+# compare two builds of the network benchmark on a machine that is busy with other work: it runs them
+# alternately and prints the median and the range of each, and the difference (see the script's header)
+./tools/bench_compare.ps1 -Baseline <the older tessera_net_bench.exe> -Candidate <the newer one>
 
 # entity table vs EnTT (section 3); downloads EnTT the first time
 cmake --preset windows-msvc -DTESSERA_BUILD_ECS_COMPARISON=ON
