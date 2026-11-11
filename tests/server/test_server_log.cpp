@@ -24,7 +24,7 @@ using Clock = SummaryReporter::Clock;
 using std::chrono::milliseconds;
 using std::chrono::seconds;
 
-// A minute-long game with nothing in it: the host needs a schema, and that is all.
+// A game with nothing in it: the host needs a schema, and that is all.
 class EmptyGame final : public IGameLogic {
 public:
     WorldSetup DescribeWorld() override {
@@ -173,7 +173,8 @@ TESSERA_TEST(summary_writes_once_per_interval) {
     const int half_seconds[] = {0, 500, 1000, 1500, 2000};
     uint64_t tick = 0;
     for (const int ms : half_seconds) {
-        reporter.OnTick(start + milliseconds(ms), tick++, 2, Stats(100u * tick, 10u * tick));
+        ++tick;
+        reporter.OnTick(start + milliseconds(ms), tick, 2, Stats(100u * tick, 10u * tick));
     }
     // The first call only marks the start; the lines come at 1.0 s and 2.0 s.
     TESSERA_CHECK(lines.lines.size() == 2);

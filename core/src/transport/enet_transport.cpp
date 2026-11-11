@@ -209,7 +209,8 @@ public:
                 const TransportConnection id = next_id_++; // never used again, whatever slot ENet picked
                 event.peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(id));
                 connections_[id] = Connection{event.peer, false};
-                out.push_back(TransportEvent{TransportEvent::Kind::Connected, id});
+                out.push_back(
+                    TransportEvent{TransportEvent::Kind::Connected, id, Channel::ReliableOrdered, {}});
                 break;
             }
             case ENET_EVENT_TYPE_DISCONNECT: {
@@ -221,7 +222,8 @@ public:
                     const bool closed_here = it->second.closed;
                     connections_.erase(it);
                     if (!closed_here) {
-                        out.push_back(TransportEvent{TransportEvent::Kind::Disconnected, id});
+                        out.push_back(
+                            TransportEvent{TransportEvent::Kind::Disconnected, id, Channel::ReliableOrdered, {}});
                     }
                 }
                 break;
@@ -331,13 +333,15 @@ public:
             switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT:
                 if (!closed_) {
-                    out.push_back(TransportEvent{TransportEvent::Kind::Connected, 0});
+                    out.push_back(
+                        TransportEvent{TransportEvent::Kind::Connected, 0, Channel::ReliableOrdered, {}});
                 }
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 // Also what a connection that never opened turns into once the timeout has passed.
                 if (!closed_) {
-                    out.push_back(TransportEvent{TransportEvent::Kind::Disconnected, 0});
+                    out.push_back(
+                        TransportEvent{TransportEvent::Kind::Disconnected, 0, Channel::ReliableOrdered, {}});
                 }
                 ended_ = true;
                 break;

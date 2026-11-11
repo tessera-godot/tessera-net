@@ -66,7 +66,8 @@ if(TESSERA_BUILD_ENET)
 
     add_library(tessera_net_enet STATIC src/transport/enet_transport.cpp)
     target_link_libraries(tessera_net_enet PUBLIC tessera_net_core PRIVATE enet)
-    target_include_directories(tessera_net_enet PRIVATE ${TESSERA_ENET_INCLUDE_DIR})
+    # SYSTEM: ENet's own headers are not ours to fix warnings in.
+    target_include_directories(tessera_net_enet SYSTEM PRIVATE ${TESSERA_ENET_INCLUDE_DIR})
     target_compile_definitions(tessera_net_enet PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(WIN32)
         target_link_libraries(tessera_net_enet PUBLIC ws2_32 winmm) # ENet's own target does not carry them
