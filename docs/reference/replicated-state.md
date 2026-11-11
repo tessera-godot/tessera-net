@@ -64,7 +64,10 @@ Everything in this list belongs to the `Network` phase of the [tick](core.md).
    player. An entity that enters is sent in full; one that leaves or is destroyed is forgotten.
 4. **`engine.Update(tick)`** writes one buffer for every player, in parallel across players. Read it with
    `engine.Output(connection)` and send it.
-5. **`engine.Confirm(connection, tick)`** when a player confirms that the buffer written for `tick` arrived.
+5. **`engine.Confirm(connection, tick)`** when a player confirms that the buffer written for `tick` arrived. When
+   many arrive at once, `engine.QueueConfirm(connection, tick)` for each and then one `engine.ApplyQueuedConfirms()`
+   before the next `Update` does the same work on all the connections at once. Use one way or the other for a
+   connection, not both.
 
 A buffer is a run of records, one for each entity that needs sending, followed by an end marker. An entity needs
 sending when it changed, or when it was sent and no send of it has been confirmed yet. One that changed is sent at

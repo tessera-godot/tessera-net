@@ -186,6 +186,252 @@ TESSERA_TEST(identical_outputs_with_1_and_8_workers) {
     TESSERA_CHECK(run(1) == run(8));
 }
 
+// Many entities change in one tick and every one of them has to be marked on every connection that sees it, even
+// when the workers that mark them share the words of bits (the compact ids are scattered, as the relevancy
+// engine hands them out in practice).
+TESSERA_TEST(marking_from_eight_workers_loses_no_entity) {
+    constexpr uint32_t kEntities = 5000;
+    constexpr uint32_t kConnections = 2;
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(8);
+    ReplicationConfig config;
+    config.max_connections = kConnections;
+    config.max_visible_per_connection = kEntities;
+    ReplicationEngine engine(schema, config, jobs);
+    Table table{TableConfig{0, kMobType}};
+    std::vector<EntityId> ids;
+    for (uint32_t i = 0; i < kEntities; ++i) {
+        ids.push_back(Spawn(table, 0.0f, 0.0f, 0.0f));
+    }
+    engine.Refresh(table);
+    for (ConnectionId c = 0; c < kConnections; ++c) {
+        engine.AddConnection(c);
+        std::vector<VisibilityEvent> events;
+        for (uint32_t i = 0; i < kEntities; ++i) {
+            events.push_back(Enter(ids[i], (i * 37 + c * 11) % kEntities)); // 37 and 5000 share no factor
+        }
+        engine.ApplyVisibility(c, events);
+    }
+    for (uint64_t tick = 1; tick <= 20; ++tick) {
+        for (uint32_t i = 0; i < kEntities; ++i) {
+            MoveX(table, ids[i], static_cast<float>(tick) * 3.0f + static_cast<float>(i) * 0.01f);
+        }
+        engine.Refresh(table);
+        engine.Update(tick);
+        TESSERA_CHECK(engine.LastStats().records == kEntities * kConnections);
+        for (ConnectionId c = 0; c < kConnections; ++c) {
+            engine.Confirm(c, tick); // everything sent is now confirmed, so only a new mark makes it pending
+        }
+    }
+}
+
+// The same world and the same lagging, partial confirmations as `identical_outputs_with_1_and_8_workers`,
+// with several ticks confirmed per connection (repeated, older, and one that was never sent). `queued` hands
+// them to the engine to be applied together before the next update; otherwise each one is applied at once.
+static uint64_t RunWithConfirmations(uint32_t workers, bool queued) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(workers);
+    ReplicationConfig config;
+    config.max_connections = 16;
+    config.max_visible_per_connection = 1000;
+    ReplicationEngine engine(schema, config, jobs);
+    Table table{TableConfig{0, kMobType}};
+    std::mt19937 random(2024);
+    std::uniform_real_distribution<float> position(-2000.0f, 2000.0f);
+    std::vector<EntityId> ids;
+    for (int i = 0; i < 1000; ++i) {
+        ids.push_back(Spawn(table, position(random), position(random), position(random)));
+    }
+    engine.Refresh(table);
+    for (ConnectionId c = 0; c < 16; ++c) {
+        engine.AddConnection(c);
+        std::vector<VisibilityEvent> events;
+        for (uint32_t i = 0; i < 200; ++i) {
+            events.push_back(Enter(ids[(c * 37 + i * 5) % ids.size()], i));
+        }
+        engine.ApplyVisibility(c, events);
+    }
+    const auto confirm = [&](ConnectionId c, uint64_t tick) {
+        if (queued) {
+            engine.QueueConfirm(c, tick);
+        } else {
+            engine.Confirm(c, tick);
+        }
+    };
+    uint64_t hash = 0xCBF29CE484222325ull;
+    for (uint64_t tick = 1; tick <= 50; ++tick) {
+        for (int i = 0; i < 150; ++i) {
+            MoveX(table, ids[random() % ids.size()], position(random));
+        }
+        engine.Refresh(table);
+        engine.Update(tick);
+        for (ConnectionId c = 0; c < 16; ++c) {
+            for (const uint8_t byte : engine.Output(c)) {
+                hash = Fnv(hash, byte);
+            }
+            if (tick >= 4 && (c + tick) % 3 != 0) {
+                confirm(c, tick - 3);
+                confirm(c, tick - 2);
+                confirm(c, tick - 2); // repeated
+                confirm(c, 99999);    // never sent
+            }
+            if (tick >= 3 && c % 4 == 0) {
+                confirm(c, tick - 1); // an older tick after a newer one is not an error either
+                confirm(c, tick - 2);
+            }
+        }
+        if (queued) {
+            engine.ApplyQueuedConfirms();
+        }
+    }
+    return hash;
+}
+
+TESSERA_TEST(queued_confirms_leave_the_same_state_as_immediate_ones) {
+    const uint64_t immediate = RunWithConfirmations(1, false);
+    TESSERA_CHECK(RunWithConfirmations(1, true) == immediate);
+    TESSERA_CHECK(RunWithConfirmations(8, true) == immediate); // and the workers do not matter
+}
+
+TESSERA_TEST(a_queued_confirm_waits_for_the_apply) {
+    const ReplicationSchema schema = MakeTestSchema();
+    ThreadPoolJobSystem jobs(1);
+    ReplicationEngine engine(schema, SmallConfig(), jobs);
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    const EntityId id = Spawn(table, 1.0f, 0.0f, 0.0f);
+    engine.Refresh(table);
+    const VisibilityEvent enter = Enter(id, 0);
+    engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+    engine.Update(1);
+    TESSERA_CHECK(engine.Output(0).size() > 1);
+    engine.QueueConfirm(0, 1);
+    engine.Update(2);
+    TESSERA_CHECK(engine.Output(0).size() > 1); // not confirmed yet: sent again
+    engine.ApplyQueuedConfirms();
+    engine.Update(3);
+    TESSERA_CHECK(engine.Output(0).size() == 1); // confirmed now: nothing to send
+}
+
+TESSERA_TEST(a_queued_confirm_does_not_survive_the_removal_of_its_connection) {
+    // The confirmation is for tick 2, which the new connection also sends at: if it were applied to the new
+    // connection the entity would be confirmed and nothing would be sent at tick 3.
+    auto run = [](bool with_stale_confirm) {
+        const ReplicationSchema schema = MakeTestSchema();
+        ThreadPoolJobSystem jobs(1);
+        ReplicationEngine engine(schema, SmallConfig(), jobs);
+        Table table{TableConfig{0, kMobType}};
+        const EntityId id = Spawn(table, 1.0f, 0.0f, 0.0f);
+        engine.Refresh(table);
+        const VisibilityEvent enter = Enter(id, 0);
+        engine.AddConnection(0);
+        engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+        engine.Update(1);
+        if (with_stale_confirm) {
+            engine.QueueConfirm(0, 2);
+        }
+        engine.RemoveConnection(0);
+        engine.AddConnection(0);
+        engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+        engine.Update(2);
+        const std::vector<uint8_t> at_two(engine.Output(0).begin(), engine.Output(0).end());
+        engine.ApplyQueuedConfirms();
+        engine.Update(3);
+        const std::vector<uint8_t> at_three(engine.Output(0).begin(), engine.Output(0).end());
+        return std::pair{at_two, at_three};
+    };
+    const auto clean = run(false);
+    const auto with_queue = run(true);
+    TESSERA_CHECK(clean.second.size() > 1); // unconfirmed: sent again at tick 3
+    TESSERA_CHECK(with_queue == clean);
+}
+
+TESSERA_TEST(applying_with_no_queued_confirms_changes_nothing) {
+    auto run = [](bool noisy) {
+        const ReplicationSchema schema = MakeTestSchema();
+        ThreadPoolJobSystem jobs(8);
+        ReplicationEngine engine(schema, SmallConfig(), jobs);
+        Table table{TableConfig{0, kMobType}};
+        const EntityId id = Spawn(table, 1.0f, 0.0f, 0.0f);
+        engine.Refresh(table);
+        const VisibilityEvent enter = Enter(id, 0);
+        engine.AddConnection(0);
+        engine.AddConnection(1);
+        engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+        uint64_t hash = 0xCBF29CE484222325ull;
+        for (uint64_t tick = 1; tick <= 6; ++tick) {
+            if (noisy) {
+                engine.ApplyQueuedConfirms();  // nothing queued
+                engine.QueueConfirm(3, tick);  // a connection that was never added
+                engine.QueueConfirm(99, tick); // an id out of range
+                engine.ApplyQueuedConfirms();
+            }
+            MoveX(table, id, static_cast<float>(tick));
+            engine.Refresh(table);
+            engine.Update(tick);
+            for (const uint8_t byte : engine.Output(0)) {
+                hash = Fnv(hash, byte);
+            }
+            engine.Confirm(0, tick > 2 ? tick - 2 : 0);
+        }
+        return hash;
+    };
+    TESSERA_CHECK(run(true) == run(false));
+}
+
+namespace {
+
+// Runs everything on the calling thread and remembers the largest count any ParallelFor was asked for since
+// the last `Forget`, so a test can tell whether a stage opened a parallel region at all.
+class RecordingJobs final : public IJobSystem {
+public:
+    uint32_t WorkerCount() const noexcept override {
+        return 1;
+    }
+    void ParallelFor(uint32_t count, uint32_t grain, const Body& body) override {
+        largest_count_ = std::max(largest_count_, count);
+        for (uint32_t begin = 0; begin < count; begin += grain) {
+            body(begin, std::min(begin + grain, count), 0);
+        }
+    }
+    uint32_t LargestCount() const noexcept {
+        return largest_count_;
+    }
+    void Forget() noexcept {
+        largest_count_ = 0;
+    }
+
+private:
+    uint32_t largest_count_ = 0;
+};
+
+} // namespace
+
+TESSERA_TEST(idle_marking_and_idle_confirming_open_no_parallel_region) {
+    const ReplicationSchema schema = MakeTestSchema();
+    RecordingJobs jobs;
+    ReplicationEngine engine(schema, SmallConfig(),
+                             jobs); // no connection: encoding has nothing to run either
+    engine.Update(1);               // nothing changed: marking has nothing to run
+    engine.ApplyQueuedConfirms();   // nothing queued
+    TESSERA_CHECK(jobs.LargestCount() == 0);
+
+    Table table{TableConfig{0, kMobType}};
+    engine.AddConnection(0);
+    const EntityId id = Spawn(table, 1.0f, 0.0f, 0.0f);
+    engine.Refresh(table);
+    const VisibilityEvent enter = Enter(id, 0);
+    engine.ApplyVisibility(0, std::span<const VisibilityEvent>(&enter, 1));
+    engine.Update(2);
+    engine.QueueConfirm(0, 2);
+    jobs.Forget();
+    engine.ApplyQueuedConfirms();
+    TESSERA_CHECK(jobs.LargestCount() == 1); // one connection had something queued
+    jobs.Forget();
+    engine.ApplyQueuedConfirms(); // the queue was emptied by the first apply: nothing is applied again
+    TESSERA_CHECK(jobs.LargestCount() == 0);
+}
+
 TESSERA_TEST(removed_connection_frees_its_state_and_ignores_later_calls) {
     const ReplicationSchema schema = MakeTestSchema();
     ThreadPoolJobSystem jobs(1);

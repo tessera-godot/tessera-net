@@ -79,6 +79,12 @@ public:
     /// range are ignored.
     void MarkPendingAt(uint32_t compact_id) noexcept;
 
+    /// The same as `MarkPendingAt`, safe to call from several threads at once on the same connection (the
+    /// replication engine does it to mark every changed entity in parallel). Only the bits that say "pending"
+    /// and "changed since it was last sent" are written, with an atomic OR, and nothing else may touch the
+    /// connection while it runs.
+    void MarkPendingConcurrently(uint32_t compact_id) noexcept;
+
     /// The entities this connection tracks, ascending by id, with their compact ids.
     std::span<const VisibleEntry> Visible() const noexcept {
         return visible_.Entries();

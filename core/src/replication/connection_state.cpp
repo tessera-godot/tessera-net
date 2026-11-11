@@ -7,6 +7,7 @@
 #include "tessera/net/replication/state_store.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstring>
 
@@ -24,6 +25,11 @@ void SetBit(uint64_t* words, uint32_t index) noexcept {
 }
 void ClearBit(uint64_t* words, uint32_t index) noexcept {
     words[index >> 6] &= ~(1ull << (index & 63));
+}
+// For bits that several threads may set at once (the marking of changed entities): an atomic OR, so that two
+// threads setting different bits of the same word do not lose each other's bit. The order does not matter.
+void SetBitShared(uint64_t* words, uint32_t index) noexcept {
+    std::atomic_ref<uint64_t>(words[index >> 6]).fetch_or(1ull << (index & 63), std::memory_order_relaxed);
 }
 
 } // namespace
@@ -193,6 +199,21 @@ void ConnectionState::MarkPendingAt(uint32_t compact_id) noexcept {
     if (TestBit(page->in_use, local)) {
         SetBit(page->pending, local);
         SetBit(page->stale, local);
+    }
+}
+
+void ConnectionState::MarkPendingConcurrently(uint32_t compact_id) noexcept {
+    Page* page = compact_id < max_visible_ ? pages_[compact_id / kPageIds].get() : nullptr;
+    if (page == nullptr) {
+        return;
+    }
+    // An atomic OR on a word needs the word to be aligned like a std::uint64_t.
+    static_assert(offsetof(Page, pending) % alignof(uint64_t) == 0 &&
+                  offsetof(Page, stale) % alignof(uint64_t) == 0);
+    const uint32_t local = compact_id % kPageIds;
+    if (TestBit(page->in_use, local)) { // read only: nothing changes who is tracked while ids are marked
+        SetBitShared(page->pending, local);
+        SetBitShared(page->stale, local);
     }
 }
 

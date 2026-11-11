@@ -194,6 +194,10 @@ void ReplicationServer::ProcessTransport() {
         }
         }
     }
+    // The confirmations of every ack read above are applied now, on all connections at once, before anything
+    // that depends on them runs. Until here a connection's state does not yet show them, which includes what
+    // the connect and disconnect callbacks can see.
+    replication_.ApplyQueuedConfirms();
 }
 
 void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer,
@@ -253,7 +257,7 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
     // Each tick the ack confirms for the first time is confirmed to the replication engine, once.
     const std::vector<uint64_t> fresh = peer.acks.Add(ack);
     for (const uint64_t tick : fresh) {
-        replication_.Confirm(peer.id, tick);
+        replication_.QueueConfirm(peer.id, tick); // applied together at the end of ProcessTransport
     }
     // The newest tick of an ack, the first time it is confirmed, tells how long a round trip takes: the ticks
     // since the buffer was written. The older ticks of the mask were confirmed late by design and would only

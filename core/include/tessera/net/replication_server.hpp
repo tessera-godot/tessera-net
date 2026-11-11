@@ -67,7 +67,7 @@ struct ServerStats {
 
 /// The server's side of the network phase of a tick: it reads the transport (greetings, confirmations,
 /// disconnections), runs the relevancy engine, sends each player the visibility events and the state buffer,
-/// and turns the confirmations into `Confirm` calls. It owns the relevancy and the replication engine; the
+/// and passes the confirmations on to the replication engine (queued while it reads, applied when it is done). It owns the relevancy and the replication engine; the
 /// game owns the simulation (the grid, the groups and the tables) and gives the server references to them.
 ///
 /// Each tick, the game moves its entities and updates the grid, calls `Refresh` for each table and then
@@ -82,7 +82,10 @@ public:
     ReplicationServer(const ServerConfig& config, RelevancyConfig relevancy, const ReplicationSchema& schema,
                       SpatialGrid& grid, RelevancyGroups& groups, IJobSystem& jobs, ITransport& transport);
 
-    /// Called from `Update`, when a player has been accepted and when one has gone (for any reason).
+    /// Called from `Update`, when a player has been accepted and when one has gone (for any reason). They run
+    /// while the transport is being read, before the confirmations read in the same `Update` are applied (those
+    /// are applied together when the reading ends), so the state of the other players in
+    /// `Replication().Connection(other)` does not yet show them.
     void SetCallbacks(std::function<void(ConnectionId)> on_connected,
                       std::function<void(ConnectionId)> on_disconnected);
 
