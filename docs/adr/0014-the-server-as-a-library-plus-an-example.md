@@ -1,6 +1,6 @@
 # 0014. The server as a library plus an example
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 
 ## Context
