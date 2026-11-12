@@ -18,6 +18,22 @@ FetchContent_Declare(godot_cpp
     GIT_TAG 27d9dd23c83871e0619fca5dc2cddfbfd69e926a)
 FetchContent_MakeAvailable(godot_cpp)
 
+# Everything that does not need Godot: describing a schema, converting values, the client session. Tested on its
+# own, with the simulated network (extension/tests).
+add_library(tessera_extension_logic STATIC
+    logic/src/schema_description.cpp)
+target_include_directories(tessera_extension_logic PUBLIC logic/include)
+target_link_libraries(tessera_extension_logic PUBLIC tessera_net_core)
+if(MSVC)
+    target_compile_options(tessera_extension_logic PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(tessera_extension_logic PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(TESSERA_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
 add_library(tessera_net_godot SHARED
     src/register_types.cpp
     src/tessera_client.cpp)
