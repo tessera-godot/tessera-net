@@ -273,8 +273,8 @@ in [record 0013](../adr/0013-enet-as-the-first-real-transport.md).
 - **Statistics.** `Stats()` counts the message bytes that `Send` accepted and `Poll` handed over. ENet does not say
   which message a lost packet carried, so `messages_lost` is always 0 here. `Wire()` has the bytes that went through
   the sockets, ENet's own headers included.
-- **Left out.** Encryption, authentication, reconnecting into an old session, and any tuning of ENet. Only Windows
-  has been built and measured, and only on localhost.
+- **Left out.** Encryption, authentication, reconnecting into an old session, and any tuning of ENet. It has been
+  built, tested and measured on Windows, and only on localhost; see "Running a server" for Linux.
 
 A server, one entity and one player over a UDP port on this machine; the rest is the example at the end of this
 page.
@@ -357,11 +357,208 @@ TESSERA_CHECK(quantized != nullptr &&
               quantized[0] == 512'050); // x = 120.5 m is 512,050 steps from -5,000 m
 ```
 
+## Running a server
+
+The server library, `tessera_server` (in `server/`), is everything a server needs around the code of your game: it reads
+the settings, builds the world your game describes, runs the tick loop at a fixed rate, stops cleanly and writes a log.
+It links only the core, and it is not built unless you ask for it:
+
+```powershell
+cmake --preset windows-msvc-server      # or any configure with -DTESSERA_BUILD_SERVER=ON
+cmake --build --preset windows-msvc-server-release
+```
+
+The example program, `tessera_example_server`, also needs ENet (`-DTESSERA_BUILD_ENET=ON`, or the `windows-msvc-enet`
+preset). The reasons for the design are in [record 0014](../adr/0014-the-server-as-a-library-plus-an-example.md).
+
+**What your game implements.** `IGameLogic` has six members. It is the first version of the interface, so it may
+change.
+
+| Member | When it is called |
+|---|---|
+| `DescribeWorld()` | Once, from the host's constructor. Returns a `WorldSetup`: the schema, the relevancy settings, the grid cell size and the replication settings the game wants (the host sets the player limit and the tick rate itself). |
+| `OnStart(context)` | Once, before the first tick. Make your tables and your first entities. The context has the shard id, the tick rate, the replication server, the grid, the groups, the jobs, the logger and a `request_stop` function. |
+| `OnTick(dt_seconds)` | Once per tick, which is every `1 / tick_rate` seconds when the server keeps up. After a tick that took longer than that, the next one starts at once and the schedule starts over; there is no catch-up, so the gap can be longer. `dt_seconds` is always the nominal `1 / tick_rate`. Simulate, then call `context.replication.Refresh(table)` for each table. |
+| `OnPlayerConnected(player)`, `OnPlayerDisconnected(player)` | While the network phase reads the transport. A player who leaves before saying hello gets neither call. |
+| `OnShutdown()` | Once, after the last tick and after what was pending has been handed to the transport. |
+
+None of them may throw. If `OnTick` throws, the host logs it, still calls `OnShutdown`, and `Run` returns 1. The same
+goes for `OnStart` (the host never ticks after that), for the final flush and for `OnShutdown`.
+
+**One tick.** The host calls `OnTick`, then runs the network phase (`ReplicationServer::Update`), then calls the
+function you gave it to flush the transport (`EnetServerTransport::Flush`, for ENet). `ServerHost::Step()` runs one tick
+without waiting, which is what tests use; `Run()` runs ticks at the configured rate until a stop is requested.
+
+**The shard id.** `shard_id` is a setting (0 to 4,095). The host gives it to your game in the context, and you put it
+in `TableConfig{shard, type}`, which is how it reaches the 12 bits of the entity id. It is the only thing the server
+does for a world split across several servers; moving entities between them is not built.
+
+**Stopping.** `ServerHost::RequestStop()` sets a flag. It is safe to call from another thread, from a signal handler and
+from inside a callback, and calling it again changes nothing. The host finishes the tick in progress, flushes the
+transport, calls `OnShutdown` once and `Run` returns 0. A request made before `Run` starts means no tick at all. The
+example program turns Ctrl+C and the termination request of the system into a call to it (Ctrl+C, Ctrl+Break and closing
+the console on Windows, SIGINT and SIGTERM on Linux). After the stop nobody reads the transport, so no new player is
+accepted; the owner of the transport closes it.
+
+**The log.** Lines go to a sink you choose (`StdoutSink()` writes to the standard output) and look like
+`2026-11-11T18:47:03.042Z INFO  listening on port 7777`: the time in UTC, the level and the message. With
+`summary_interval` set, the host also writes a line every that many seconds with the tick, the number of players and
+the bytes sent and received per second. Those counts come from `ITransport::Stats()`: they are the bytes of the
+messages, not the bytes ENet puts on the wire (`Wire()` has those).
+
+**The settings.** `ResolveConfig` reads them from a file of `key=value` lines (`--config=<path>`; `#` starts a comment)
+and from `--key=value` arguments, which win over the file. A key that is unknown or given twice in one source, a value
+that is not a plain number and a value out of range are errors that name the key, and the server does not start.
+
+| Key | Meaning | Range | Default |
+|---|---|---|---|
+| `port` | UDP port to listen on | 1 to 65,535 | 7777 |
+| `max_players` | Players at once | 1 to 65,535 | 128 |
+| `tick_rate` | Ticks per second | 1 to 1,000 | 30 |
+| `threads` | Threads for parallel work, the main one included | 1 to 256 | 1 |
+| `shard_id` | Number written into every entity id | 0 to 4,095 | 0 |
+| `log_level` | `debug`, `info`, `warn` or `error` | | `info` |
+| `summary_interval` | Seconds between summary lines; 0 turns them off | 0 to 3,600 | 0 |
+
+The smallest game that runs on a server, over a network in memory. The same code runs over ENet when the host is given
+an `EnetServerTransport` (see `server/example/main.cpp`). It is compiled and run as a test.
+
+```cpp
+#include "tessera/net/client_replica.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/transport/simulated_network.hpp"
+#include "tessera/server/game_logic.hpp"
+#include "tessera/server/server_host.hpp"
+#include "test_support.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <string>
+
+using namespace tessera::net;
+namespace server = tessera::server;
+
+// 1. The game: one kind of entity with a position, and one entity that stays where it is.
+struct MobColumns {
+    float x[kPageSlots];
+    float y[kPageSlots];
+    float z[kPageSlots];
+};
+
+class MiniGame final : public server::IGameLogic {
+public:
+    MiniGame() {
+        schema_.AddType(1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x),
+                                                         TESSERA_COLUMN(MobColumns, y),
+                                                         TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
+    }
+
+    // What the host needs before it can build anything: the schema, and who sees what.
+    server::WorldSetup DescribeWorld() override {
+        server::WorldSetup setup;
+        setup.schema = &schema_;
+        setup.relevancy.types[1] = TypeRelevancy{RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
+        return setup;
+    }
+
+    // Once, before the first tick: make the table, with the shard id of the server in its ids, and one entity.
+    void OnStart(server::ServerContext& context) override {
+        context_ = &context;
+        table_ = std::make_unique<EntityTable<MobColumns>>(TableConfig{context.shard_id, 1});
+        mob = table_->Create();
+        const auto where = table_->Find(mob);
+        MobColumns& columns = table_->Columns(where->page);
+        columns.x[where->slot] = 120.5f;
+        columns.y[where->slot] = 0.0f;
+        columns.z[where->slot] = -40.25f;
+        table_->MarkDirty(mob);
+        context.grid.Insert(mob, 120.5f, 0.0f, -40.25f);
+        context.replication.Relevancy().OnEntityCreated(mob);
+    }
+
+    // Every tick: simulate, then hand the changes of each table to the replication layer.
+    void OnTick(double /*dt_seconds*/) override {
+        context_->replication.Refresh(*table_);
+    }
+
+    void OnPlayerConnected(ConnectionId player) override {
+        context_->log.Info("player " + std::to_string(player) + " is in");
+    }
+
+    void OnShutdown() override {
+        stopped = true;
+    }
+
+    const ReplicationSchema& Schema() const {
+        return schema_;
+    }
+
+    EntityId mob = EntityId::Null();
+    bool stopped = false;
+
+private:
+    ReplicationSchema schema_;
+    server::ServerContext* context_ = nullptr;
+    std::unique_ptr<EntityTable<MobColumns>> table_;
+};
+
+TESSERA_TEST(server_reference_example) {
+    MiniGame game;
+
+    // 2. The settings. A real server reads them with `ResolveConfig` from a file and the command line.
+    server::ServerConfig config;
+    config.shard_id = 5;
+    config.tick_rate_hz = 30;
+    config.max_players = 8;
+
+    // 3. A network in memory and a logger that says nothing. A real server gives the host an ENet transport and a
+    //    logger that writes to the standard output (`server::StdoutSink()`).
+    SimulatedNetwork network(NetworkConditions{});
+    server::Logger log(server::LogLevel::Info, [](const std::string&) {});
+
+    // 4. The host builds the world the game describes and owns the tick loop.
+    server::ServerHost host(config, game, network.Server(), log);
+
+    // 5. A player: a client on the other end of the network.
+    ClientReplica client(*network.AddClient(), game.Schema());
+
+    // 6. A real server calls `host.Run()`, which ticks at the configured rate until a stop is requested. Here the
+    //    ticks are run by hand, so the test does not have to wait.
+    for (uint64_t tick = 0; tick < 20; ++tick) {
+        network.Advance(tick);
+        client.Poll();
+        host.Step();
+    }
+
+    // 7. Stopping hands what is pending to the transport and calls `OnShutdown` once.
+    host.Shutdown();
+
+    const uint32_t* quantized = client.WordsOf(game.mob);
+    TESSERA_CHECK(client.State() == ClientState::Connected);
+    TESSERA_CHECK(client.VisibleCount() == 1);
+    TESSERA_CHECK(game.mob.shard() == 5); // the shard id of the server is in the id of the entity
+    // x = 120.5 m is 512,050 steps from -5,000 m
+    TESSERA_CHECK(quantized != nullptr && quantized[0] == 512'050);
+    TESSERA_CHECK(game.stopped);
+}
+```
+
+**The example program.** `tessera_example_server` is a small game on a real port: it makes entities that walk and
+bounce in a square, and a client built on this library that connects to it sees them. Run it with
+`tessera_example_server --port=7777 --tick_rate=30`, or with `--config=server.cfg`, and stop it with Ctrl+C. It exits
+with 0 after a stop, with 2 for a bad setting (the message names the key) and with 1 for anything else that stops it
+from starting, such as a port that is already in use. Copy `server/example/` as the starting point for your own server.
+
+**Where it has been run.** It was built and tested locally on Windows with MSVC, and in an Ubuntu 24.04 container
+with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI workflow for Ubuntu and Windows, but it
+has not run yet; Linux is claimed once that workflow shows it.
+
 ## Known limits
 
-- One server process, one grid, one set of tables with a single shard.
+- One server process, one grid and one set of tables per host. The shard id is a number in the entity ids; nothing moves
+  entities between servers.
 - The simulated network is an approximation (see above). The ENet transport has only been run on localhost, with no
-  packet loss and no latency, and only on Windows.
+  packet loss and no latency, and only on Windows so far.
 - A forged but well-formed message is accepted (see "What the contract does not cover").
 - A large message is lost far more often than a small one, which is why a state buffer is limited to 1,100 bytes
   by default: a player who joins a busy area gets its first state over several buffers instead of one.
@@ -376,7 +573,7 @@ TESSERA_CHECK(quantized != nullptr &&
 
 ## Coming next
 
-A dedicated server program, the Godot extension that exposes the client, and priority by distance.
+The Godot extension that exposes the client, prediction and reconciliation, and priority by distance.
 
 ## Example
 

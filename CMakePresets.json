@@ -29,11 +29,21 @@
       }
     },
     {
+      "name": "windows-msvc-server",
+      "displayName": "Windows (Visual Studio 2022), server library and its tests",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-server",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON"
+      }
+    },
+    {
       "name": "windows-msvc-enet",
-      "displayName": "Windows (Visual Studio 2022), ENet transport and head-to-head programs",
+      "displayName": "Windows (Visual Studio 2022), server, ENet transport and head-to-head programs",
       "inherits": "windows-msvc",
       "binaryDir": "${sourceDir}/build/windows-msvc-enet",
       "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
         "TESSERA_BUILD_ENET": "ON",
         "TESSERA_BUILD_BENCH": "ON"
       }
@@ -50,6 +60,57 @@
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux (Ninja, Debug)",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-server-release",
+      "displayName": "Linux (Ninja, Release), server library and its tests",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-server-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TESSERA_BUILD_SERVER": "ON"
+      }
+    },
+    {
+      "name": "linux-server-debug",
+      "displayName": "Linux (Ninja, Debug), server library and its tests",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-server-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TESSERA_BUILD_SERVER": "ON"
+      }
+    },
+    {
+      "name": "linux-enet-release",
+      "displayName": "Linux (Ninja, Release), server, ENet transport and example server",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-enet-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON"
+      }
+    },
+    {
+      "name": "linux-enet-debug",
+      "displayName": "Linux (Ninja, Debug), server, ENet transport and example server",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-enet-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON"
       }
     }
   ],
@@ -70,6 +131,16 @@
       "configuration": "Release"
     },
     {
+      "name": "windows-msvc-server-release",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-server-debug",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Debug"
+    },
+    {
       "name": "windows-msvc-enet-release",
       "configurePreset": "windows-msvc-enet",
       "configuration": "Release"
@@ -82,6 +153,26 @@
     {
       "name": "linux-release",
       "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-server-release",
+      "configurePreset": "linux-server-release"
+    },
+    {
+      "name": "linux-server-debug",
+      "configurePreset": "linux-server-debug"
+    },
+    {
+      "name": "linux-enet-release",
+      "configurePreset": "linux-enet-release"
+    },
+    {
+      "name": "linux-enet-debug",
+      "configurePreset": "linux-enet-debug"
     }
   ],
   "testPresets": [
@@ -110,6 +201,22 @@
       }
     },
     {
+      "name": "windows-msvc-server-release",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-server-debug",
+      "configurePreset": "windows-msvc-server",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "windows-msvc-enet-release",
       "configurePreset": "windows-msvc-enet",
       "configuration": "Release",
@@ -128,6 +235,41 @@
     {
       "name": "linux-release",
       "configurePreset": "linux-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-server-release",
+      "configurePreset": "linux-server-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-server-debug",
+      "configurePreset": "linux-server-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-enet-release",
+      "configurePreset": "linux-enet-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-enet-debug",
+      "configurePreset": "linux-enet-debug",
       "output": {
         "outputOnFailure": true
       }

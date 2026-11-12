@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here needs more than to read the repository.
+permissions:
+  contents: read
+
+# A new push to the same branch or pull request makes the run that is still going useless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux, ${{ matrix.compiler }}, ${{ matrix.config }}, ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        config: [release, debug]
+        # server: the server library and its tests. enet: the same plus the ENet transport, the example server
+        # and their tests.
+        mode: [server, enet]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      # A warning in our C++ code fails the build. ENet is C and is not affected.
+      CXXFLAGS: -Werror
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Configure
+        run: cmake --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Build
+        run: cmake --build --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+
+  windows:
+    name: Windows, MSVC, ${{ matrix.config }}, ${{ matrix.mode }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [release, debug]
+        mode: [server, enet]
+    env:
+      # A warning in our C++ code fails the build. ENet is C and is not affected.
+      CXXFLAGS: /WX
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
+
+  # The default configuration, with every option off: the core library and its own tests. The server and ENet
+  # jobs above must not change what this builds.
+  default:
+    name: Default build, ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: "Linux, Release", runner: ubuntu-24.04, configure: linux-release, build: linux-release, cxxflags: -Werror}
+          - {name: "Linux, Debug", runner: ubuntu-24.04, configure: linux-debug, build: linux-debug, cxxflags: -Werror}
+          - {name: "Windows, Release", runner: windows-2022, configure: windows-msvc, build: windows-msvc-release, cxxflags: /WX}
+          - {name: "Windows, Debug", runner: windows-2022, configure: windows-msvc, build: windows-msvc-debug, cxxflags: /WX}
+    env:
+      CXXFLAGS: ${{ matrix.cxxflags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        if: runner.os == 'Linux'
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.build }}

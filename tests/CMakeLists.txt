@@ -17,3 +17,8 @@ add_test(NAME tessera_net_tests COMMAND tessera_net_tests)
 if(TESSERA_BUILD_ENET)
     add_subdirectory(enet)
 endif()
+
+# The server library has its own test executables for the same reason.
+if(TESSERA_BUILD_SERVER)
+    add_subdirectory(server)
+endif()

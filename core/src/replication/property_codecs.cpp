@@ -101,7 +101,8 @@ void Split(uint64_t value, uint32_t* words) noexcept {
     words[1] = static_cast<uint32_t>(value >> 32);
 }
 
-bool IsWide(PropertyKind kind) noexcept {
+// Only the assertion in `IntegerValue` uses it, so a build without assertions would not use it at all.
+[[maybe_unused]] bool IsWide(PropertyKind kind) noexcept {
     return kind == PropertyKind::Integer || kind == PropertyKind::Bits;
 }
 
