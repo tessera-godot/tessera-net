@@ -37,7 +37,8 @@ public:
     ServerHost(ServerHost&&) = delete;
     ServerHost& operator=(ServerHost&&) = delete;
 
-    /// Calls `OnStart`. Happens once; `Step` and `Run` call it when needed.
+    /// Calls `OnStart`. Happens once; `Step` and `Run` call it when needed. If `OnStart` throws, the exception
+    /// reaches the caller and the host stays failed: later `Step` calls do nothing and `Run` returns 1.
     void Start();
 
     /// Runs one tick now, without waiting. For tests, and for a game that runs its own loop.
@@ -45,11 +46,12 @@ public:
 
     /// Hands what is pending to the transport and calls `OnShutdown`. Does nothing before `Start`, and after
     /// the first call. From then on `Step` and `Run` do nothing: nobody reads the transport any more, so no
-    /// one new is accepted (the owner closes the transport).
+    /// one new is accepted (the owner closes the transport). If the flush or `OnShutdown` throws, the other
+    /// one still runs and the first exception is thrown at the end; `Run` catches it.
     void Shutdown();
 
     /// Starts, ticks in real time until a stop is requested, and shuts down. Returns 0 after a stop, and 1 if
-    /// something thrown by the game ended the run (it is logged).
+    /// something thrown by the game or by the final flush ended the run (it is logged). Nothing escapes.
     int Run();
 
     /// Asks `Run` to stop after the tick in progress. Safe from another thread, from a signal handler and
@@ -78,6 +80,7 @@ private:
     SummaryReporter summary_;
     std::atomic<bool> stop_{false};
     bool started_ = false;
+    bool start_failed_ = false;
     bool shut_down_ = false;
 };
 

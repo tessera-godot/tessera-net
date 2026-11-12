@@ -8,6 +8,9 @@
 
 namespace tessera::server {
 
+// `RequestStop` is documented as safe from a signal handler, which holds only for a lock-free atomic.
+static_assert(std::atomic<bool>::is_always_lock_free, "RequestStop must be async-signal-safe");
+
 namespace {
 
 const ServerConfig& Checked(const ServerConfig& config) {
@@ -69,11 +72,16 @@ void ServerHost::Start() {
             log_.Info("player disconnected: " + std::to_string(player));
             logic_.OnPlayerDisconnected(player);
         });
-    logic_.OnStart(context_);
+    try {
+        logic_.OnStart(context_);
+    } catch (...) {
+        start_failed_ = true; // the game is half made: nothing may tick on top of it
+        throw;
+    }
 }
 
 void ServerHost::Step() {
-    if (shut_down_) {
+    if (shut_down_ || start_failed_) {
         return;
     }
     Start();
@@ -85,14 +93,33 @@ void ServerHost::Shutdown() {
         return;
     }
     shut_down_ = true;
-    if (flush_transport_) {
-        flush_transport_();
+    // The game gets its OnShutdown even when the last flush fails; the first thing that went wrong is the one
+    // that is reported.
+    std::exception_ptr failure;
+    try {
+        if (flush_transport_) {
+            flush_transport_();
+        }
+    } catch (...) {
+        failure = std::current_exception();
     }
-    logic_.OnShutdown();
+    try {
+        logic_.OnShutdown();
+    } catch (...) {
+        if (!failure) {
+            failure = std::current_exception();
+        }
+    }
     log_.Info("stopped");
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
 }
 
 int ServerHost::Run() {
+    if (start_failed_) {
+        return 1;
+    }
     if (shut_down_) {
         return 0;
     }
@@ -107,7 +134,15 @@ int ServerHost::Run() {
         log_.Error("stopping because of an error that is not an exception");
         code = 1;
     }
-    Shutdown();
+    try {
+        Shutdown();
+    } catch (const std::exception& error) {
+        log_.Error(std::string("the shutdown failed: ") + error.what());
+        code = 1;
+    } catch (...) {
+        log_.Error("the shutdown failed with something that is not an exception");
+        code = 1;
+    }
     return code;
 }
 

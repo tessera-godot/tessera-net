@@ -63,6 +63,8 @@ public:
     std::function<void()> on_tick_hook;
     std::function<void(ConnectionId)> on_connected_hook;
     std::function<void()> on_shutdown_hook;
+    std::function<void()> on_flush_hook;
+    std::function<void()> on_start_hook;
 
     WorldSetup DescribeWorld() override {
         WorldSetup setup;
@@ -72,6 +74,9 @@ public:
     }
     void OnStart(ServerContext& context) override {
         events.push_back("start");
+        if (on_start_hook) {
+            on_start_hook();
+        }
         context_ = &context;
         seen_shard = context.shard_id;
         seen_tick_rate = context.tick_rate_hz;
@@ -131,7 +136,12 @@ struct Rig {
         config.tick_rate_hz = tick_rate_hz;
         config.max_players = 8;
         host = std::make_unique<ServerHost>(config, logic, network.Server(), log,
-                                            [this] { logic.events.push_back("flush"); });
+                                            [this] {
+                                                logic.events.push_back("flush");
+                                                if (logic.on_flush_hook) {
+                                                    logic.on_flush_hook();
+                                                }
+                                            });
     }
 
     // One tick the way a game loop would run it: the network moves, the clients read, the host steps.
@@ -223,6 +233,7 @@ TESSERA_TEST(host_run_never_ticks_faster_than_the_rate) {
     TESSERA_CHECK(code == 0);
     TESSERA_CHECK(rig.logic.ticks == 10);
     TESSERA_CHECK(elapsed >= std::chrono::milliseconds(9 * 10)); // nine gaps between ten ticks
+    TESSERA_CHECK(elapsed < std::chrono::seconds(2));            // and it does not crawl either
 }
 
 TESSERA_TEST(host_player_callbacks_arrive_in_order) {
@@ -484,4 +495,97 @@ TESSERA_TEST(host_shutdown_without_start_does_nothing) {
     Rig rig;
     rig.host->Shutdown();
     TESSERA_CHECK(rig.logic.events.empty());
+}
+
+TESSERA_TEST(host_exception_in_the_shutdown_flush_returns_1_and_still_calls_on_shutdown) {
+    Rig rig;
+    rig.logic.on_tick_hook = [&] {
+        if (rig.logic.ticks == 2) {
+            rig.host->RequestStop();
+        }
+    };
+    rig.logic.on_flush_hook = [&] {
+        const auto& events = rig.logic.events; // a flush right after a flush is the one before OnShutdown
+        if (events.size() >= 2 && events[events.size() - 2] == "flush") {
+            throw std::runtime_error("the flush broke");
+        }
+    };
+    bool escaped = false;
+    int code = -1;
+    {
+        Watchdog guard(*rig.host);
+        try {
+            code = rig.host->Run();
+        } catch (...) {
+            escaped = true;
+        }
+        TESSERA_CHECK(!guard.Fired());
+    }
+    TESSERA_CHECK(!escaped);
+    TESSERA_CHECK(code == 1);
+    TESSERA_CHECK(Count(rig.logic.events, "shutdown") == 1);
+    bool logged = false;
+    for (const std::string& line : rig.lines) {
+        logged = logged || line.find("the flush broke") != std::string::npos;
+    }
+    TESSERA_CHECK(logged);
+}
+
+TESSERA_TEST(host_exception_in_on_shutdown_returns_1) {
+    Rig rig;
+    rig.logic.on_tick_hook = [&] { rig.host->RequestStop(); };
+    rig.logic.on_shutdown_hook = [] { throw std::runtime_error("the shutdown broke"); };
+    bool escaped = false;
+    int code = -1;
+    {
+        Watchdog guard(*rig.host);
+        try {
+            code = rig.host->Run();
+        } catch (...) {
+            escaped = true;
+        }
+        TESSERA_CHECK(!guard.Fired());
+    }
+    TESSERA_CHECK(!escaped);
+    TESSERA_CHECK(code == 1);
+    bool logged = false;
+    for (const std::string& line : rig.lines) {
+        logged = logged || line.find("the shutdown broke") != std::string::npos;
+    }
+    TESSERA_CHECK(logged);
+}
+
+TESSERA_TEST(host_failed_on_start_is_remembered_and_nothing_ticks) {
+    Rig rig;
+    int starts = 0;
+    rig.logic.on_start_hook = [&] {
+        ++starts;
+        throw std::runtime_error("the start broke");
+    };
+    Watchdog guard(*rig.host);
+    TESSERA_CHECK(rig.host->Run() == 1);
+    TESSERA_CHECK(!guard.Fired());
+    rig.host->Step(); // the host has already failed to start: nothing runs
+    rig.host->Step();
+    TESSERA_CHECK(rig.logic.ticks == 0);
+    TESSERA_CHECK(rig.host->TickCount() == 0);
+    TESSERA_CHECK(starts == 1);
+    TESSERA_CHECK(rig.host->Run() == 1); // and asking again does not start it, nor run it
+    TESSERA_CHECK(rig.logic.ticks == 0);
+    TESSERA_CHECK(starts == 1);
+}
+
+TESSERA_TEST(host_step_after_a_failed_on_start_does_not_tick) {
+    Rig rig;
+    rig.logic.on_start_hook = [] { throw std::runtime_error("the start broke"); };
+    bool threw = false;
+    try {
+        rig.host->Step();
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    TESSERA_CHECK(threw);
+    rig.host->Step();
+    TESSERA_CHECK(rig.logic.ticks == 0);
+    TESSERA_CHECK(rig.host->TickCount() == 0);
 }
