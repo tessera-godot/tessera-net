@@ -12,7 +12,7 @@ var status := Label.new()
 
 func _ready() -> void:
 	# The schema has to describe the entities exactly as the server does: the same types, the same properties in
-	# the same order, and the same step and range for each position.
+	# the same order, and the same kind and numbers for each one.
 	var schema := TesseraSchema.new()
 	schema.add_type(1, [{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}])
 	client.schema = schema

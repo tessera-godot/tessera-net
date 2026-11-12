@@ -78,7 +78,7 @@ ctest --preset windows-msvc-extension-debug
 ```
 
 ```bash
-# Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++)
+# Linux (CMake 3.21+, Ninja, GCC 13 or Clang 18 with libstdc++: the versions the extension has been tried with)
 cmake --preset linux-extension-debug
 cmake --build --preset linux-extension-debug
 ctest --preset linux-extension-debug

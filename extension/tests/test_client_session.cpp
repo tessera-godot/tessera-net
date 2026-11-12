@@ -397,7 +397,7 @@ TESSERA_TEST(session_schema_mismatch_is_rejected_with_a_clear_text) {
             reason = e.reason;
         }
     }
-    for (const char* word : {"schema", "types", "step", "range"}) {
+    for (const char* word : {"schema", "types", "kind", "order", "step", "range", "bits", "min", "max", "signed", "count"}) {
         TESSERA_CHECK(Contains(reason, word));
     }
     TESSERA_CHECK(session.RejectionText() == reason);

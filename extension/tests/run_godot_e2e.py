@@ -39,11 +39,47 @@ def run(command, limit):
         return None, output
 
 
+def run_watching(command, limit, on_line):
+    """Like run, but the output is read while the command runs and every line goes to `on_line` (used to stop the
+    second server when the script says so)."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    lines = []
+
+    def pump():
+        for line in process.stdout:
+            lines.append(line.rstrip("\r\n"))
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + limit
+    handled = 0
+    code = None
+    while time.monotonic() < deadline:
+        while handled < len(lines):
+            on_line(lines[handled])
+            handled += 1
+        code = process.poll()
+        if code is not None:
+            break
+        time.sleep(0.02)
+    if code is None:
+        process.kill()  # our own child, past its time limit
+        process.wait()
+    reader.join(timeout=5.0)
+    while handled < len(lines):
+        on_line(lines[handled])
+        handled += 1
+    return code, "\n".join(lines)
+
+
 def import_project(godot, stage):
     """Lets Godot read the project once, so that it knows about the extension."""
     code, output = run([godot, "--headless", "--path", stage, "--import"], IMPORT_LIMIT)
     if code is None:
         print("FAIL import: passed the time limit\n" + output)
+        return False
+    if code != 0:
+        print(f"FAIL import: Godot exited with code {code}\n" + output)
         return False
     return True
 
@@ -124,16 +160,25 @@ def e2e(godot, stage, server_exe):
     dead_port = free_port()
     while dead_port == port:
         dead_port = free_port()
+    doomed_port = free_port()
+    while doomed_port in (port, dead_port):
+        doomed_port = free_port()
     server = Server(server_exe, port)
+    doomed = Server(server_exe, doomed_port)  # a second server, stopped while the test runs
+    doomed_stopped = []
     result = 1
     try:
-        if not server.wait_until_listening():
-            print("FAIL server: it did not start\n" + "\n".join(server.lines))
+        if not server.wait_until_listening() or not doomed.wait_until_listening():
+            print("FAIL server: it did not start\n" + "\n".join(server.lines + doomed.lines))
             return 1
         if not import_project(godot, stage):
             return 1
         remaining = max(5.0, RUN_LIMIT - (time.monotonic() - started))
-        code, output = run(
+        def on_line(line):
+            if line.strip() == "STOP_SERVER" and not doomed_stopped:
+                doomed_stopped.append(doomed.stop())
+
+        code, output = run_watching(
             [
                 godot,
                 "--headless",
@@ -144,8 +189,10 @@ def e2e(godot, stage, server_exe):
                 "--",
                 f"--port={port}",
                 f"--dead_port={dead_port}",
+                f"--doomed_port={doomed_port}",
             ],
             remaining,
+            on_line,
         )
         print(output)
         if code is None:
@@ -158,6 +205,11 @@ def e2e(godot, stage, server_exe):
         server_code = server.stop()
         if server_code != 0:
             print(f"FAIL server: exit code {server_code}, expected 0\n" + "\n".join(server.lines[-10:]))
+            result = 1
+        if not doomed_stopped:
+            doomed_stopped.append(doomed.stop())
+        if doomed_stopped[0] != 0:
+            print(f"FAIL second server: exit code {doomed_stopped[0]}, expected 0\n" + "\n".join(doomed.lines[-10:]))
             result = 1
     if result == 0:
         print(f"E2E RUN PASS in {time.monotonic() - started:.1f} s")

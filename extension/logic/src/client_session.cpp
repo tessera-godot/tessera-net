@@ -170,8 +170,9 @@ std::string ClientSession::RejectionText() const {
     }
     switch (replica_->Rejection()) {
     case net::RejectReason::SchemaMismatch:
-        return "the server's schema is not the same as this client's: compare the types, the properties and "
-               "their order, and the step and range of every position, on both sides";
+        return "the server's schema is not the same as this client's: compare, on both sides, the types, the "
+               "order of the properties, the kind of each one, and its settings (bits, step and range, min, max, "
+               "signed, count)";
     case net::RejectReason::VersionMismatch:
         return "the server speaks a different version of the protocol";
     case net::RejectReason::ServerFull:

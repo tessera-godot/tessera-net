@@ -26,13 +26,22 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    ./build/windows-msvc-extension-debug/server/Debug/tessera_example_server.exe
    ```
 
-3. Open the project in Godot, with a window, from the folder the build put it in:
+3. Let Godot read the project once. Godot only loads an extension that an import has listed, so on a folder the
+   build has just put together, run:
+
+   ```powershell
+   godot --headless --path build/windows-msvc-extension-debug/extension/stage/demo --import
+   ```
+
+   (Opening the folder in the Godot editor does the same.)
+
+4. Run the demo. This opens a window:
 
    ```powershell
    godot --path build/windows-msvc-extension-debug/extension/stage/demo
    ```
 
-   It connects to `127.0.0.1:7777`. To use another server, pass its address after `--`:
+   Or press Play in the editor. It connects to `127.0.0.1:7777`. To use another server, pass its address after `--`:
    `godot --path <folder> -- --host=192.168.1.20 --port=7777`.
 
 The label in the corner shows the state of the connection and how many entities the client has. If the server's

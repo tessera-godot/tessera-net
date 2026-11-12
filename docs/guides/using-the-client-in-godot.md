@@ -54,10 +54,10 @@ the editor.
 ## Describe your entities
 
 The client has to describe the entities the same way the server does: the same types, the same properties **in the same
-order**, and the same step and range for every position. If it does not, the server refuses the connection and the
-client says so (see "When something goes wrong"). The names you give the properties are only yours: they are not part of
-what is compared, so two descriptions that differ only in names connect, and a typo in a name shows up as `null` when
-you read the value.
+order**, with the same kind and the same numbers for each one (step and range, bits, min, max, signed, count). If it
+does not, the server refuses the connection and the client says so (see "When something goes wrong"). The names you
+give the properties are only yours: they are not part of what is compared, so two descriptions that differ only in
+names connect, and a typo in a name shows up as `null` when you read the value.
 
 ```gdscript
 var schema := TesseraSchema.new()
@@ -71,16 +71,21 @@ dictionary with a `name`, a `kind` and the keys that kind uses:
 |---|---|---|---|
 | `"position"` | `step`, `range` | `Vector3` | Rounded to steps of `step`; each axis from `-range` to `range`. |
 | `"angle"` | `bits` (1 to 16) | `float`, in radians | Whole steps around the circle: 2^`bits` of them. |
-| `"integer"` | `min`, `max`, `signed` | `int` | A whole number from `min` to `max`. `signed` is `false` if `min` is not below 0. |
+| `"integer"` | `min`, `max`, `signed` | `int` | A whole number from `min` to `max`. `signed` is not worked out from `min`: it is `false` unless you set it, and a `min` below 0 with `signed` false is an error. It is part of what the server compares, so give the same value the server uses. |
 | `"flag"` | none | `bool` | One on/off value. |
 | `"mask"` | `bits` (1 to 64) | `int` | Up to 64 on/off values in one number. With 64 bits the top bit makes the number negative: the bits are the same. |
 | `"choice"` | `count` (2 or more) | `int` | A number from 0 to `count - 1`. |
 
 `add_type` returns `OK`, or `ERR_INVALID_PARAMETER` when something is wrong. In that case nothing is added, the reason
 is in `get_error()` and in the editor's output, and the message names the type and the property, for example
-`type 1, property "hp": unknown kind "float"`. A key that is not in the table, or has the wrong type, is an error too.
-`is_valid()` tells whether the schema can be used (it needs at least one type), and `get_hash()` is the number the
-server compares.
+`type 1, property "hp": unknown kind "float"`. These are errors too: a key that is not in the table, a key that belongs
+to another kind (a `bits` on a `flag`), a key with the wrong type, and a missing key that has no default (`min` and
+`max` for an integer, `step` and `range` for a position, `bits` for an angle or a mask, `count` for a choice; only
+`signed` is optional). `is_valid()` tells whether the schema can be used (it needs at least one type), and `get_hash()`
+is the number the server compares.
+
+A `TesseraSchema` is a `Resource`: what you described is kept in its `types` property, so it can be saved as a `.tres`
+file, loaded again and copied with `duplicate()`, and the copy has the same hash.
 
 ## Connect and read
 
@@ -97,7 +102,7 @@ var status := Label.new()
 
 func _ready() -> void:
 	# The schema has to describe the entities exactly as the server does: the same types, the same properties in
-	# the same order, and the same step and range for each position.
+	# the same order, and the same kind and numbers for each one.
 	var schema := TesseraSchema.new()
 	schema.add_type(1, [{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}])
 	client.schema = schema
@@ -139,12 +144,12 @@ already connecting.
 
 | Call | What it does |
 |---|---|
-| `connect_to(host, port)` | Starts connecting. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`: no valid schema, a port outside 1 to 65535, or a connection that could not be opened. A server that refuses you, or is not there, shows up later, as the state. |
+| `connect_to(host, port)` | Starts connecting. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`: no valid schema, a port outside 1 to 65535, a host name that cannot be resolved, or a connection that could not be opened. A server that refuses you, or is not there, shows up later, as the state. |
 | `disconnect_from_server()` | Leaves the server. Sends no signal. Harmless if you call it twice or before connecting. |
 | `poll()` | Reads what arrived and sends the signals for it. |
 | `get_state()` | One of `TesseraClient.State.CONNECTING`, `HANDSHAKING`, `CONNECTED`, `REJECTED`, `DISCONNECTED`. A new client is `DISCONNECTED`. |
 | `get_rejection()` | Why the server said no. Empty unless the state is `REJECTED`. |
-| `get_last_error()` | The reason the last `connect_to` failed. |
+| `get_last_error()` | The reason the last `connect_to` failed, or the last `poll()` hit a problem it could not report any other way. |
 | `get_entities()` | A `PackedInt64Array` with the id of every entity the client has a state for. |
 | `get_property(id, name)` | The value, already converted (see the table above), or `null` if the client does not have it. Never an error. |
 | `get_snapshot()` | A dictionary of everything: `{id: {name: value}}`. |
@@ -166,10 +171,14 @@ they were about the old connection.
 ## When something goes wrong
 
 - **The schema does not match the server's.** The state becomes `REJECTED`, the `rejected` signal fires and
-  `get_rejection()` says that the schema is not the same and tells you to compare types, properties and their order, and
-  the step and range of every position. The client never connects quietly with values it would read wrongly.
-- **The server is not there.** The connection times out after a few seconds and you get `disconnected`. The same happens
-  for a host name that does not exist.
+  `get_rejection()` says that the schema is not the same and tells you what to compare: the types, the order of the
+  properties, the kind of each one and its numbers (bits, step and range, min, max, signed, count). The client never
+  connects quietly with values it would read wrongly.
+- **The server is not there.** The connection times out after a few seconds and you get `disconnected`.
+- **The host name cannot be found.** `connect_to` returns `ERR_INVALID_PARAMETER` at once, `get_last_error()` says that
+  the address could not be resolved, the state stays `DISCONNECTED` and no signal is sent, because nothing was ever
+  connected. Looking a name up blocks the frame until the system answers or gives up, which for a name that does not
+  exist can take a second or more; an IP address needs no lookup.
 - **The server is full.** The state becomes `REJECTED` and the reason says the server is full.
 - **Using the client at the wrong moment.** Every call is safe in every state: before connecting and after
   disconnecting, `get_entities()` is empty, `get_property()` is `null`, and `poll()` does nothing.

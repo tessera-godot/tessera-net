@@ -16,7 +16,7 @@ namespace godot {
 
 // The properties that the server replicates for each type of entity, described from GDScript. The client has
 // to describe them exactly as the server does: the same types, the same properties in the same order, and the
-// same step and range for every position. The names are the client's own.
+// same kind and numbers for each one (bits, step and range, min, max, signed, count). The names are the client's own.
 TESSERA_GODOT_CLASS_BEGIN
 class TesseraSchema : public Resource {
     GDCLASS(TesseraSchema, Resource)
@@ -29,6 +29,11 @@ public:
     String get_error() const;
     int64_t get_hash() const;
 
+    // What was described, as an Array with one Dictionary ({"type", "properties"}) for each type. Setting it replaces
+    // everything. This is what lets a schema be saved in a .tres file and copied with duplicate().
+    void set_types(const Array& types);
+    Array get_types() const;
+
     // For the client: the schema built from what was described, or null with the reason in `error`.
     std::shared_ptr<const tessera::ext::BuiltSchema> Build(std::string& error) const;
 
@@ -37,6 +42,7 @@ protected:
 
 private:
     std::vector<tessera::ext::TypeDescription> types_;
+    Array described_; // the same types as they were given, for get_types()
     std::string error_;
 };
 TESSERA_GODOT_CLASS_END

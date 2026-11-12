@@ -29,9 +29,9 @@ dictionaries, one for each property, with a name, a kind (`position`, `angle`, `
 and the numbers that kind needs. There is no code generation and no file shared with the server for now: the same layout
 is written once for the server in C++ and once for the client in GDScript. This is the part most likely to be changed
 (the schema step of the roadmap is where a shared description belongs). The hash in the hello message is the safety net:
-a description that differs from the server's is refused, with a message that says to compare types, properties, their
-order, and the step and range of every position, and the client never connects quietly with values it would read wrongly.
-The hash does not include property names, so a client may name things as it likes.
+a description that differs from the server's is refused, with a message that says what to compare: the types, the order
+of the properties, the kind of each one and its numbers (bits, step and range, min, max, signed, count). The client never
+connects quietly with values it would read wrongly. The hash does not include property names, so a client may name things as it likes.
 
 **Everything that does not need Godot lives in its own library**, `tessera_extension_logic`, in the namespace
 `tessera::ext`: building a core schema from a description, turning quantized words into values, and `ClientSession`,
@@ -46,25 +46,26 @@ version script lists the entry point as the only exported name. A test reads the
 alternative we keep in reserve is to use Godot's own `ENetConnection` behind the `ITransport` interface, which would
 remove the second copy altogether; it is not needed as long as the first approach holds.
 
-**godot-cpp is fetched at one commit.** The local copy and the one the build fetches are the commit
-`27d9dd23c83871e0619fca5dc2cddfbfd69e926a` of the `4.5` branch. There is no 4.7 branch of godot-cpp to pin, so the
+**godot-cpp is fetched at one commit.** The build fetches the commit `27d9dd23c83871e0619fca5dc2cddfbfd69e926a` of the
+`4.5` branch. There is no 4.7 branch of godot-cpp to pin, so the
 library is built against 4.5 and says in its `.gdextension` file that it needs Godot 4.5 or newer
 (`compatibility_minimum`). Godot 4.7.2 loaded it when we tried on Windows. If a later godot-cpp matches the Godot you
 use better, changing the commit is one line in `extension/CMakeLists.txt`.
 
 **Four godot-cpp options are set on purpose.** Exceptions stay enabled (the core throws, and godot-cpp would otherwise
-define a macro that turns them off for everything it touches), the C++ runtime is linked in the shared form on Windows
-(the core and ENet use it, and mixing runtimes does not link), the headers are marked as system headers (so their
-warnings are not ours), and the target (`template_debug` or `template_release`) is chosen when you configure, with one
-preset for each. On Windows the shared runtime is used in the Debug build too, so that the library loads on a machine
-without Visual Studio.
+define a macro that turns them off for everything it touches), the C++ runtime is not linked statically (the core and
+ENet use the shared one, and mixing runtimes does not link), the headers are marked as system headers (so their
+warnings are not ours), and symbol visibility is hidden. The target (`template_debug` or `template_release`) is not one
+of them: it is chosen when you configure, with one preset for each. On Windows the shared runtime is used in the Debug
+build too, so that the library loads on a machine without Visual Studio.
 
 **It is all behind `TESSERA_BUILD_EXTENSION`, off by default.** The option needs `TESSERA_BUILD_ENET` and
 `TESSERA_BUILD_SERVER`, because the example server is what the tests and the demo talk to. With it off, nothing is
 fetched, no target is added and no global CMake setting changes: the 495 tests are the same.
 
 **The GDScript interface is the first version and is small on purpose.** `TesseraSchema` has `add_type`, `is_valid`,
-`get_error` and `get_hash`. `TesseraClient` has `connect_to`, `disconnect_from_server`, `poll`, `get_state`,
+`get_error`, `get_hash` and a stored `types` property (so a schema can be saved as a resource or copied with
+`duplicate()`). `TesseraClient` has `connect_to`, `disconnect_from_server`, `poll`, `get_state`,
 `get_rejection`, `get_last_error`, `get_entities`, `get_property`, `get_snapshot`, a `schema` property and five signals.
 We make no promise that these stay as they are. Two details a user can trip on are written in the guide: entity ids are
 64-bit numbers with a sign (a high shard number makes them negative), and a 64-bit mask comes out as a signed `int`.
