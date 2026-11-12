@@ -36,6 +36,9 @@ is now written that way ([record 0012](adr/0012-network-phase-as-a-curve.md); th
 The 1,000 row is a reference load that has not been checked against real games. The next steps follow the curve: the
 cost between 1,000 and 10,000 moving entities, where the records written per player still grow, is where to look first.
 
+Preparation for server meshing is limited to a set of proposed rules for the API, written down in
+[0015](adr/0015-preparing-for-server-meshing.md). Server meshing itself is not planned.
+
 Later: lag compensation, visual state-tree editor, large-world streaming tools.
 
 Every step ships with automated tests, documentation, a working example and a recorded benchmark.
