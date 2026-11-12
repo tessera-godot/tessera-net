@@ -7,6 +7,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- A first Godot client: the GDExtension `tessera_net` (in `extension/`) with `TesseraSchema`, which describes the types of
+  entity and their properties in GDScript, and `TesseraClient`, which connects to a server over ENet, is read with
+  `poll()`, and tells a script about entities with signals. It is built only with `-DTESSERA_BUILD_EXTENSION=ON` (off by
+  default; with it off nothing is fetched and the 495 tests are unchanged), which fetches godot-cpp at one pinned commit
+  and needs the ENet and server options. ENet is linked into the library with its symbols hidden, and a test fails if the
+  library exports anything but its entry point. The code that does not need Godot is its own library with its own tests
+  (`tessera_extension_tests`). It has been loaded into Godot 4.7.2 on Windows and tested end to end in a headless Godot
+  against the example server; on Linux it is compiled and tested without Godot only.
+- Presets `windows-msvc-extension-debug`, `windows-msvc-extension-release`, `linux-extension-debug` and
+  `linux-extension-release`, and two jobs in the CI workflow that build the extension and run its tests on Ubuntu (GCC
+  and Clang) and Windows (MSVC). They have not run yet.
+- A demo project, `examples/godot-client-demo`, the guide "Using the client in Godot" and architecture decision record
+  0016 (Proposed).
 - The dedicated server as a library, `tessera_server` (in `server/`), built only with `-DTESSERA_BUILD_SERVER=ON`
   (off by default; with it off the build and the 495 tests are unchanged). Settings from a file and from arguments
   with clear errors, a fixed-rate tick loop (`ServerHost`) around a game that implements `IGameLogic`, a clean stop that

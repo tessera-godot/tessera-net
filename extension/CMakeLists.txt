@@ -88,3 +88,16 @@ add_custom_target(tessera_extension_stage ALL
             "${CMAKE_BINARY_DIR}/extension/stage/e2e/bin/"
     DEPENDS tessera_net_godot
     COMMENT "Putting together the test project for the extension")
+
+# The demo project with the library next to it, put together in the build directory: open
+# build/<preset>/extension/stage/demo in Godot.
+add_custom_target(tessera_extension_stage_demo
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/extension/stage/demo/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/examples/godot-client-demo"
+            "${CMAKE_BINARY_DIR}/extension/stage/demo"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/extension/tessera_net.gdextension"
+            "${CMAKE_BINARY_DIR}/extension/stage/demo/tessera_net.gdextension"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:tessera_net_godot>"
+            "${CMAKE_BINARY_DIR}/extension/stage/demo/bin/"
+    DEPENDS tessera_net_godot
+    COMMENT "Putting together the demo project")

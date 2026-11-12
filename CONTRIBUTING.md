@@ -64,3 +64,28 @@ ENet presets need a Python 3 interpreter, which runs the test that sends signals
 
 Use `windows-msvc-server-*` or `linux-server-*` for the build without ENet. The CI runs Linux, so a change that touches
 code the Linux build compiles is checked there; if you can, try it with both GCC and Clang.
+
+### Building the Godot extension
+
+The extension is off by default. Its presets turn on what it needs (ENet and the server) and the extension itself; the
+first configure fetches godot-cpp at the commit named in `extension/CMakeLists.txt`.
+
+```powershell
+# Windows (Visual Studio 2022)
+cmake --preset windows-msvc-extension-debug
+cmake --build --preset windows-msvc-extension-debug
+ctest --preset windows-msvc-extension-debug
+```
+
+```bash
+# Linux (CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++)
+cmake --preset linux-extension-debug
+cmake --build --preset linux-extension-debug
+ctest --preset linux-extension-debug
+```
+
+If you already have a copy of godot-cpp at that commit, add `-DFETCHCONTENT_SOURCE_DIR_GODOT_CPP=<path>` to the first
+command and nothing is fetched. Each build is for one godot-cpp target (`template_debug` or `template_release`), so there
+is one preset for each. The tests that need no Godot run with `ctest`. The test that runs a headless Godot against the
+example server is registered only when you pass `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable>` to the first
+command, and it is not part of the CI workflow: loading the library into Godot is checked locally.

@@ -1,0 +1,7 @@
+; Engine configuration file for the Tessera Net client demo.
+config_version=5
+
+[application]
+
+config/name="Tessera Net client demo"
+run/main_scene="res://main.tscn"
