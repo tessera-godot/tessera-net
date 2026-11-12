@@ -15,3 +15,15 @@ else()
 endif()
 
 add_test(NAME tessera_extension_tests COMMAND tessera_extension_tests)
+
+# The shared library carries ENet inside it, and Godot has its own: nothing but the entry point may be visible
+# from outside. The script reads the export table (the `nm` output on Linux, the PE file on Windows).
+find_package(Python3 COMPONENTS Interpreter)
+if(NOT Python3_FOUND)
+    message(FATAL_ERROR "TESSERA_BUILD_EXTENSION=ON needs a Python 3 interpreter to check what the library "
+                        "exports (extension/tests/check_exports.py). Install Python 3, or leave "
+                        "TESSERA_BUILD_EXTENSION off.")
+endif()
+add_test(NAME tessera_extension_exports
+         COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/check_exports.py
+                 $<TARGET_FILE:tessera_net_godot> tessera_net_init)

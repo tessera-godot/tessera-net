@@ -38,9 +38,10 @@ endif()
 
 add_library(tessera_net_godot SHARED
     src/register_types.cpp
-    src/tessera_client.cpp)
+    src/tessera_client.cpp
+    src/tessera_schema.cpp)
 
-target_link_libraries(tessera_net_godot PRIVATE godot::cpp tessera_net_enet)
+target_link_libraries(tessera_net_godot PRIVATE godot::cpp tessera_extension_logic tessera_net_enet)
 target_compile_features(tessera_net_godot PRIVATE cxx_std_20)
 
 if(MSVC)

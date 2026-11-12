@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera_client.hpp"
+#include "tessera_schema.hpp"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
@@ -14,6 +15,7 @@ void InitializeTesseraNet(ModuleInitializationLevel level) {
     if (level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
+    GDREGISTER_CLASS(TesseraSchema);
     GDREGISTER_CLASS(TesseraClient);
 }
 

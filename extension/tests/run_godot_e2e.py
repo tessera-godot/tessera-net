@@ -45,7 +45,7 @@ def load(godot, stage):
     if code is None:
         print("FAIL load: passed the time limit")
         return 1
-    if code != 0 or "LOAD ping=tessera" not in output:
+    if code != 0 or "LOAD ok" not in output:
         print(f"FAIL load: exit code {code}")
         return 1
     print("LOAD PASS")
