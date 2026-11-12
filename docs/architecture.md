@@ -53,8 +53,8 @@ the two sides never drift apart.
 
 The first release targets a single server process. Two pieces already look beyond it: entity ids carry a shard
 (unique across processes as long as each one uses its own shard id), and the replicated state of an entity is kept as
-plain quantized words that can be copied and sent.
+plain quantized words that can be copied and sent (nothing loads received words into a server yet).
 
 The server has a `shard_id` setting that reaches those ids, and [record 0015](adr/0015-preparing-for-server-meshing.md)
-lists the rules the API keeps so that it does not rule out several processes sharing a world, along with the limits we
+proposes rules for the API so that it does not rule out several processes sharing a world, along with the limits we
 found. It is preparation only: server meshing itself is not planned for the current version.

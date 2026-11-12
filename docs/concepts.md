@@ -72,4 +72,5 @@ only watch are *simulated proxies*.
 prediction and replays reliable.
 
 **Server meshing.** Splitting one big world across several server processes that cooperate. Not part of
-the first release, but the design keeps the door open.
+the first release and not planned; [record 0015](adr/0015-preparing-for-server-meshing.md) proposes rules that avoid
+closing the door by accident.
