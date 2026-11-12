@@ -21,7 +21,8 @@ FetchContent_MakeAvailable(godot_cpp)
 # Everything that does not need Godot: describing a schema, converting values, the client session. Tested on its
 # own, with the simulated network (extension/tests).
 add_library(tessera_extension_logic STATIC
-    logic/src/schema_description.cpp)
+    logic/src/schema_description.cpp
+    logic/src/value_conversion.cpp)
 target_include_directories(tessera_extension_logic PUBLIC logic/include)
 target_link_libraries(tessera_extension_logic PUBLIC tessera_net_core)
 if(MSVC)
