@@ -4,6 +4,8 @@
 #include "tessera/server/server_host.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <thread>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -18,14 +20,17 @@ namespace tessera::server::example {
 
 namespace {
 
-// What the handlers use to find the host. A handler may only do what is safe in a signal handler: this reads
-// an atomic and `RequestStop` writes one, and nothing else happens in it (no log, no allocation, no lock).
-std::atomic<ServerHost*> g_host{nullptr};
+// All a handler does is set this flag, which is safe in a signal handler: one store to a lock-free atomic, with
+// no log, no allocation, no lock and no call into the host. A thread of ours polls the flag and asks the host
+// to stop from there.
+std::atomic<bool> g_stop_requested{false};
+static_assert(std::atomic<bool>::is_always_lock_free, "the signal handler needs a lock-free flag");
+
+std::atomic<bool> g_quit_watching{false};
+std::thread g_watcher;
 
 void RequestStop() noexcept {
-    if (ServerHost* host = g_host.load(std::memory_order_acquire)) {
-        host->RequestStop();
-    }
+    g_stop_requested.store(true, std::memory_order_release);
 }
 
 #ifdef _WIN32
@@ -55,10 +60,29 @@ void SignalHandler(int) {
 
 #endif
 
+// Ends the polling thread, if there is one.
+void StopWatching() noexcept {
+    g_quit_watching.store(true, std::memory_order_release);
+    if (g_watcher.joinable()) {
+        g_watcher.join();
+    }
+}
+
 } // namespace
 
 void InstallStopSignals(ServerHost& host) {
-    g_host.store(&host, std::memory_order_release);
+    StopWatching(); // asking twice: the new host takes over
+    g_stop_requested.store(false, std::memory_order_release);
+    g_quit_watching.store(false, std::memory_order_release);
+    g_watcher = std::thread([&host] {
+        while (!g_quit_watching.load(std::memory_order_acquire)) {
+            if (g_stop_requested.load(std::memory_order_acquire)) {
+                host.RequestStop();
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
 #ifdef _WIN32
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
 #else
@@ -72,16 +96,10 @@ void InstallStopSignals(ServerHost& host) {
 }
 
 void RemoveStopSignals() noexcept {
-#ifdef _WIN32
-    SetConsoleCtrlHandler(ConsoleHandler, FALSE);
-#else
-    struct sigaction action {};
-    action.sa_handler = SIG_DFL;
-    sigemptyset(&action.sa_mask);
-    sigaction(SIGINT, &action, nullptr);
-    sigaction(SIGTERM, &action, nullptr);
-#endif
-    g_host.store(nullptr, std::memory_order_release);
+    // The handlers stay installed and only set the flag, which nobody reads any more: a signal that arrives
+    // while the process is leaving must not fall back to the default action, which would end it with a
+    // failure code.
+    StopWatching();
 }
 
 } // namespace tessera::server::example

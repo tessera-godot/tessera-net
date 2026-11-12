@@ -22,6 +22,20 @@ namespace {
 // The most players ENet can serve at once.
 constexpr uint32_t kMostPlayers = 4095;
 
+// Passes the stop signals to a host for as long as it lives; the signals are removed on every way out of the
+// scope, an exception included, before the host goes away.
+class StopSignalsScope {
+public:
+    explicit StopSignalsScope(ServerHost& host) {
+        example::InstallStopSignals(host);
+    }
+    ~StopSignalsScope() {
+        example::RemoveStopSignals();
+    }
+    StopSignalsScope(const StopSignalsScope&) = delete;
+    StopSignalsScope& operator=(const StopSignalsScope&) = delete;
+};
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -56,12 +70,10 @@ int main(int argc, char** argv) {
 
         example::ExampleGame game;
         ServerHost host(config, game, transport, log, [&transport] { transport.Flush(); });
-        example::InstallStopSignals(host);
+        const StopSignalsScope signals(host);
 
         log.Info("listening on port " + std::to_string(transport.Port()));
-        const int code = host.Run();
-        example::RemoveStopSignals();
-        return code;
+        return host.Run();
     } catch (const std::exception& error) {
         std::fprintf(stderr, "error: %s\n", error.what());
         return 1;

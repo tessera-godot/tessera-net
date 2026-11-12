@@ -40,6 +40,7 @@ class Process:
         )
         self.out = []
         self.err = []
+        self.signal_error = None
         self._threads = [
             threading.Thread(target=self._pump, args=(self.proc.stdout, self.out), daemon=True),
             threading.Thread(target=self._pump, args=(self.proc.stderr, self.err), daemon=True),
@@ -65,14 +66,16 @@ class Process:
         return False
 
     def signal(self, name):
-        """Sends the signal the platform has for 'stop'; a process that is already gone is not an error."""
+        """Sends the signal the platform has for 'stop'. A process that is already gone is not an error; a
+        signal that could not be sent to a process that is still running is, and is kept in `signal_error`."""
         try:
             if WINDOWS:
                 self.proc.send_signal(signal.CTRL_BREAK_EVENT)
             else:
                 self.proc.send_signal(getattr(signal, name))
-        except OSError:
-            pass
+        except OSError as error:
+            if self.proc.poll() is None:
+                self.signal_error = str(error)
 
     def wait_for_exit(self):
         """The exit code, or None if the process is still running after the limit."""
@@ -111,10 +114,14 @@ def stops_on_signal(exe, name, twice=False):
     server = Process(exe, f"--port={port}", "--tick_rate=60")
     try:
         expect(server.wait_for_line("listening on port"), "no 'listening on port' line\n" + server.output())
-        server.signal(name)
-        if twice:
-            time.sleep(0.05)
+        # Two signals back to back: the second one may arrive while the first is being handled, while the server
+        # shuts down, or after it has left. All of those must end the same way.
+        for _ in range(2 if twice else 1):
             server.signal(name)
+            expect(
+                server.signal_error is None,
+                f"could not send the signal (no console?): {server.signal_error}",
+            )
         code = server.wait_for_exit()
         expect(code is not None, f"still running {LIMIT:.0f} s after the signal")
         expect(code == 0, f"exit code {code}, expected 0\n{server.output()}\n{server.errors()}")
@@ -136,7 +143,7 @@ def case_sigint(exe):
     stops_on_signal(exe, "SIGINT")
 
 
-def case_second_signal_during_shutdown(exe):
+def case_second_signal_back_to_back(exe):
     stops_on_signal(exe, "SIGTERM", twice=True)
 
 
@@ -190,7 +197,7 @@ def main():
     exe = sys.argv[1]
     cases = [
         ("sigterm", case_sigterm),
-        ("second_signal_during_shutdown", case_second_signal_during_shutdown),
+        ("second_signal_back_to_back", case_second_signal_back_to_back),
         ("bad_config", case_bad_config),
         ("port_in_use", case_port_in_use),
         ("help", case_help),
