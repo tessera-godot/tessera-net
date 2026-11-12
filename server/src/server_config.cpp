@@ -9,6 +9,7 @@
 #include <iterator>
 #include <set>
 #include <sstream>
+#include <system_error>
 #include <vector>
 
 namespace tessera::server {
@@ -143,6 +144,12 @@ ServerConfig ParseConfigText(std::string_view text, ServerConfig base) {
 }
 
 ServerConfig LoadConfigFile(const std::filesystem::path& path, ServerConfig base) {
+    // Linux opens a directory without complaint and then reads nothing; say what is wrong instead.
+    std::error_code status_error;
+    const std::filesystem::file_status status = std::filesystem::status(path, status_error);
+    if (!status_error && std::filesystem::exists(status) && !std::filesystem::is_regular_file(status)) {
+        throw ConfigError("config", "not a regular file: " + path.string());
+    }
     std::ifstream file(path, std::ios::binary);
     std::ostringstream contents;
     if (file) {

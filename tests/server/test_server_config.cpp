@@ -258,6 +258,22 @@ TESSERA_TEST(config_missing_file_names_the_path) {
     TESSERA_CHECK(resolved && resolved->Key() == "config");
 }
 
+TESSERA_TEST(config_a_directory_is_not_a_config_file) {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() / ("tessera_server_config_dir_" + std::to_string(stamp));
+    std::filesystem::create_directory(directory);
+    const auto error = Failure([&] { LoadConfigFile(directory); });
+    const std::string argument = "--config=" + directory.string();
+    const std::vector<std::string_view> args = {argument};
+    const auto resolved = Failure([&] { ResolveConfig(args); });
+    std::error_code ignored;
+    std::filesystem::remove(directory, ignored);
+    TESSERA_CHECK(error && error->Key() == "config");
+    TESSERA_CHECK(error && std::string(error->what()).find(directory.string()) != std::string::npos);
+    TESSERA_CHECK(resolved && resolved->Key() == "config");
+}
+
 TESSERA_TEST(config_file_from_disk_with_an_argument_on_top) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path path =
