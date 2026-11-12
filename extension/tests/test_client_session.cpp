@@ -1,0 +1,726 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "example_game.hpp"
+#include "tessera/ext/client_session.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/protocol.hpp"
+#include "tessera/net/transport/simulated_network.hpp"
+#include "tessera/server/server_host.hpp"
+#include "test_support.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace tessera::ext;
+namespace net = tessera::net;
+namespace server = tessera::server;
+using Kind = SessionEvent::Kind;
+
+namespace {
+
+// A small game: a few entities of type 1 that every player sees, which the test can add, move and remove.
+class TestGame final : public server::IGameLogic {
+public:
+    explicit TestGame(float step = 0.01f, uint32_t entities = 3) : step_(step), count_(entities) {
+        schema_.AddType(1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
+                                                              TESSERA_COLUMN(Columns, y),
+                                                              TESSERA_COLUMN(Columns, z), step_, 2048.0f)});
+    }
+
+    server::WorldSetup DescribeWorld() override {
+        server::WorldSetup setup;
+        setup.schema = &schema_;
+        setup.relevancy.types[1] = net::TypeRelevancy{net::RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
+        setup.replication.rate_kbps = 0;
+        setup.replication.max_buffer_bytes = 65535;
+        return setup;
+    }
+
+    void OnStart(server::ServerContext& context) override {
+        context_ = &context;
+        table_ = std::make_unique<net::EntityTable<Columns>>(net::TableConfig{context.shard_id, 1});
+        for (uint32_t i = 0; i < count_; ++i) {
+            ids_.push_back(Add(10.0f + 5.0f * static_cast<float>(i), 20.0f + 7.0f * static_cast<float>(i)));
+        }
+    }
+
+    void OnTick(double) override {
+        context_->replication.Refresh(*table_);
+    }
+
+    net::EntityId Add(float x, float z) {
+        const net::EntityId id = table_->Create();
+        const auto where = table_->Find(id);
+        Columns& columns = table_->Columns(where->page);
+        columns.x[where->slot] = x;
+        columns.y[where->slot] = 0.0f;
+        columns.z[where->slot] = z;
+        table_->MarkDirty(id);
+        context_->grid.Insert(id, x, 0.0f, z);
+        context_->replication.Relevancy().OnEntityCreated(id);
+        return id;
+    }
+
+    void Remove(net::EntityId id) {
+        context_->grid.Remove(id);
+        table_->Destroy(id);
+        context_->replication.Relevancy().OnEntityDestroyed(id);
+        ids_.erase(std::remove(ids_.begin(), ids_.end(), id), ids_.end());
+    }
+
+    void Move(net::EntityId id, float x, float z) {
+        const auto where = table_->Find(id);
+        Columns& columns = table_->Columns(where->page);
+        columns.x[where->slot] = x;
+        columns.z[where->slot] = z;
+        table_->MarkDirty(id);
+    }
+
+    const std::vector<net::EntityId>& Ids() const {
+        return ids_;
+    }
+
+private:
+    struct Columns {
+        float x[net::kPageSlots];
+        float y[net::kPageSlots];
+        float z[net::kPageSlots];
+    };
+
+    float step_;
+    uint32_t count_;
+    net::ReplicationSchema schema_;
+    server::ServerContext* context_ = nullptr;
+    std::unique_ptr<net::EntityTable<Columns>> table_;
+    std::vector<net::EntityId> ids_;
+};
+
+// A server over a simulated network. Nothing runs by itself: the test moves time.
+struct World {
+    explicit World(server::IGameLogic& game, uint32_t shard = 0, uint32_t max_players = 8)
+        : network(net::NetworkConditions{}), log(server::LogLevel::Error, [](const std::string&) {}),
+          host(MakeConfig(shard, max_players), game, network.Server(), log) {
+    }
+
+    static server::ServerConfig MakeConfig(uint32_t shard, uint32_t max_players) {
+        server::ServerConfig config;
+        config.shard_id = shard;
+        config.max_players = max_players;
+        config.tick_rate_hz = 100;
+        return config;
+    }
+
+    // One tick: the network moves, the session reads, the server steps.
+    void Step(ClientSession* session = nullptr, std::vector<SessionEvent>* events = nullptr) {
+        network.Advance(++now);
+        if (session != nullptr) {
+            std::vector<SessionEvent> out;
+            session->Poll(out);
+            if (events != nullptr) {
+                events->insert(events->end(), out.begin(), out.end());
+            }
+        }
+        host.Step();
+    }
+
+    template <class Done> bool StepUntil(ClientSession& session, std::vector<SessionEvent>& events, Done done) {
+        for (int i = 0; i < 200; ++i) {
+            Step(&session, &events);
+            if (done()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Steps until the session is connected and holds `entities` entities.
+    bool Converge(ClientSession& session, std::vector<SessionEvent>& events, size_t entities) {
+        return StepUntil(session, events, [&] {
+            return session.State() == SessionState::Connected && session.Entities().size() == entities;
+        });
+    }
+
+    // A transport that hands the session one more client of the simulated network.
+    TransportFactory Factory() {
+        return [this](const std::string&, uint16_t) {
+            return std::unique_ptr<net::ITransport>(new Borrowed(*network.AddClient()));
+        };
+    }
+
+    // The end of a connection that the simulated network owns.
+    class Borrowed : public net::ITransport {
+    public:
+        explicit Borrowed(net::ITransport& inner) : inner_(inner) {
+        }
+        void Poll(std::vector<net::TransportEvent>& out) override {
+            if (hook) {
+                hook();
+            }
+            inner_.Poll(out);
+        }
+        bool Send(net::TransportConnection c, net::Channel ch, std::span<const uint8_t> data) override {
+            return inner_.Send(c, ch, data);
+        }
+        void Disconnect(net::TransportConnection c) override {
+            inner_.Disconnect(c);
+        }
+        net::TransportStats Stats() const noexcept override {
+            return inner_.Stats();
+        }
+        std::function<void()> hook;
+
+    private:
+        net::ITransport& inner_;
+    };
+
+    net::SimulatedNetwork network;
+    server::Logger log;
+    server::ServerHost host;
+    uint64_t now = 0;
+};
+
+std::shared_ptr<const BuiltSchema> ClientSchema(double step = 0.01) {
+    PropertyDescription position;
+    position.name = "position";
+    position.kind = "position";
+    position.step = step;
+    position.range = 2048.0;
+    const TypeDescription type{1, {position}};
+    BuildResult result = BuildSchema(std::span<const TypeDescription>(&type, 1));
+    return std::shared_ptr<const BuiltSchema>(std::move(result.schema));
+}
+
+size_t Count(const std::vector<SessionEvent>& events, Kind kind) {
+    return static_cast<size_t>(std::count_if(events.begin(), events.end(),
+                                             [kind](const SessionEvent& e) { return e.kind == kind; }));
+}
+
+std::vector<Kind> Kinds(const std::vector<SessionEvent>& events) {
+    std::vector<Kind> kinds;
+    for (const SessionEvent& e : events) {
+        kinds.push_back(e.kind);
+    }
+    return kinds;
+}
+
+bool Contains(const std::string& text, const std::string& part) {
+    return text.find(part) != std::string::npos;
+}
+
+bool Near(double a, double b, double tolerance = 0.0100001) {
+    return std::fabs(a - b) <= tolerance;
+}
+
+// A factory for tests that never connect.
+TransportFactory NoTransport() {
+    return [](const std::string&, uint16_t) -> std::unique_ptr<net::ITransport> {
+        throw std::runtime_error("no transport in this test");
+    };
+}
+
+} // namespace
+
+TESSERA_TEST(session_starts_disconnected_and_everything_is_empty) {
+    ClientSession session(NoTransport());
+    TESSERA_CHECK(session.State() == SessionState::Disconnected);
+    TESSERA_CHECK(session.Generation() == 0);
+    TESSERA_CHECK(session.Entities().empty());
+    TESSERA_CHECK(session.Snapshot().empty());
+    TESSERA_CHECK(!session.Property(1, "position").has_value());
+    TESSERA_CHECK(session.RejectionText().empty());
+}
+
+TESSERA_TEST(session_poll_get_and_disconnect_before_connect_are_harmless) {
+    ClientSession session(NoTransport());
+    for (int i = 0; i < 3; ++i) {
+        std::vector<SessionEvent> events;
+        session.Poll(events);
+        session.Disconnect();
+        TESSERA_CHECK(events.empty());
+        TESSERA_CHECK(session.State() == SessionState::Disconnected);
+        TESSERA_CHECK(session.Entities().empty());
+        TESSERA_CHECK(session.Snapshot().empty());
+        TESSERA_CHECK(!session.Property(0, "position").has_value());
+        TESSERA_CHECK(session.RejectionText().empty());
+    }
+    TESSERA_CHECK(session.Generation() == 0);
+}
+
+TESSERA_TEST(session_connect_rejects_null_schema_bad_port_and_throwing_factory) {
+    ClientSession session(NoTransport());
+    std::string error;
+    TESSERA_CHECK(!session.Connect(nullptr, "127.0.0.1", 7777, error));
+    TESSERA_CHECK(Contains(error, "schema"));
+    for (int port : {0, -1, 65536, 70000}) {
+        error.clear();
+        TESSERA_CHECK(!session.Connect(ClientSchema(), "127.0.0.1", port, error));
+        TESSERA_CHECK(Contains(error, "port"));
+        TESSERA_CHECK(session.State() == SessionState::Disconnected);
+    }
+    error.clear();
+    TESSERA_CHECK(!session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(Contains(error, "could not connect: no transport in this test"));
+    TESSERA_CHECK(session.State() == SessionState::Disconnected);
+    TESSERA_CHECK(session.Generation() == 0);
+}
+
+TESSERA_TEST(session_connects_and_reports_the_state_changes) {
+    TestGame game;
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(error.empty());
+    TESSERA_CHECK(session.State() == SessionState::Connecting);
+    TESSERA_CHECK(session.Generation() == 1);
+    std::vector<SessionEvent> events;
+    world.Step(&session, &events);
+    TESSERA_CHECK(session.State() == SessionState::Handshaking);
+    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Connected; }));
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+    TESSERA_CHECK(Count(events, Kind::Rejected) == 0 && Count(events, Kind::Disconnected) == 0);
+    // More reading does not say it again.
+    for (int i = 0; i < 5; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+}
+
+TESSERA_TEST(session_entities_appear_with_state_and_match_the_server) {
+    server::example::ExampleGame game(100, false);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 100));
+    TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 100);
+    TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 0);
+    for (uint64_t id : session.Entities()) {
+        const auto position = session.Property(id, "position");
+        TESSERA_CHECK(position.has_value());
+        if (!position) {
+            continue;
+        }
+        TESSERA_CHECK(position->kind == Value::Kind::Vector3);
+        const auto [x, z] = server::example::ExampleGame::InitialPosition(net::EntityId::FromRaw(id).index());
+        TESSERA_CHECK(Near(position->vec[0], x));
+        TESSERA_CHECK(Near(position->vec[1], 0.0));
+        TESSERA_CHECK(Near(position->vec[2], z));
+    }
+}
+
+TESSERA_TEST(session_entity_removed_arrives_when_the_server_destroys_it) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    const net::EntityId doomed = game.Ids()[1];
+    game.Remove(doomed);
+    events.clear();
+    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.Entities().size() == 2; }));
+    TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 1);
+    TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 0);
+    for (const SessionEvent& e : events) {
+        if (e.kind == Kind::EntityRemoved) {
+            TESSERA_CHECK(e.entity == doomed.raw());
+        }
+    }
+    TESSERA_CHECK(!session.Property(doomed.raw(), "position").has_value());
+}
+
+TESSERA_TEST(session_snapshot_has_every_entity_and_its_named_values) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    const std::vector<EntityView> snapshot = session.Snapshot();
+    TESSERA_CHECK(snapshot.size() == 3);
+    for (size_t i = 0; i < snapshot.size() && i < 3; ++i) {
+        TESSERA_CHECK(snapshot[i].type == 1);
+        TESSERA_CHECK(snapshot[i].id == session.Entities().at(i));
+        TESSERA_CHECK(snapshot[i].properties.size() == 1);
+        if (snapshot[i].properties.size() == 1) {
+            TESSERA_CHECK(snapshot[i].properties[0].name == "position");
+            const Value& v = snapshot[i].properties[0].value;
+            const double index = static_cast<double>(net::EntityId::FromRaw(snapshot[i].id).index());
+            TESSERA_CHECK(Near(v.vec[0], 10.0 + 5.0 * index));
+            TESSERA_CHECK(Near(v.vec[2], 20.0 + 7.0 * index));
+        }
+    }
+}
+
+TESSERA_TEST(session_unknown_entity_and_unknown_name_give_nothing) {
+    TestGame game(0.01f, 3);
+    World world(game, 5);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    const net::EntityId real = game.Ids()[0];
+    TESSERA_CHECK(session.Property(real.raw(), "position").has_value());
+    TESSERA_CHECK(!session.Property(real.raw(), "").has_value());
+    TESSERA_CHECK(!session.Property(real.raw(), "Position").has_value());
+    TESSERA_CHECK(!session.Property(real.raw(), "positio").has_value());
+    // An id that was never sent, and one of the right shape from a shard this server is not.
+    TESSERA_CHECK(!session.Property(net::EntityId::Make(5, 1, 99, 0).raw(), "position").has_value());
+    TESSERA_CHECK(!session.Property(net::EntityId::Make(6, 1, real.index(), real.generation()).raw(), "position")
+                       .has_value());
+    TESSERA_CHECK(!session.Property(0, "position").has_value());
+}
+
+TESSERA_TEST(session_schema_mismatch_is_rejected_with_a_clear_text) {
+    TestGame game(0.02f, 3); // the server counts in steps of 2 cm, the client in steps of 1 cm
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(0.01), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Rejected; }));
+    TESSERA_CHECK(Count(events, Kind::Rejected) == 1);
+    TESSERA_CHECK(Count(events, Kind::Connected) == 0);
+    std::string reason;
+    for (const SessionEvent& e : events) {
+        if (e.kind == Kind::Rejected) {
+            reason = e.reason;
+        }
+    }
+    for (const char* word : {"schema", "types", "kind", "order", "step", "range", "bits", "min", "max", "signed", "count"}) {
+        TESSERA_CHECK(Contains(reason, word));
+    }
+    TESSERA_CHECK(session.RejectionText() == reason);
+    TESSERA_CHECK(session.Entities().empty());
+    // Staying rejected does not repeat the event.
+    for (int i = 0; i < 5; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(Count(events, Kind::Rejected) == 1);
+    TESSERA_CHECK(session.State() == SessionState::Rejected);
+}
+
+TESSERA_TEST(session_version_or_full_server_is_rejected_with_its_own_text) {
+    // A server with room for one player: the second one is told it is full.
+    TestGame game(0.01f, 3);
+    World world(game, 0, 1);
+    ClientSession first(world.Factory());
+    ClientSession second(world.Factory());
+    std::string error;
+    TESSERA_CHECK(first.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> first_events;
+    TESSERA_CHECK(world.Converge(first, first_events, 3));
+    TESSERA_CHECK(second.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> second_events;
+    TESSERA_CHECK(world.StepUntil(second, second_events,
+                                  [&] { return second.State() == SessionState::Rejected; }));
+    TESSERA_CHECK(Contains(second.RejectionText(), "full"));
+
+    // A server that speaks another protocol version: played by the test, since a real one is not at hand.
+    net::SimulatedNetwork network(net::NetworkConditions{});
+    ClientSession other([&network](const std::string&, uint16_t) {
+        return std::unique_ptr<net::ITransport>(new World::Borrowed(*network.AddClient()));
+    });
+    TESSERA_CHECK(other.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    for (int tick = 1; tick < 30 && other.State() != SessionState::Rejected; ++tick) {
+        network.Advance(static_cast<uint64_t>(tick));
+        std::vector<net::TransportEvent> inbox;
+        network.Server().Poll(inbox);
+        for (const net::TransportEvent& event : inbox) {
+            if (event.kind == net::TransportEvent::Kind::Message) {
+                std::vector<uint8_t> reply;
+                net::Encode(net::ServerHello{false, net::RejectReason::VersionMismatch, 99, 0, 30, 16, 32}, reply);
+                network.Server().Send(event.connection, net::Channel::ReliableOrdered, reply);
+            }
+        }
+        network.Advance(static_cast<uint64_t>(tick) + 100);
+        other.Poll(events);
+    }
+    TESSERA_CHECK(other.State() == SessionState::Rejected);
+    TESSERA_CHECK(Contains(other.RejectionText(), "version"));
+    TESSERA_CHECK(other.RejectionText() != second.RejectionText());
+}
+
+TESSERA_TEST(session_server_gone_gives_removed_then_disconnected) {
+    TestGame game(0.01f, 5);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 5));
+    events.clear();
+    world.network.Server().Disconnect(1); // the server numbers its connections from 1
+    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
+    TESSERA_CHECK(events.size() == 6);
+    if (events.size() == 6) {
+        for (size_t i = 0; i < 5; ++i) {
+            TESSERA_CHECK(events[i].kind == Kind::EntityRemoved);
+        }
+        TESSERA_CHECK(events[5].kind == Kind::Disconnected);
+    }
+    TESSERA_CHECK(session.Entities().empty());
+    TESSERA_CHECK(session.Snapshot().empty());
+    for (int i = 0; i < 3; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(events.size() == 6);
+}
+
+TESSERA_TEST(session_disconnect_is_silent_and_clears_state) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    TESSERA_CHECK(world.host.Replication().ConnectionCount() == 1);
+    const std::vector<uint64_t> entities_before = session.Entities();
+    const uint64_t some_entity = entities_before.empty() ? 0 : entities_before[0];
+    session.Disconnect();
+    TESSERA_CHECK(session.State() == SessionState::Disconnected);
+    TESSERA_CHECK(session.Entities().empty());
+    TESSERA_CHECK(!session.Property(some_entity, "position").has_value());
+    events.clear();
+    for (int i = 0; i < 6; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(events.empty());
+    TESSERA_CHECK(world.host.Replication().ConnectionCount() == 0); // the server saw the player leave
+}
+
+TESSERA_TEST(session_disconnect_twice_and_poll_after_disconnect) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    events.clear();
+    session.Disconnect();
+    session.Disconnect();
+    session.Disconnect();
+    for (int i = 0; i < 3; ++i) {
+        world.Step(&session, &events);
+        session.Disconnect();
+    }
+    TESSERA_CHECK(events.empty());
+    TESSERA_CHECK(session.State() == SessionState::Disconnected);
+}
+
+TESSERA_TEST(session_reconnect_after_disconnect_starts_clean) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    session.Disconnect();
+    events.clear();
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+    TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 3);
+    TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 0);
+    TESSERA_CHECK(session.Generation() == 3); // connect, disconnect, connect
+}
+
+TESSERA_TEST(session_connect_while_connected_replaces_the_connection) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    events.clear();
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(session.State() == SessionState::Connecting);
+    TESSERA_CHECK(session.Entities().empty());
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    // Nothing from the old connection (no removal, no disconnect) shows up; the new one starts from nothing.
+    TESSERA_CHECK(Count(events, Kind::Disconnected) == 0);
+    TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 0);
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+    TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 3);
+    for (int i = 0; i < 10; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(world.host.Replication().ConnectionCount() == 1); // the old player left
+}
+
+TESSERA_TEST(session_generation_changes_on_connect_and_disconnect) {
+    TestGame game(0.01f, 1);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    const uint64_t start = session.Generation();
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    const uint64_t connected = session.Generation();
+    TESSERA_CHECK(connected != start);
+    session.Disconnect();
+    const uint64_t disconnected = session.Generation();
+    TESSERA_CHECK(disconnected != connected);
+    session.Disconnect(); // nothing to close: no change
+    TESSERA_CHECK(session.Generation() == disconnected);
+}
+
+TESSERA_TEST(session_poll_inside_poll_is_ignored) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession* self = nullptr;
+    std::vector<SessionEvent> inner;
+    size_t inner_calls = 0;
+    ClientSession session([&](const std::string&, uint16_t) {
+        auto transport = std::make_unique<World::Borrowed>(*world.network.AddClient());
+        transport->hook = [&] {
+            ++inner_calls;
+            self->Poll(inner); // the transport calls back into the session while it is being read
+        };
+        return std::unique_ptr<net::ITransport>(std::move(transport));
+    });
+    self = &session;
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    TESSERA_CHECK(inner_calls > 0);
+    TESSERA_CHECK(inner.empty());
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+    TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 3);
+}
+
+TESSERA_TEST(session_two_and_three_sessions_are_independent) {
+    TestGame game_a(0.01f, 2), game_b(0.01f, 3), game_c(0.01f, 4);
+    World world_a(game_a), world_b(game_b), world_c(game_c);
+    auto first = std::make_unique<ClientSession>(world_a.Factory());
+    auto middle = std::make_unique<ClientSession>(world_b.Factory());
+    auto last = std::make_unique<ClientSession>(world_c.Factory());
+    std::string error;
+    std::vector<SessionEvent> events_a, events_b, events_c;
+    TESSERA_CHECK(first->Connect(ClientSchema(), "a", 1, error));
+    TESSERA_CHECK(middle->Connect(ClientSchema(), "b", 2, error));
+    TESSERA_CHECK(last->Connect(ClientSchema(), "c", 3, error));
+    for (int i = 0; i < 40; ++i) {
+        world_a.Step(first.get(), &events_a);
+        world_b.Step(middle.get(), &events_b);
+        world_c.Step(last.get(), &events_c);
+    }
+    TESSERA_CHECK(first->Entities().size() == 2 && middle->Entities().size() == 3 &&
+                  last->Entities().size() == 4);
+    // The one in the middle is destroyed while connected and the first one leaves; the last carries on.
+    middle.reset();
+    first->Disconnect();
+    game_c.Move(game_c.Ids()[0], 100.0f, 150.0f);
+    for (int i = 0; i < 20; ++i) {
+        world_a.Step();
+        world_b.Step();
+        world_c.Step(last.get(), &events_c);
+    }
+    const auto moved = last->Property(game_c.Ids()[0].raw(), "position");
+    TESSERA_CHECK(moved.has_value());
+    if (moved) {
+        TESSERA_CHECK(Near(moved->vec[0], 100.0) && Near(moved->vec[2], 150.0));
+    }
+    TESSERA_CHECK(world_a.host.Replication().ConnectionCount() == 0);
+    TESSERA_CHECK(world_b.host.Replication().ConnectionCount() == 0);
+    TESSERA_CHECK(world_c.host.Replication().ConnectionCount() == 1);
+}
+
+TESSERA_TEST(session_destroyed_while_connected_does_not_touch_the_schema_it_shared) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    std::vector<SessionEvent> events;
+    {
+        ClientSession session(world.Factory());
+        std::string error;
+        std::shared_ptr<const BuiltSchema> schema = ClientSchema();
+        TESSERA_CHECK(session.Connect(schema, "127.0.0.1", 7777, error));
+        schema.reset(); // the caller lets go of its copy; the session still needs the schema
+        TESSERA_CHECK(world.Converge(session, events, 3));
+        const std::vector<uint64_t> entities = session.Entities();
+        TESSERA_CHECK(!entities.empty() && session.Property(entities.empty() ? 0 : entities[0], "position").has_value());
+        TESSERA_CHECK(session.Snapshot().size() == 3);
+    } // destroyed while connected
+    for (int i = 0; i < 5; ++i) {
+        world.Step();
+    }
+    TESSERA_CHECK(world.host.Replication().ConnectionCount() == 0);
+}
+
+TESSERA_TEST(session_entity_id_round_trips_through_int64) {
+    TestGame game(0.01f, 3);
+    World world(game, 4095);
+    ClientSession session(world.Factory());
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    for (uint64_t raw : session.Entities()) {
+        TESSERA_CHECK((raw >> 63) == 1); // the shard sets the top bit: a signed number is negative
+        const int64_t as_godot_int = static_cast<int64_t>(raw);
+        TESSERA_CHECK(as_godot_int < 0);
+        const uint64_t back = static_cast<uint64_t>(as_godot_int);
+        TESSERA_CHECK(back == raw);
+        TESSERA_CHECK(net::EntityId::FromRaw(back).shard() == 4095);
+        TESSERA_CHECK(session.Property(back, "position").has_value());
+    }
+}
+
+TESSERA_TEST(session_events_order_in_one_read) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    // The server changes the world, and the client reads nothing until all of it has arrived.
+    game.Remove(game.Ids()[0]);
+    game.Add(50.0f, 60.0f);
+    game.Add(70.0f, 80.0f);
+    for (int i = 0; i < 6; ++i) {
+        world.network.Advance(++world.now);
+        world.host.Step();
+    }
+    world.network.Advance(++world.now);
+    std::vector<SessionEvent> one_read;
+    session.Poll(one_read);
+    TESSERA_CHECK((Kinds(one_read) == std::vector<Kind>{Kind::EntityRemoved, Kind::EntityAppeared,
+                                                        Kind::EntityAppeared}));
+}
+
+TESSERA_TEST(session_poll_after_a_protocol_break_ends_cleanly) {
+    TestGame game(0.01f, 3);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    events.clear();
+    const std::vector<uint8_t> garbage = {0xFF, 0xEE, 0xDD};
+    world.network.Server().Send(1, net::Channel::ReliableOrdered, garbage); // connection 1: the first client
+    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
+    TESSERA_CHECK(events.size() == 4);
+    if (events.size() == 4) {
+        TESSERA_CHECK(events[0].kind == Kind::EntityRemoved && events[1].kind == Kind::EntityRemoved &&
+                      events[2].kind == Kind::EntityRemoved);
+        TESSERA_CHECK(events[3].kind == Kind::Disconnected);
+    }
+    TESSERA_CHECK(session.Entities().empty());
+}

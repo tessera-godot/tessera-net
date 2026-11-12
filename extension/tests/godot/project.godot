@@ -1,0 +1,6 @@
+; Engine configuration file for the extension test project.
+config_version=5
+
+[application]
+
+config/name="tessera-net extension test"

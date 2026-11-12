@@ -115,3 +115,69 @@ jobs:
 
       - name: Test
         run: ctest --preset ${{ matrix.build }}
+
+  # The Godot extension. It is built and its tests are run here; the library is not loaded into Godot in this job
+  # (that is checked locally, see extension/README.md), so no Godot is needed. The only thing fetched besides
+  # the sources is godot-cpp, at a pinned commit.
+  extension-linux:
+    name: Extension, Linux, ${{ matrix.compiler }}, ${{ matrix.config }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        config: [release, debug]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      # A warning in our C++ code fails the build.
+      CXXFLAGS: -Werror
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Configure
+        run: cmake --preset linux-extension-${{ matrix.config }}
+
+      - name: Build
+        run: cmake --build --preset linux-extension-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset linux-extension-${{ matrix.config }}
+
+  extension-windows:
+    name: Extension, Windows, MSVC, ${{ matrix.config }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [release, debug]
+    env:
+      # A warning in our C++ code fails the build.
+      CXXFLAGS: /WX
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: cmake --preset windows-msvc-extension-${{ matrix.config }}
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-extension-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset windows-msvc-extension-${{ matrix.config }}

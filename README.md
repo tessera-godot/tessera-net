@@ -9,8 +9,9 @@ Part of **Tessera**, a family of open-source tools for building large multiplaye
 > changed into small buffers for each player) and a server and a client that exchange them over a simulated
 > network, or over real sockets with the optional ENet transport, are implemented and tested. A dedicated server
 > (a library for your game's logic and a small example program) is there too, and so is a CI workflow that builds and
-> tests it. The Godot plugin is not built yet, and the server has been built and tested locally on Windows and in a Linux
-> container; the CI workflow has not run yet. Nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> tests it. A first Godot client (a GDExtension and a small demo project) exists and has been loaded into Godot 4.7.2 on
+> Windows and, in a container, on Linux; the Godot plugin and the editor tools are not built yet. The server has been built and tested locally on Windows
+> and in a Linux container; the CI workflow has not run yet. Nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -33,6 +34,7 @@ This project builds the missing pieces so Godot developers can make those games:
 - **Delta compression and quantization**: small packets, small bills.
 - **Multi-threaded replication**: spreads the work across CPU cores.
 - **A standalone dedicated server**: a lean program that does not need the Godot engine (a library plus an example, see [`server/`](server/README.md)).
+- **A Godot client**: a GDExtension to connect a Godot project to a server and read its entities (a first version, see [`extension/`](extension/README.md)).
 - **Prediction and reconciliation** for smooth movement under lag.
 - **Editor tools**: configure everything from the Godot editor, no networking PhD required.
 
@@ -131,7 +133,8 @@ All numbers, conditions and caveats are in [docs/benchmarks.md](docs/benchmarks.
 ## Quick start
 
 Not available yet. When the first release is ready you will download a ZIP, copy it into your project and
-enable the plugin. See [Getting started](docs/getting-started.md) for the current status.
+enable the plugin. See [Getting started](docs/getting-started.md) for the current status. If you want to try the first
+Godot client from source, follow [Using the client in Godot](docs/guides/using-the-client-in-godot.md).
 
 ## Building from source
 
@@ -155,10 +158,12 @@ same ones the CI workflow uses; on Linux they are `linux-server-release`, `linux
 ```powershell
 cmake --preset windows-msvc-server      # the server library and its tests
 cmake --preset windows-msvc-enet        # the same, with ENet, the example server and the head-to-head programs
+cmake --preset windows-msvc-extension-debug   # the Godot extension (fetches godot-cpp; needs the two above)
 ```
 
 The [CI workflow](.github/workflows/ci.yml) builds and tests both on Ubuntu (GCC and Clang) and on Windows (MSVC), in
-Release and Debug, with warnings as errors, and builds the default configuration too. It has not run yet.
+Release and Debug, with warnings as errors, and builds the default configuration too. It also builds the Godot extension
+and runs its tests, without starting Godot. It has not run yet.
 
 [![CI](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml/badge.svg)](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml)
 
@@ -175,7 +180,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 | Folder | Contents |
 |---|---|
 | `core/` | The engine-independent C++ library (the heart of the project) |
-| `extension/` | The Godot GDExtension that exposes the core to the editor and GDScript |
+| `extension/` | The Godot GDExtension (a client for now) that exposes the core to GDScript |
 | `server/` | The dedicated server: a library for your game's logic and a small example program |
 | `addons/` | The Godot plugin shipped to users |
 | `examples/` | Small projects that work as soon as you open them |
@@ -188,6 +193,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 
 - [Documentation home](docs/index.md)
 - [Getting started](docs/getting-started.md)
+- [Using the client in Godot](docs/guides/using-the-client-in-godot.md)
 - [Concepts explained simply](docs/concepts.md)
 - [Core library reference](docs/reference/core.md)
 - [Relevancy reference](docs/reference/relevancy.md)

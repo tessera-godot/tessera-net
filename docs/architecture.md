@@ -17,6 +17,12 @@ This is the planned architecture. Pieces are built one at a time; see the [roadm
 The same core is compiled twice: into the GDExtension used by the editor and clients, and into the
 standalone server. This guarantees client and server agree on the rules.
 
+The extension exists as a first version that covers the client only: a `TesseraClient` that connects to a server and
+reads entities, and a `TesseraSchema` that describes them, both over the core's `ClientReplica` and the ENet transport.
+What does not need Godot sits in a library of its own, and the Godot layer only converts values and sends signals. See
+[record 0016](adr/0016-the-godot-extension-client-first.md) and [Using the client in Godot](guides/using-the-client-in-godot.md).
+The plugin and the editor tools of the top layer are not built.
+
 ## Core responsibilities
 
 1. **Data**: entities stored in contiguous arrays (struct of arrays), identified by compact handles with a
@@ -45,7 +51,9 @@ order, in the structure phase, so every other phase can run on many threads with
 
 ## One schema, two sides
 
-Entities and their replicated properties are described once, in the editor. From that description the
+Today the client describes its entities in GDScript and the server describes them in C++, and the
+hash in the hello message makes a server refuse a client that differs ([record 0016](adr/0016-the-godot-extension-client-first.md)).
+The goal is that entities and their replicated properties are described once, in the editor. From that description the
 project generates C++ for the server and GDScript bindings for the client, plus the serialization code, so
 the two sides never drift apart.
 
