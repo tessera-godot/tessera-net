@@ -54,7 +54,9 @@ in `build/<preset>/extension/stage/demo/`, ready to open in Godot.
 - `tessera_extension_godot` loads the library in a headless Godot, starts the example server, and checks that a script
   connects, receives the entities and reads their values. It is registered only if you pass
   `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable that runs without a window>`: no Godot is fetched by the build.
-  It was run with Godot 4.7.2 on Windows.
-- The library has not been loaded into a Godot on Linux. On Linux it is compiled and its other tests are run.
-- Loading the library into Godot is therefore checked locally, not by the CI workflow, which builds and tests the extension
-  without starting Godot.
+  It was run with Godot 4.7.2 on Windows, and on Linux in a container with a Godot 4.7.2 built from source (Debug
+  library, built by GCC 13 and by Clang 18).
+- Loading the library into Godot is checked locally, not by the CI workflow, which builds and tests the extension without
+  starting Godot: we have no Godot binary for Linux that we could pin and verify.
+- The first time Godot imports a project that has the extension, Godot 4.7.2 itself crashes at the end of the import
+  (on Windows and on Linux). The test script repeats the import once, and the second one is clean.

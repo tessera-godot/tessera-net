@@ -77,10 +77,12 @@ Linux on x86-64, and any measurement of the extension.
 **What has and has not been checked.** On Windows, the library loads in Godot 4.7.2, and a headless Godot connects to
 the example server over real sockets, receives its entities and reads their values, and the tests for the odd cases pass
 (a bad schema, the wrong schema, a server that is not there, signals that call back into the client, several clients at
-once). On Linux, the code compiles with GCC and Clang, its tests that need no Godot pass, and the export table is clean,
-all in a container; the library has not been loaded into a Godot on Linux, because we have no Godot binary for Linux that
-we could pin and verify. The continuous-integration workflow builds the extension on both systems and has not run yet; it
-does not start Godot.
+once). On Linux, in a container, the code compiles with GCC 13 and Clang 18 without warnings, its tests that need no Godot
+pass, the export table is clean, and the same headless test passes against the example server in a Godot 4.7.2 that we
+built from source in that container (checked with the Debug library built by each compiler; there is no window and no
+graphics in that Godot). Both checks were done locally. The continuous-integration workflow builds the extension on both
+systems and has not run yet; it does not start Godot, because we have no Godot binary for Linux that we could pin and
+verify.
 
 ## Consequences
 **Easier:** a tester can use the project from Godot without compiling a server into the editor. The logic is tested
@@ -90,8 +92,8 @@ programs, which is the shape the earlier records wanted.
 **Harder:** the layout of the entities exists in two places, and they can drift apart. The hash catches it and the
 message says what to compare, but only when a client connects. Building the extension needs godot-cpp, which is a large
 download the first time. The library carries a copy of ENet and of the core, so it is bigger than a thin binding would be.
-And because Linux has not been loaded into Godot, a problem that only shows there (a symbol clash, a library path) is
-still possible.
+And because the Linux load was checked only locally, with one Godot build, a problem that only shows on another Linux
+setup (a different Godot build, another distribution) is still possible, and the CI workflow would not notice it.
 
 **Open:** whether to replace the second copy of ENet with Godot's, whether to keep godot-cpp 4.5 or move to a newer one,
 how to run the Godot test on a Linux runner, and the shared schema.

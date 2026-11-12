@@ -10,7 +10,7 @@ Part of **Tessera**, a family of open-source tools for building large multiplaye
 > network, or over real sockets with the optional ENet transport, are implemented and tested. A dedicated server
 > (a library for your game's logic and a small example program) is there too, and so is a CI workflow that builds and
 > tests it. A first Godot client (a GDExtension and a small demo project) exists and has been loaded into Godot 4.7.2 on
-> Windows; the Godot plugin and the editor tools are not built yet. The server has been built and tested locally on Windows
+> Windows and, in a container, on Linux; the Godot plugin and the editor tools are not built yet. The server has been built and tested locally on Windows
 > and in a Linux container; the CI workflow has not run yet. Nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists

@@ -14,7 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and needs the ENet and server options. ENet is linked into the library with its symbols hidden, and a test fails if the
   library exports anything but its entry point. The code that does not need Godot is its own library with its own tests
   (`tessera_extension_tests`). It has been loaded into Godot 4.7.2 on Windows and tested end to end in a headless Godot
-  against the example server; on Linux it is compiled and tested without Godot only.
+  against the example server; on Linux the same test was run locally, in a container, with a Godot built from source.
+  The CI workflow does not run it, because there is no Linux Godot binary we could pin and verify.
 - Presets `windows-msvc-extension-debug`, `windows-msvc-extension-release`, `linux-extension-debug` and
   `linux-extension-release`, and two jobs in the CI workflow that build the extension and run its tests on Ubuntu (GCC
   and Clang) and Windows (MSVC). They have not run yet.
