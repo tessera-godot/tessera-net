@@ -48,8 +48,11 @@ if(MSVC)
     target_compile_options(tessera_net_godot PRIVATE /W4 /permissive-)
 else()
     target_compile_options(tessera_net_godot PRIVATE -Wall -Wextra -Wpedantic)
-    # Nothing from the static libraries linked in may be visible from outside (ENet's functions in particular).
-    target_link_options(tessera_net_godot PRIVATE -Wl,--exclude-libs,ALL)
+    # Nothing from the static libraries linked in may be visible from outside (ENet's functions in particular), and
+    # nothing but the entry point at all: the version script lists the one name that stays.
+    target_link_options(tessera_net_godot PRIVATE -Wl,--exclude-libs,ALL
+                        -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tessera_net.map)
+    set_target_properties(tessera_net_godot PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tessera_net.map)
 endif()
 
 # The file name Godot expects: libtessera_net.<platform>.<target>.<arch>.<dll or so>. Only x86_64 on Windows and
@@ -75,7 +78,7 @@ configure_file(tessera_net.gdextension.in "${CMAKE_BINARY_DIR}/extension/tessera
 
 # A small Godot project with the extension in it, put together in the build directory (never in the source tree):
 # what the end-to-end test runs.
-add_custom_target(tessera_extension_stage
+add_custom_target(tessera_extension_stage ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/extension/stage/e2e/bin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/tests/godot"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e"

@@ -25,6 +25,12 @@ if(TESSERA_BUILD_EXTENSION)
         message(FATAL_ERROR "TESSERA_BUILD_EXTENSION=ON needs TESSERA_BUILD_ENET=ON and TESSERA_BUILD_SERVER=ON: "
                             "the extension talks ENet, and its tests and demo use the example server.")
     endif()
+    if(MSVC)
+        # One C runtime for everything that goes into the library, in every configuration: the shared one, which
+        # needs nothing installed (godot-cpp asks for the same). Set here because the core is built before
+        # godot-cpp is read; without it a Debug build links two different runtimes and fails.
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    endif()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     set(CMAKE_CXX_VISIBILITY_PRESET hidden)
     set(CMAKE_C_VISIBILITY_PRESET hidden)

@@ -1,0 +1,8 @@
+# Linker version script: the library exports its entry point and nothing else. Without it, templates from the
+# C++ standard library that this code instantiates would be visible as well.
+{
+    global:
+        tessera_net_init;
+    local:
+        *;
+};
