@@ -15,6 +15,21 @@ option(TESSERA_PROFILE "Time the stages of the network phase (measurement builds
 option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
 option(TESSERA_BUILD_ENET "Build the ENet transport, its tests and the head-to-head programs (downloads ENet)" OFF)
 option(TESSERA_BUILD_SERVER "Build the server library, its example and its tests" OFF)
+option(TESSERA_BUILD_EXTENSION "Build the Godot extension (downloads godot-cpp; needs ENet and the server)" OFF)
+
+# The extension is a shared library that carries the core and ENet inside it, so everything it links is built
+# position independent and with hidden symbols (only the entry point stays visible). That is set here, before
+# the targets exist, and only when the extension is asked for: the other builds stay as they are.
+if(TESSERA_BUILD_EXTENSION)
+    if(NOT TESSERA_BUILD_ENET OR NOT TESSERA_BUILD_SERVER)
+        message(FATAL_ERROR "TESSERA_BUILD_EXTENSION=ON needs TESSERA_BUILD_ENET=ON and TESSERA_BUILD_SERVER=ON: "
+                            "the extension talks ENet, and its tests and demo use the example server.")
+    endif()
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+endif()
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
@@ -26,6 +41,10 @@ endif()
 
 if(TESSERA_BUILD_SERVER)
     add_subdirectory(server)
+endif()
+
+if(TESSERA_BUILD_EXTENSION)
+    add_subdirectory(extension)
 endif()
 
 if(TESSERA_BUILD_BENCH)

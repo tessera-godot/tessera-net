@@ -112,6 +112,56 @@
         "TESSERA_BUILD_SERVER": "ON",
         "TESSERA_BUILD_ENET": "ON"
       }
+    },
+    {
+      "name": "windows-msvc-extension-debug",
+      "displayName": "Windows (Visual Studio 2022), Godot extension, Debug",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-extension-debug",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON",
+        "TESSERA_BUILD_EXTENSION": "ON",
+        "GODOTCPP_TARGET": "template_debug"
+      }
+    },
+    {
+      "name": "windows-msvc-extension-release",
+      "displayName": "Windows (Visual Studio 2022), Godot extension, Release",
+      "inherits": "windows-msvc",
+      "binaryDir": "${sourceDir}/build/windows-msvc-extension-release",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON",
+        "TESSERA_BUILD_EXTENSION": "ON",
+        "GODOTCPP_TARGET": "template_release"
+      }
+    },
+    {
+      "name": "linux-extension-debug",
+      "displayName": "Linux (Ninja, Debug), Godot extension",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-extension-debug",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON",
+        "TESSERA_BUILD_EXTENSION": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GODOTCPP_TARGET": "template_debug"
+      }
+    },
+    {
+      "name": "linux-extension-release",
+      "displayName": "Linux (Ninja, Release), Godot extension",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-extension-release",
+      "cacheVariables": {
+        "TESSERA_BUILD_SERVER": "ON",
+        "TESSERA_BUILD_ENET": "ON",
+        "TESSERA_BUILD_EXTENSION": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "GODOTCPP_TARGET": "template_release"
+      }
     }
   ],
   "buildPresets": [
@@ -173,6 +223,24 @@
     {
       "name": "linux-enet-debug",
       "configurePreset": "linux-enet-debug"
+    },
+    {
+      "name": "windows-msvc-extension-debug",
+      "configurePreset": "windows-msvc-extension-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "linux-extension-debug",
+      "configurePreset": "linux-extension-debug"
+    },
+    {
+      "name": "windows-msvc-extension-release",
+      "configurePreset": "windows-msvc-extension-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-extension-release",
+      "configurePreset": "linux-extension-release"
     }
   ],
   "testPresets": [
@@ -270,6 +338,36 @@
     {
       "name": "linux-enet-debug",
       "configurePreset": "linux-enet-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-extension-debug",
+      "configurePreset": "windows-msvc-extension-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-extension-debug",
+      "configurePreset": "linux-extension-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-extension-release",
+      "configurePreset": "windows-msvc-extension-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-extension-release",
+      "configurePreset": "linux-extension-release",
       "output": {
         "outputOnFailure": true
       }
