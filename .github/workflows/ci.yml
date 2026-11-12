@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here needs more than to read the repository.
+permissions:
+  contents: read
+
 # A new push to the same branch or pull request makes the run that is still going useless.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -37,9 +41,11 @@ jobs:
       CXXFLAGS: -Werror
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Ninja if it is missing
-        run: command -v ninja || sudo apt-get install -y ninja-build
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
 
       - name: Configure
         run: cmake --preset linux-${{ matrix.mode }}-${{ matrix.config }}
@@ -49,13 +55,6 @@ jobs:
 
       - name: Test
         run: ctest --preset linux-${{ matrix.mode }}-${{ matrix.config }}
-
-      - name: Default build keeps its tests
-        if: matrix.mode == 'server'
-        run: |
-          result="$(build/linux-server-${{ matrix.config }}/tests/tessera_net_tests | tail -n 1)"
-          echo "$result"
-          test "$result" = "495 tests, 0 failures"
 
   windows:
     name: Windows, MSVC, ${{ matrix.config }}, ${{ matrix.mode }}
@@ -71,6 +70,8 @@ jobs:
       CXXFLAGS: /WX
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Configure
         run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF
@@ -80,3 +81,37 @@ jobs:
 
       - name: Test
         run: ctest --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
+
+  # The default configuration, with every option off: the core library and its own tests. The server and ENet
+  # jobs above must not change what this builds.
+  default:
+    name: Default build, ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: "Linux, Release", runner: ubuntu-24.04, configure: linux-release, build: linux-release, cxxflags: -Werror}
+          - {name: "Linux, Debug", runner: ubuntu-24.04, configure: linux-debug, build: linux-debug, cxxflags: -Werror}
+          - {name: "Windows, Release", runner: windows-2022, configure: windows-msvc, build: windows-msvc-release, cxxflags: /WX}
+          - {name: "Windows, Debug", runner: windows-2022, configure: windows-msvc, build: windows-msvc-debug, cxxflags: /WX}
+    env:
+      CXXFLAGS: ${{ matrix.cxxflags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        if: runner.os == 'Linux'
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.build }}
