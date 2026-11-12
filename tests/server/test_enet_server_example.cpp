@@ -23,6 +23,7 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 constexpr auto kLimit = std::chrono::seconds(10);
+constexpr uint32_t kShard = 3; // not 0, so a server that ignored its shard id would show
 
 // The example server and a client of it, with the server on a thread of its own as a real program has it.
 struct Running {
@@ -71,6 +72,13 @@ struct Running {
         return count;
     }
 
+    // True if every entity the client has carries the shard id of the server in its id.
+    bool AllOnShard(uint32_t shard) const {
+        bool all = true;
+        client.ForEachEntity([&](EntityId id, const uint32_t*) { all = all && id.shard() == shard; });
+        return all;
+    }
+
     // The x word of every entity the client has, by the index in the entity's id.
     std::map<uint32_t, uint32_t> XWords() const {
         std::map<uint32_t, uint32_t> words;
@@ -105,6 +113,7 @@ struct Running {
         server::ServerConfig config;
         config.max_players = 8;
         config.tick_rate_hz = 50;
+        config.shard_id = kShard;
         return config;
     }
 
@@ -133,6 +142,7 @@ TESSERA_TEST(example_server_converges_over_enet_and_stops_cleanly) {
     // centimeter from the edge of the range.
     const std::map<uint32_t, uint32_t> words = running.XWords();
     TESSERA_CHECK(words.size() == kEntities);
+    TESSERA_CHECK(running.AllOnShard(kShard));
     for (const auto& [index, word] : words) {
         const auto [x, z] = server::example::ExampleGame::InitialPosition(index);
         (void)z;
