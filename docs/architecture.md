@@ -56,5 +56,5 @@ The first release targets a single server process. Two pieces already look beyon
 plain quantized words that can be copied and sent (nothing loads received words into a server yet).
 
 The server has a `shard_id` setting that reaches those ids, and [record 0015](adr/0015-preparing-for-server-meshing.md)
-proposes rules for the API so that it does not rule out several processes sharing a world, along with the limits we
+sets rules for the API so that it does not rule out several processes sharing a world, along with the limits we
 found. It is preparation only: server meshing itself is not planned for the current version.
