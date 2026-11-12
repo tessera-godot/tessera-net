@@ -27,3 +27,17 @@ endif()
 add_test(NAME tessera_extension_exports
          COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/check_exports.py
                  $<TARGET_FILE:tessera_net_godot> tessera_net_init)
+
+# The end-to-end test: a headless Godot loads the extension and talks to the example server over ENet. It needs a
+# Godot executable that can run without a window; none is downloaded, so it is registered only when you give
+# one: -DTESSERA_EXTENSION_GODOT=<path to the executable>.
+set(TESSERA_EXTENSION_GODOT "" CACHE FILEPATH "Godot executable for the end-to-end test of the extension (optional)")
+if(TESSERA_EXTENSION_GODOT AND EXISTS "${TESSERA_EXTENSION_GODOT}")
+    add_test(NAME tessera_extension_godot
+             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/run_godot_e2e.py e2e
+                     "${TESSERA_EXTENSION_GODOT}" "${CMAKE_BINARY_DIR}/extension/stage/e2e"
+                     $<TARGET_FILE:tessera_example_server>)
+    set_tests_properties(tessera_extension_godot PROPERTIES TIMEOUT 120)
+else()
+    message(STATUS "Godot executable not set: the end-to-end test is not registered")
+endif()
