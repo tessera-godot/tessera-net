@@ -72,18 +72,26 @@ def run_watching(command, limit, on_line):
     return code, "\n".join(lines)
 
 
+# Exit codes of a process that crashed: a negative signal number on Linux, the access violation status on Windows.
+CRASH_CODES = {-6, -11, 134, 139, 0xC0000005, -1073741819}
+
+
 def import_project(godot, stage):
     """Lets Godot read the project once, so that it knows about the extension."""
-    # The first import of a project that has a new extension ends in a crash inside the Godot 4.7.2 binary (a segmentation fault
-    # on Windows, an abort on Linux) after the import itself has finished; the second import, with the extension
-    # already known, exits cleanly. So a failed first import is repeated once, and only the second has to succeed.
-    for _ in range(2):
+    # Godot 4.7.2 crashes at the end of the first import of a project that holds a GDExtension with a registered
+    # class (any extension, not only ours): at exit it runs a deferred call that needs the editor's documentation
+    # data, which has already been freed (EditorHelp::_gen_extensions_docs, with a null DocTools). The import
+    # itself has finished by then. The second import exits with 0. So a crash is repeated once, and any other
+    # failure (or a second crash) fails the test right away.
+    for attempt in range(2):
         code, output = run([godot, "--headless", "--path", stage, "--import"], IMPORT_LIMIT)
         if code is None:
             print("FAIL import: passed the time limit\n" + output)
             return False
         if code == 0:
             return True
+        if attempt == 1 or code not in CRASH_CODES:
+            break
     print(f"FAIL import: Godot exited with code {code}\n" + output)
     return False
 
