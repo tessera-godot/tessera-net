@@ -74,14 +74,18 @@ def run_watching(command, limit, on_line):
 
 def import_project(godot, stage):
     """Lets Godot read the project once, so that it knows about the extension."""
-    code, output = run([godot, "--headless", "--path", stage, "--import"], IMPORT_LIMIT)
-    if code is None:
-        print("FAIL import: passed the time limit\n" + output)
-        return False
-    if code != 0:
-        print(f"FAIL import: Godot exited with code {code}\n" + output)
-        return False
-    return True
+    # The first import of a project that has a new extension ends in a crash inside the Godot 4.7.2 binary (a segmentation fault
+    # on Windows, an abort on Linux) after the import itself has finished; the second import, with the extension
+    # already known, exits cleanly. So a failed first import is repeated once, and only the second has to succeed.
+    for _ in range(2):
+        code, output = run([godot, "--headless", "--path", stage, "--import"], IMPORT_LIMIT)
+        if code is None:
+            print("FAIL import: passed the time limit\n" + output)
+            return False
+        if code == 0:
+            return True
+    print(f"FAIL import: Godot exited with code {code}\n" + output)
+    return False
 
 
 def load(godot, stage):
