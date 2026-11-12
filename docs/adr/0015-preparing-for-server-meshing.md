@@ -1,6 +1,6 @@
 # 0015. Preparing for server meshing
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-12
 
 ## Context
@@ -15,7 +15,7 @@ would stop two or more servers from sharing a world? The answer is a short list 
 found, and a list of things we have not decided.
 
 ## Decision
-Once this record is accepted, these rules would apply to every change from then on. Each one can be answered with yes or
+These rules apply to every change from now on. Each one can be answered with yes or
 no by looking at the code, and each says how we checked it today.
 
 1. **In `core/` and `server/`, only an `EntityTable` makes entity ids, and it stamps them with the shard from its
@@ -86,7 +86,7 @@ interface is the same on both ends.
 - Whether any of the limits above should be removed, and in which order.
 
 ## Consequences
-- A change to the public API or to a message would be read against the six rules. That costs a review question and
+- A change to the public API or to a message is read against the six rules. That costs a review question and
   little else: the checks are a search, a read of a few files and tests that already exist.
 - The limits stay in the code until someone decides they matter. The list above describes today's code and is not a
   commitment to remove them.

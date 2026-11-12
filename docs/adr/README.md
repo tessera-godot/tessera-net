@@ -20,4 +20,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0012](0012-network-phase-as-a-curve.md) | The time of the network phase as a curve, goals by moving entities | Accepted |
 | [0013](0013-enet-as-the-first-real-transport.md) | ENet as the first real transport | Accepted |
 | [0014](0014-the-server-as-a-library-plus-an-example.md) | The server as a library plus an example | Accepted |
-| [0015](0015-preparing-for-server-meshing.md) | Preparing for server meshing | Proposed |
+| [0015](0015-preparing-for-server-meshing.md) | Preparing for server meshing | Accepted |
