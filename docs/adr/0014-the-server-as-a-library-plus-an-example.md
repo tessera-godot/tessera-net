@@ -35,13 +35,16 @@ to use it. A plugin system that loads the game's code from a shared library was 
   simulation and ends by handing each table to `Refresh`; the host then runs the network phase and flushes the
   transport. `OnPlayerConnected` and `OnPlayerDisconnected` come while the transport is read. `OnShutdown` comes once.
   The callbacks must not throw: an exception that leaves `OnTick` is logged, `OnShutdown` still runs, and `Run` returns
-  1.
+  1. The same goes for an exception from `OnStart`, from the final flush or from `OnShutdown`: `Run` logs it and
+  returns 1, and a host whose `OnStart` threw never ticks. `OnTick` runs once per tick, and the tick rate is a target:
+  after a tick that overran there is no catch-up, so ticks are not exactly `1 / tick_rate` seconds apart.
 - **Stopping is an atomic flag.** `ServerHost::RequestStop()` stores to a lock-free atomic, with no lock and no
   allocation, so it can be called from a signal handler, from another thread or from inside a callback. The host
   finishes the tick in progress, hands what is pending to the transport, calls `OnShutdown` once and `Run` returns 0. A
   second request changes nothing, and a request made before `Run` starts means no tick at all. The code that turns
   signals into a request lives in the example, not in the library: Ctrl+C, Ctrl+Break and closing the console on
-  Windows, and SIGINT and SIGTERM on Linux. It is the only global state in the server, and it is not in the library.
+  Windows, and SIGINT and SIGTERM on Linux. The handler only sets a flag, and a thread of the example passes it on to
+  the host. It is the only global state in the server, and it is not in the library.
   `ITransport` cannot refuse new connections, so after a stop nobody reads it any more, and whoever owns the transport
   closes it.
 - **Settings come from a file and from arguments.** A file of `key=value` lines and `--key=value` arguments, with the
@@ -62,8 +65,11 @@ to use it. A plugin system that loads the game's code from a shared library was 
 - **The interface will change.** Six members is what the first example needed. The Godot extension, prediction and
   input are likely to add to it, and each change comes with its own record.
 - **Linux and the CI.** A workflow in the repository builds and tests the code on Ubuntu with GCC and with Clang and on
-  Windows with MSVC, in Release and Debug, with and without ENet, with warnings as errors. At the time of writing the
-  code has been built and tested on Windows only; the workflow has not run yet, and fixing what it finds is part of
-  making the claim. Until its jobs pass, the documentation says Windows.
+  Windows with MSVC, in Release and Debug, with and without ENet, with warnings as errors, and it also builds the
+  default configuration. The workflow has not run yet. What has been checked is this: the code was built and tested
+  locally on Windows with MSVC, and in an Ubuntu 24.04 container (GCC 13 and Clang 18, Release and Debug, with
+  warnings as errors) the server library, the example and their tests were built and passed. That is all that has been
+  checked; fixing what the workflow finds is part of making the claim, and until its jobs pass the documentation
+  says Windows.
 - **More to maintain.** A build option, two test executables (the server library, and the example over ENet in
   loopback) and a script that starts the example as a process and sends it signals.

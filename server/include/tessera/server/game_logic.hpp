@@ -57,8 +57,8 @@ public:
         (void)context;
     }
 
-    /// One tick of simulation, every `1 / tick_rate_hz` seconds. Move the entities, mark what changed, and
-    /// call
+    /// One tick of simulation, every `1 / tick_rate_hz` seconds while the server keeps up (after a tick that
+    /// overran the next one starts at once, with no catch-up). Move the entities, mark what changed, and call
     /// `context.replication.Refresh(table)` for each table at the end; the host then runs the network phase.
     virtual void OnTick(double dt_seconds) = 0;
 

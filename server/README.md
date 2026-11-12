@@ -27,8 +27,9 @@ cmake --build --preset windows-msvc-enet-release --target tessera_example_server
 ```
 
 On Linux the presets are `linux-server-release`, `linux-server-debug`, `linux-enet-release` and `linux-enet-debug`
-(CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++). It is built and tested on Windows with MSVC. A CI workflow
-builds and tests it on Ubuntu as well; Linux is claimed once that workflow shows it.
+(CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++). It was built and tested locally on Windows with MSVC and in
+an Ubuntu 24.04 container with GCC 13 and Clang 18. A CI workflow for Ubuntu and Windows is in the repository but has
+not run yet; Linux is claimed once it shows it.
 
 ## Running the example
 
@@ -55,7 +56,7 @@ range stop the server before it starts.
 | `threads` | Threads for parallel work, the main one included | 1 to 256 | 1 |
 | `shard_id` | Number written into every entity id | 0 to 4,095 | 0 |
 | `log_level` | `debug`, `info`, `warn` or `error` | | `info` |
-| `summary_interval` | Seconds between summary lines (tick, players, bytes per second); 0 turns them off | 0 to 3,600 | 0 |
+| `summary_interval` | Seconds between summary lines (tick, players, message bytes per second, as `ITransport::Stats()` counts them, not ENet wire bytes); 0 turns them off | 0 to 3,600 | 0 |
 
 ## Writing your own server
 

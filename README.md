@@ -9,8 +9,8 @@ Part of **Tessera**, a family of open-source tools for building large multiplaye
 > changed into small buffers for each player) and a server and a client that exchange them over a simulated
 > network, or over real sockets with the optional ENet transport, are implemented and tested. A dedicated server
 > (a library for your game's logic and a small example program) is there too, and so is a CI workflow that builds and
-> tests it. The Godot plugin is not built yet, and the server is built and tested on Windows so far, so nothing here is
-> ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> tests it. The Godot plugin is not built yet, and the server has been built and tested locally on Windows and in a Linux
+> container; the CI workflow has not run yet. Nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 ## Why this exists
 
@@ -158,7 +158,7 @@ cmake --preset windows-msvc-enet        # the same, with ENet, the example serve
 ```
 
 The [CI workflow](.github/workflows/ci.yml) builds and tests both on Ubuntu (GCC and Clang) and on Windows (MSVC), in
-Release and Debug, with warnings as errors.
+Release and Debug, with warnings as errors, and builds the default configuration too. It has not run yet.
 
 [![CI](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml/badge.svg)](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml)
 

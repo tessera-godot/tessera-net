@@ -378,11 +378,12 @@ change.
 |---|---|
 | `DescribeWorld()` | Once, from the host's constructor. Returns a `WorldSetup`: the schema, the relevancy settings, the grid cell size and the replication settings the game wants (the host sets the player limit and the tick rate itself). |
 | `OnStart(context)` | Once, before the first tick. Make your tables and your first entities. The context has the shard id, the tick rate, the replication server, the grid, the groups, the jobs, the logger and a `request_stop` function. |
-| `OnTick(dt_seconds)` | Every tick. Simulate, then call `context.replication.Refresh(table)` for each table. |
+| `OnTick(dt_seconds)` | Once per tick, which is every `1 / tick_rate` seconds when the server keeps up. After a tick that took longer than that, the next one starts at once and the schedule starts over; there is no catch-up, so the gap can be longer. `dt_seconds` is always the nominal `1 / tick_rate`. Simulate, then call `context.replication.Refresh(table)` for each table. |
 | `OnPlayerConnected(player)`, `OnPlayerDisconnected(player)` | While the network phase reads the transport. A player who leaves before saying hello gets neither call. |
 | `OnShutdown()` | Once, after the last tick and after what was pending has been handed to the transport. |
 
-None of them may throw. If `OnTick` throws, the host logs it, still calls `OnShutdown`, and `Run` returns 1.
+None of them may throw. If `OnTick` throws, the host logs it, still calls `OnShutdown`, and `Run` returns 1. The same
+goes for `OnStart` (the host never ticks after that), for the final flush and for `OnShutdown`.
 
 **One tick.** The host calls `OnTick`, then runs the network phase (`ReplicationServer::Update`), then calls the
 function you gave it to flush the transport (`EnetServerTransport::Flush`, for ENet). `ServerHost::Step()` runs one tick
@@ -402,7 +403,8 @@ accepted; the owner of the transport closes it.
 **The log.** Lines go to a sink you choose (`StdoutSink()` writes to the standard output) and look like
 `2026-11-11T18:47:03.042Z INFO  listening on port 7777`: the time in UTC, the level and the message. With
 `summary_interval` set, the host also writes a line every that many seconds with the tick, the number of players and
-the bytes sent and received per second.
+the bytes sent and received per second. Those counts come from `ITransport::Stats()`: they are the bytes of the
+messages, not the bytes ENet puts on the wire (`Wire()` has those).
 
 **The settings.** `ResolveConfig` reads them from a file of `key=value` lines (`--config=<path>`; `#` starts a comment)
 and from `--key=value` arguments, which win over the file. A key that is unknown or given twice in one source, a value
@@ -547,8 +549,9 @@ bounce in a square, and a client built on this library that connects to it sees 
 with 0 after a stop, with 2 for a bad setting (the message names the key) and with 1 for anything else that stops it
 from starting, such as a port that is already in use. Copy `server/example/` as the starting point for your own server.
 
-**Where it has been run.** It is built and tested on Windows with MSVC. The repository also has a CI workflow that builds
-and tests it on Ubuntu with GCC and Clang and on Windows with MSVC; Linux is claimed once that workflow shows it.
+**Where it has been run.** It was built and tested locally on Windows with MSVC, and in an Ubuntu 24.04 container
+with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI workflow for Ubuntu and Windows, but it
+has not run yet; Linux is claimed once that workflow shows it.
 
 ## Known limits
 
