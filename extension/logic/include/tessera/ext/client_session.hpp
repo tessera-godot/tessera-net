@@ -40,6 +40,24 @@ struct EntityView {
     std::vector<NamedValue> properties;
 };
 
+/// The movement rule of the game, for the values a script sees: it changes `state` (the predicted
+/// properties, by name; a position is a Vector3, an angle a Float, an integer or a choice an Int) to what it
+/// becomes after one step of `dt_seconds` with `input`, and returns false if it could not. It may throw.
+using ValueRule =
+    std::function<bool(std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt_seconds)>;
+
+/// How a difference between the prediction and the server is shown (see `net::PredictionConfig`).
+struct PredictionSettings {
+    double smoothing_seconds = 0.1;
+    double snap_distance = 2.0;
+};
+
+struct PredictionReport {
+    net::PredictionStatus status = net::PredictionStatus::Off;
+    net::PredictionStats stats;
+    std::string failure; ///< Why the rule failed, when `status` is `Failed`.
+};
+
 /// Opens the transport for a connection to `host:port`. May throw; the session turns that into an error.
 using TransportFactory = std::function<std::unique_ptr<net::ITransport>(const std::string& host, uint16_t port)>;
 
@@ -81,6 +99,27 @@ public:
     /// The id the server gave this client, or -1 while the session is not `Connected`.
     int64_t ConnectionId() const noexcept;
 
+    /// Starts predicting the player's `entity`: `properties` are the names of what `rule` moves (positions,
+    /// angles, integers and choices; flags and masks cannot be predicted). From then on `SendInput` applies
+    /// the rule at once and each state of the server corrects it, and `PredictedProperty` reads the result. It
+    /// begins with the first state that arrives after this call. Returns false, with the reason in `error`,
+    /// when there is no connection, the entity or a name is not valid, the rule is empty or the settings are
+    /// out of range. A rule that fails ends the prediction (see `Prediction`); the session goes on.
+    bool SetPrediction(uint64_t entity, const std::vector<std::string>& properties, ValueRule rule,
+                       const PredictionSettings& settings, std::string& error);
+    /// Stops predicting. Harmless in any state; a disconnection does the same.
+    void ClearPrediction() noexcept;
+    /// Changes the settings of the prediction that is set (and the ones a later `SetPrediction` would use are
+    /// not touched). Returns false, with the reason in `error`, outside the ranges or with nothing set.
+    bool SetPredictionSettings(const PredictionSettings& settings, std::string& error);
+    /// Lets the correction slide forward by `seconds` (call it with the time that passed). Negative or not
+    /// finite time does nothing.
+    void Advance(double seconds) noexcept;
+    /// The value to show for a property: the predicted one if `entity` is the predicted entity, the
+    /// prediction is active and `name` is one of the predicted properties; otherwise the same as `Property`.
+    std::optional<Value> PredictedProperty(uint64_t entity, std::string_view name) const;
+    PredictionReport Prediction() const;
+
     /// The entities that have a state, by increasing id.
     std::vector<uint64_t> Entities() const;
     std::optional<Value> Property(uint64_t entity, std::string_view name) const;
@@ -90,6 +129,8 @@ private:
     void Close() noexcept;
     bool IsKnown(uint64_t entity) const noexcept;
 
+    struct PredictionState; // the names the rule works on, and why it failed
+
     TransportFactory factory_;
     std::shared_ptr<const BuiltSchema> schema_;
     std::unique_ptr<net::ITransport> transport_;
@@ -98,6 +139,7 @@ private:
     SessionState previous_ = SessionState::Disconnected;
     uint64_t generation_ = 0;
     bool polling_ = false;
+    std::shared_ptr<PredictionState> prediction_;
 };
 
 } // namespace tessera::ext
