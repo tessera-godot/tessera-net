@@ -182,8 +182,8 @@ void ReplicationServer::SendStateBuffers(uint64_t tick) {
         if (nothing_to_say && peer.state_input == peer.last_sent_input) {
             continue; // an idle player costs nothing
         }
-        // A player that sends input and whose entity does not change (standing still, or against a wall) still
-        // needs to hear which inputs the state reflects, or its prediction would never be confirmed.
+        // A player that sends input and whose entity does not change (standing still, or against a wall)
+        // still needs to hear which inputs the state reflects, or its prediction would never be confirmed.
         peer.sent_state = true;
         peer.last_state_tick = tick;
         peer.last_sent_input = peer.state_input;

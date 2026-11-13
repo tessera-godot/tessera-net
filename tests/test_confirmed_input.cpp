@@ -83,7 +83,8 @@ TESSERA_TEST(a_buffer_carries_the_inputs_delivered_before_its_update_not_in_it) 
     Walker walker(h);
     FakeClient& client = JoinNearTheMob(h);
     StepMoving(h, walker);
-    // The input numbered k is sent before the tick `sent_at[k]`, so the server reads it in that tick's update.
+    // The input numbered k is sent before the tick `sent_at[k]`, so the server reads it in that tick's
+    // update.
     std::map<uint32_t, uint64_t> sent_at;
     for (uint32_t k = 1; k <= 12; ++k) {
         client.SendInput(Channel::Unreliable, {k});
@@ -115,7 +116,8 @@ TESSERA_TEST(the_confirmed_sequence_never_goes_down) {
     Walker walker(h);
     FakeClient& client = JoinNearTheMob(h);
     StepMoving(h, walker);
-    const std::vector<std::vector<uint32_t>> messages = {{5}, {3}, {5}, {9}, {7, 8}, {9}, {10, 11}, {2}, {11}};
+    const std::vector<std::vector<uint32_t>> messages = {{5}, {3},      {5}, {9}, {7, 8},
+                                                         {9}, {10, 11}, {2}, {11}};
     for (const std::vector<uint32_t>& message : messages) {
         if (message.size() == 1) {
             client.SendInput(Channel::Unreliable, {message[0]});
