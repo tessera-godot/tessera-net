@@ -75,6 +75,13 @@ func run_all() -> void:
 	await check_two_connections_are_independent()
 	await check_out_of_range_and_short_input_is_cut_and_ignored()
 	await check_leaving_removes_the_player_entity()
+	check_prediction_api_outside_a_connection()
+	await check_predicted_value_moves_before_the_server_answers()
+	await check_predicted_value_settles_to_the_servers()
+	await check_a_wrong_rule_is_corrected()
+	await check_a_rule_that_fails_turns_prediction_off_without_crashing()
+	await check_prediction_after_disconnect_is_discarded()
+	await check_two_clients_predict_independently()
 
 
 func ok(check: String) -> void:
@@ -814,5 +821,247 @@ func check_leaving_removes_the_player_entity() -> void:
 	var told: bool = await pump([b], func(): return removed.has(a_entity), 3.0)
 	expect(name, told, "B was not told that A's player is gone")
 	expect(name, find_entity_of(b, a_id) == -1, "B still has A's player")
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+# ---- Prediction -------------------------------------------------------------------------------------------
+# The rule of the example server in GDScript: two bytes, the axes along x and z (-127 to 127), the speed 8 m/s,
+# the world from 0 to 200. `speed_scale` makes a rule that does not agree with the server's.
+
+func make_rule(speed_scale: float = 1.0) -> Callable:
+	return func(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
+		if input.size() < 2:
+			return state
+		var position: Vector3 = state["position"]
+		var dx := maxi(input.decode_s8(0), -127) / 127.0
+		var dz := maxi(input.decode_s8(1), -127) / 127.0
+		var length := sqrt(dx * dx + dz * dz)
+		if length == 0.0:
+			return state
+		if length > 1.0:
+			dx /= length
+			dz /= length
+		position.x = clampf(position.x + dx * 8.0 * speed_scale * dt, 0.0, WORLD_SIDE)
+		position.z = clampf(position.z + dz * 8.0 * speed_scale * dt, 0.0, WORLD_SIDE)
+		return {"position": position}
+
+
+# Sends one input for each tick of the server (30 a second), the way a game should, for `seconds`, reading the
+# clients meanwhile.
+func drive_per_tick(clients: Array, inputs: Array, seconds: float) -> void:
+	var start := Time.get_ticks_msec()
+	var deadline := start + int(seconds * 1000.0)
+	var sent := 0
+	while Time.get_ticks_msec() < deadline:
+		var due := int((Time.get_ticks_msec() - start) / (TICK * 1000.0)) + 1
+		while sent < due:
+			for index in clients.size():
+				clients[index].send_input(inputs[index])
+			sent += 1
+		for client in clients:
+			client.poll()
+		OS.delay_msec(2)
+		await process_frame
+
+
+# Sets the prediction of the client's own entity with `rule` and sends zeros until it starts (a state of the
+# server has to arrive after it is set). False if it does not.
+func start_prediction(client: TesseraClient, rule: Callable, check: String) -> bool:
+	var result := client.set_prediction(find_own_entity(client), PackedStringArray(["position"]), rule)
+	if not expect(check, result == OK, "set_prediction failed: " + client.get_last_error()):
+		return false
+	var started := Time.get_ticks_msec()
+	while not client.is_predicting() and Time.get_ticks_msec() - started < 5000:
+		await drive_per_tick([client], [PackedByteArray([0, 0])], 0.1)
+	return expect(check, client.is_predicting(), "the prediction did not start: %s" % str(client.get_prediction_stats()))
+
+
+func check_prediction_api_outside_a_connection() -> void:
+	var name := "prediction_api_outside_a_connection"
+	var before := failures
+	var client := make_player_client()
+	for _pass in 3:
+		expect(name, client.set_prediction(0, PackedStringArray(["position"]), make_rule()) == ERR_INVALID_PARAMETER, "entity 0")
+		expect(name, client.get_last_error() != "", "no reason for entity 0")
+		expect(name, client.set_prediction(1, PackedStringArray(["nope"]), make_rule()) == ERR_INVALID_PARAMETER, "unknown property")
+		expect(name, client.get_last_error() != "", "no reason for an unknown property")
+		expect(name, client.set_prediction(1, PackedStringArray(["position"]), Callable()) == ERR_INVALID_PARAMETER, "invalid Callable")
+		expect(name, client.get_last_error() != "", "no reason for an invalid Callable")
+		expect(name, not client.is_predicting(), "predicting without a connection")
+		expect(name, client.get_predicted_property(1, "position") == null, "a predicted value without a connection")
+		client.clear_prediction()
+		expect(name, client.get_prediction_stats()["state"] == "off", "stats: %s" % str(client.get_prediction_stats()))
+		client.poll()
+	expect(name, client.smoothing_seconds == 0.1 and client.snap_distance == 2.0, "defaults")
+	client.smoothing_seconds = 0.25
+	client.snap_distance = 3.0
+	expect(name, client.smoothing_seconds == 0.25 and client.snap_distance == 3.0, "settings did not stick")
+	client.smoothing_seconds = 6.0
+	client.snap_distance = 0.0
+	expect(name, client.smoothing_seconds == 0.25 and client.snap_distance == 3.0, "settings outside the range were taken")
+	expect(name, client.get_last_error() != "", "no reason for a setting outside the range")
+	finish(name, before)
+
+
+func check_predicted_value_moves_before_the_server_answers() -> void:
+	var name := "predicted_value_moves_before_the_server_answers"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var own := find_own_entity(client)
+	if await start_prediction(client, make_rule(), name):
+		var shown_before: Vector3 = client.get_predicted_property(own, "position")
+		var server_before: Vector3 = client.get_property(own, "position")
+		client.send_input(PackedByteArray([127, 0])) # and no poll: nothing has been heard from the server
+		var shown_after: Vector3 = client.get_predicted_property(own, "position")
+		var server_after: Vector3 = client.get_property(own, "position")
+		expect(name, absf((shown_after.x - shown_before.x) - 8.0 / 30.0) <= 0.01, "the shown x moved %f, not one step (0.2667)" % (shown_after.x - shown_before.x))
+		expect(name, absf(shown_after.z - shown_before.z) <= 0.01, "the shown z moved")
+		expect(name, server_after == server_before, "get_property changed without a poll")
+		expect(name, client.get_predicted_property(own, "owner") == client.get_property(own, "owner"), "a property that is not predicted differs")
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_predicted_value_settles_to_the_servers() -> void:
+	var name := "predicted_value_settles_to_the_servers"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var own := find_own_entity(client)
+	if await start_prediction(client, make_rule(), name):
+		var start := position_of(client, own)
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 1.0)
+		await drive_per_tick([client], [PackedByteArray([0, 0])], 1.5)
+		var shown: Vector3 = client.get_predicted_property(own, "position")
+		var server: Vector3 = client.get_property(own, "position")
+		var stats: Dictionary = client.get_prediction_stats()
+		expect(name, server.x - start.x > 3.0, "the player did not move: %s to %s" % [str(start), str(server)])
+		expect(name, shown.distance_to(server) <= 0.02, "shown %s, server %s" % [str(shown), str(server)])
+		expect(name, stats["last_error"] <= 0.05, "the last error was %f" % stats["last_error"])
+		expect(name, stats["state"] == "active" and stats["reconciliations"] > 10, "stats: %s" % str(stats))
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_a_wrong_rule_is_corrected() -> void:
+	var name := "a_wrong_rule_is_corrected"
+	var before := failures
+	# A rule that is half again as fast: the errors are small and slide away.
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var own := find_own_entity(client)
+	if await start_prediction(client, make_rule(1.5), name):
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 1.0)
+		await drive_per_tick([client], [PackedByteArray([0, 0])], 1.5)
+		var shown: Vector3 = client.get_predicted_property(own, "position")
+		var server: Vector3 = client.get_property(own, "position")
+		var stats: Dictionary = client.get_prediction_stats()
+		expect(name, shown.distance_to(server) <= 0.02, "shown %s, server %s" % [str(shown), str(server)])
+		expect(name, stats["snaps"] == 0, "stats: %s" % str(stats))
+	client.disconnect_from_server()
+	# A rule twelve times as fast: every correction is more than the snap distance, and the shown value jumps.
+	client = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	own = find_own_entity(client)
+	if await start_prediction(client, make_rule(12.0), name):
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 1.0)
+		await drive_per_tick([client], [PackedByteArray([0, 0])], 1.5)
+		var shown: Vector3 = client.get_predicted_property(own, "position")
+		var server: Vector3 = client.get_property(own, "position")
+		var stats: Dictionary = client.get_prediction_stats()
+		expect(name, stats["snaps"] > 0, "stats: %s" % str(stats))
+		expect(name, shown.distance_to(server) <= 0.02, "shown %s, server %s" % [str(shown), str(server)])
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_a_rule_that_fails_turns_prediction_off_without_crashing() -> void:
+	var name := "a_rule_that_fails_turns_prediction_off_without_crashing"
+	var before := failures
+	var rules := {
+		"returns null": func(_state, _input, _dt): pass,
+		"returns an int": func(_state, _input, _dt): return 5,
+		"a float where a Vector3 is needed": func(_state, _input, _dt): return {"position": 1.5},
+	}
+	for label in rules:
+		var client: TesseraClient = await join_as_player()
+		if client == null:
+			fail(name, "could not join the player server")
+			return
+		var own := find_own_entity(client)
+		var result := client.set_prediction(own, PackedStringArray(["position"]), rules[label])
+		expect(name, result == OK, "%s: set_prediction failed: %s" % [label, client.get_last_error()])
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 0.8)
+		var stats: Dictionary = client.get_prediction_stats()
+		expect(name, not client.is_predicting(), "%s: still predicting" % label)
+		expect(name, stats["state"] == "failed" and stats["rule_failures"] == 1, "%s: stats %s" % [label, str(stats)])
+		expect(name, client.get_predicted_property(own, "position") == client.get_property(own, "position"), "%s: the value is not the server's" % label)
+		expect(name, client.get_state() == TesseraClient.State.CONNECTED, "%s: the client is not connected" % label)
+		# Setting a good rule again starts over.
+		if await start_prediction(client, make_rule(), name):
+			expect(name, client.get_prediction_stats()["rule_failures"] == 0, "%s: the failure count was kept" % label)
+		client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_prediction_after_disconnect_is_discarded() -> void:
+	var name := "prediction_after_disconnect_is_discarded"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var old_entity := find_own_entity(client)
+	if await start_prediction(client, make_rule(), name):
+		client.disconnect_from_server()
+		expect(name, not client.is_predicting(), "still predicting after disconnect_from_server")
+		expect(name, client.get_predicted_property(old_entity, "position") == null, "a value after disconnect_from_server")
+		expect(name, client.get_prediction_stats()["state"] == "off", "stats: %s" % str(client.get_prediction_stats()))
+		expect(name, client.send_input(PackedByteArray([1, 2])) == 0, "an input was sent after disconnect")
+		# A new connection starts clean, and the prediction is set again with the new id.
+		expect(name, client.connect_to("127.0.0.1", input_port) == OK, "connect_to failed: " + client.get_last_error())
+		var ready: bool = await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED and find_own_entity(client) != -1, 10.0)
+		expect(name, ready, "did not connect again")
+		expect(name, not client.is_predicting(), "predicting before it was set again")
+		if ready:
+			await start_prediction(client, make_rule(), name)
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_two_clients_predict_independently() -> void:
+	var name := "two_clients_predict_independently"
+	var before := failures
+	var a: TesseraClient = await join_as_player()
+	var b: TesseraClient = await join_as_player()
+	if a == null or b == null:
+		fail(name, "could not join the player server twice")
+		return
+	var a_entity := find_own_entity(a)
+	var b_entity := find_own_entity(b)
+	var a_ready: bool = await start_prediction(a, make_rule(1.0), name)
+	var b_ready: bool = await start_prediction(b, make_rule(0.5), name)
+	if a_ready and b_ready:
+		var a_before: Vector3 = a.get_predicted_property(a_entity, "position")
+		var b_before: Vector3 = b.get_predicted_property(b_entity, "position")
+		a.send_input(PackedByteArray([127, 0]))
+		b.send_input(PackedByteArray([127, 0]))
+		var a_after: Vector3 = a.get_predicted_property(a_entity, "position")
+		var b_after: Vector3 = b.get_predicted_property(b_entity, "position")
+		expect(name, absf((a_after.x - a_before.x) - 8.0 / 30.0) <= 0.01, "A moved %f" % (a_after.x - a_before.x))
+		expect(name, absf((b_after.x - b_before.x) - 4.0 / 30.0) <= 0.01, "B moved %f" % (b_after.x - b_before.x))
+		# Each one reads the other's entity as plain data.
+		expect(name, a.get_predicted_property(b_entity, "position") == a.get_property(b_entity, "position"), "A's value for B is predicted")
+	a.disconnect_from_server()
 	b.disconnect_from_server()
 	finish(name, before)
