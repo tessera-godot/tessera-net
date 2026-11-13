@@ -135,6 +135,17 @@ void ReplicationServer::Update(uint64_t tick) {
         TESSERA_PROFILE_SCOPE(SendBuffers);
         SendStateBuffers(tick);
     }
+    CommitInputs();
+}
+
+// Whatever was read in this call is simulated on the next tick, so it is what the next state reflects.
+void ReplicationServer::CommitInputs() {
+    for (ConnectionId id = 0; id < slot_transport_.size(); ++id) {
+        if (slot_transport_[id] != 0) {
+            Peer& peer = peers_.at(slot_transport_[id]);
+            peer.state_input = peer.inputs.Latest();
+        }
+    }
 }
 
 // The visibility events go to the player first and in order, numbered, on the reliable channel, and to the
@@ -166,16 +177,23 @@ void ReplicationServer::SendStateBuffers(uint64_t tick) {
             continue;
         }
         const std::span<const uint8_t> output = replication_.Output(id);
-        if (output.size() <= 1) {
-            continue; // just the end marker: an idle player costs nothing
-        }
         Peer& peer = peers_.at(slot_transport_[id]);
+        const bool nothing_to_say = output.size() <= 1; // just the end marker
+        if (nothing_to_say && peer.state_input == peer.last_sent_input) {
+            continue; // an idle player costs nothing
+        }
+        // A player that sends input and whose entity does not change (standing still, or against a wall) still
+        // needs to hear which inputs the state reflects, or its prediction would never be confirmed.
         peer.sent_state = true;
         peer.last_state_tick = tick;
+        peer.last_sent_input = peer.state_input;
         std::vector<uint8_t> bytes;
-        EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent}, output, bytes);
+        EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent, peer.state_input}, output, bytes);
         transport_.Send(slot_transport_[id], Channel::Unreliable, bytes);
         ++stats_.state_buffers_sent;
+        if (nothing_to_say) {
+            ++stats_.input_confirmations_sent;
+        }
     }
 }
 
