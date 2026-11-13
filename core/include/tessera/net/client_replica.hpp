@@ -2,6 +2,7 @@
 #pragma once
 
 #include "tessera/net/entity_id.hpp"
+#include "tessera/net/predictor.hpp"
 #include "tessera/net/protocol.hpp"
 #include "tessera/net/replication/property_schema.hpp"
 #include "tessera/net/replication/receiver_state.hpp"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -78,6 +80,30 @@ public:
     /// call in any state.
     uint32_t SendInput(std::span<const uint8_t> bytes);
 
+    /// The tick rate the server announced (0 before the client is connected).
+    uint32_t TickRate() const noexcept {
+        return tick_rate_;
+    }
+
+    /// Starts predicting the player's entity: from now on `SendInput` applies `config.rule` to the predicted
+    /// state, and each state buffer of the server corrects it (see `Predictor`). Returns false, changing
+    /// nothing and saying why in `error` when given, for a configuration that cannot work. Safe to call in
+    /// any state; the prediction begins when the next state buffer is applied.
+    bool SetPrediction(const PredictionConfig& config, std::string* error = nullptr);
+    /// Stops predicting and forgets the configuration.
+    void ClearPrediction() noexcept;
+    /// Lets the correction of the prediction slide forward by `seconds`; call it with the time that passed.
+    void AdvancePrediction(double seconds) noexcept;
+    PredictionStatus Prediction() const noexcept;
+    const PredictionStats& PredictionInfo() const noexcept;
+    /// How many inputs are waiting for the server to confirm them.
+    uint32_t PredictionPending() const noexcept;
+    /// How many numbers `Predicted` writes: the components of the predicted properties.
+    uint32_t PredictedComponents() const noexcept;
+    /// The predicted state to show, `PredictedComponents()` numbers (see `PredictionRule`). False, writing
+    /// nothing, unless the prediction is active.
+    bool Predicted(std::span<double> out) const noexcept;
+
     /// How many entities this client can see.
     size_t VisibleCount() const noexcept {
         return compact_of_.size();
@@ -117,7 +143,8 @@ private:
     void HandleStateBuffer(const TransportEvent& event);
     void Hold(const StateBufferHeader& header, std::span<const uint8_t> payload);
     void ReleaseHeld();
-    void ApplyBuffer(uint64_t tick, std::span<const uint8_t> payload);
+    void ApplyBuffer(uint64_t tick, uint32_t last_input_sequence, std::span<const uint8_t> payload);
+    void ForgetPredictionOf(EntityId entity) noexcept;
     bool WasApplied(uint64_t tick) const noexcept;
     void MarkApplied(uint64_t tick) noexcept;
     void SendAck();
@@ -130,6 +157,8 @@ private:
     ClientState state_ = ClientState::Connecting;
     RejectReason rejection_ = RejectReason::None;
     uint32_t connection_id_ = 0;
+    uint32_t tick_rate_ = 0;
+    Predictor predictor_;
     std::unique_ptr<ReceiverState> receiver_;
     uint64_t batches_applied_ = 0;
     std::vector<EntityId> entity_of_;                   // by compact id; Null when the id is free
@@ -138,6 +167,7 @@ private:
     struct HeldBuffer {
         uint64_t tick;
         uint64_t batches_sent;
+        uint32_t last_input_sequence;
         std::vector<uint8_t> payload;
     };
     static constexpr size_t kMaxHeld = 64;

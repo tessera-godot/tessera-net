@@ -15,7 +15,7 @@ constexpr uint32_t kMaxTickRate = 1000;
 } // namespace
 
 ClientReplica::ClientReplica(ITransport& transport, const ReplicationSchema& schema)
-    : transport_(transport), schema_(schema) {}
+    : transport_(transport), schema_(schema), predictor_(schema) {}
 
 void ClientReplica::Poll() {
     events_.clear();
@@ -86,7 +86,51 @@ uint32_t ClientReplica::SendInput(std::span<const uint8_t> bytes) {
     // If the send fails the connection is going down, and the state will say so.
     transport_.Send(0, Channel::Unreliable, encoded);
     ++stats_.inputs_sent;
+    if (predictor_.Status() == PredictionStatus::Active && tick_rate_ != 0) {
+        // One step of the movement rule for each input, as long as one tick.
+        predictor_.Predict(sequence, bytes, 1.0 / static_cast<double>(tick_rate_));
+    }
     return sequence;
+}
+
+bool ClientReplica::SetPrediction(const PredictionConfig& config, std::string* error) {
+    return predictor_.Configure(config, error);
+}
+
+void ClientReplica::ClearPrediction() noexcept {
+    predictor_.Clear();
+}
+
+void ClientReplica::AdvancePrediction(double seconds) noexcept {
+    predictor_.Advance(seconds);
+}
+
+PredictionStatus ClientReplica::Prediction() const noexcept {
+    return predictor_.Status();
+}
+
+const PredictionStats& ClientReplica::PredictionInfo() const noexcept {
+    return predictor_.Stats();
+}
+
+uint32_t ClientReplica::PredictionPending() const noexcept {
+    return predictor_.Pending();
+}
+
+uint32_t ClientReplica::PredictedComponents() const noexcept {
+    return predictor_.Components();
+}
+
+bool ClientReplica::Predicted(std::span<double> out) const noexcept {
+    return predictor_.Displayed(out);
+}
+
+// An entity that is no longer visible has no state to predict from: what was predicted for it is dropped, and
+// the prediction waits until it is back.
+void ClientReplica::ForgetPredictionOf(EntityId entity) noexcept {
+    if (predictor_.Status() != PredictionStatus::Off && predictor_.Config().entity == entity) {
+        predictor_.Reset();
+    }
 }
 
 void ClientReplica::Malformed(Channel channel) {
@@ -109,6 +153,7 @@ void ClientReplica::ResetVisible() {
     receiver_.reset();
     entity_of_.clear();
     compact_of_.clear();
+    predictor_.Reset();
 }
 
 void ClientReplica::HandleMessage(const TransportEvent& event) {
@@ -180,6 +225,8 @@ void ClientReplica::HandleServerHello(const ServerHello& hello) {
         return;
     }
     connection_id_ = hello.connection_id;
+    tick_rate_ = hello.tick_rate;
+    predictor_.Reset();
     receiver_ = std::make_unique<ReceiverState>(schema_, hello.max_visible, hello.max_baseline_age_ticks);
     entity_of_.assign(hello.max_visible, EntityId::Null());
     compact_of_.clear();
@@ -213,9 +260,11 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
                 receiver_->OnLeave(known->second);
                 entity_of_[known->second] = EntityId::Null();
                 compact_of_.erase(known);
+                ForgetPredictionOf(event.id);
             }
             if (!entity_of_[compact_id].IsNull()) {
                 compact_of_.erase(entity_of_[compact_id].raw());
+                ForgetPredictionOf(entity_of_[compact_id]);
             }
             entity_of_[compact_id] = event.id;
             compact_of_[event.id.raw()] = compact_id;
@@ -223,6 +272,7 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
             receiver_->OnLeave(compact_id);
             if (!entity_of_[compact_id].IsNull()) {
                 compact_of_.erase(entity_of_[compact_id].raw());
+                ForgetPredictionOf(entity_of_[compact_id]);
                 entity_of_[compact_id] = EntityId::Null();
             }
         }
@@ -283,7 +333,7 @@ void ClientReplica::HandleStateBuffer(const TransportEvent& event) {
         Hold(header, payload); // its events have not all arrived: they may change what its compact ids mean
         return;
     }
-    ApplyBuffer(header.tick, payload);
+    ApplyBuffer(header.tick, header.last_input_sequence, payload);
 }
 
 void ClientReplica::Hold(const StateBufferHeader& header, std::span<const uint8_t> payload) {
@@ -293,7 +343,7 @@ void ClientReplica::Hold(const StateBufferHeader& header, std::span<const uint8_
     if (position != held_.end() && position->tick == header.tick) {
         return; // the same tick twice: one copy is enough
     }
-    held_.insert(position, HeldBuffer{header.tick, header.batches_sent,
+    held_.insert(position, HeldBuffer{header.tick, header.batches_sent, header.last_input_sequence,
                                       std::vector<uint8_t>(payload.begin(), payload.end())});
     if (held_.size() > kMaxHeld) {
         held_.erase(held_.begin()); // the oldest is the least useful
@@ -310,12 +360,13 @@ void ClientReplica::ReleaseHeld() {
     held_ = std::move(waiting);
     for (const HeldBuffer& held : ready) {
         if (!WasApplied(held.tick)) {
-            ApplyBuffer(held.tick, held.payload);
+            ApplyBuffer(held.tick, held.last_input_sequence, held.payload);
         }
     }
 }
 
-void ClientReplica::ApplyBuffer(uint64_t tick, std::span<const uint8_t> payload) {
+void ClientReplica::ApplyBuffer(uint64_t tick, uint32_t last_input_sequence,
+                                std::span<const uint8_t> payload) {
     // Every event batch the buffer cites has been applied, so the events up to its tick are in.
     receiver_->AdvanceEvents(tick);
     size_t applied = 0;
@@ -323,6 +374,12 @@ void ClientReplica::ApplyBuffer(uint64_t tick, std::span<const uint8_t> payload)
         ++stats_.buffers_applied;
         MarkApplied(tick);
         apply_happened_ = true;
+        if (predictor_.Status() != PredictionStatus::Off && tick_rate_ != 0) {
+            // Whether or not the buffer has a record of the player's entity, it says which inputs the state
+            // reflects. A buffer that is older than one already used is ignored by the predictor.
+            predictor_.Reconcile(tick, WordsOf(predictor_.Config().entity), last_input_sequence,
+                                 1.0 / static_cast<double>(tick_rate_));
+        }
     } else {
         ++stats_.buffers_refused; // not confirmed: the server will send it again
     }
