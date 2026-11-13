@@ -70,9 +70,10 @@ struct ClientHarness {
         Send(Channel::ReliableOrdered, bytes);
     }
 
-    void SendStateBuffer(uint64_t buffer_tick, uint64_t batches_sent, const std::vector<uint8_t>& payload) {
+    void SendStateBuffer(uint64_t buffer_tick, uint64_t batches_sent, const std::vector<uint8_t>& payload,
+                         uint32_t last_input_sequence = 0) {
         std::vector<uint8_t> bytes;
-        EncodeStateBuffer(StateBufferHeader{buffer_tick, batches_sent}, payload, bytes);
+        EncodeStateBuffer(StateBufferHeader{buffer_tick, batches_sent, last_input_sequence}, payload, bytes);
         Send(Channel::Unreliable, bytes);
     }
 

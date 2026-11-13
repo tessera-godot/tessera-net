@@ -12,7 +12,7 @@ namespace tessera::net {
 
 /// The version a client and a server must share. It changes when a message changes in a way an older program
 /// cannot read.
-inline constexpr uint32_t kProtocolVersion = 2;
+inline constexpr uint32_t kProtocolVersion = 3;
 
 /// The most inputs one `Input` message carries: the newest and the 3 before it.
 inline constexpr uint32_t kMaxInputsPerMessage = 4;
@@ -28,7 +28,8 @@ inline constexpr uint32_t kMaxInputBytes = 16;
 // EventBatch (server to client, reliable): a number (1, 2, 3, ...), the tick, and the visibility events of
 //     that tick.
 // StateBuffer (server to client, unreliable): the tick, how many event batches the server had sent by then,
-//     and the buffer written by the replication engine, unchanged.
+//     the newest input sequence the state reflects, and the buffer written by the replication engine,
+//     unchanged.
 // Ack (client to server, unreliable): the newest tick applied and a mask of the 32 before it.
 // Input (client to server, unreliable): up to 4 inputs, the newest and the 3 before it, each with its
 //     sequence number and a block of bytes the game defines.
@@ -72,6 +73,8 @@ struct EventBatch {
 struct StateBufferHeader {
     uint64_t tick;
     uint64_t batches_sent; ///< How many `EventBatch` messages the server had sent when it wrote this buffer.
+    /// The newest input sequence of this connection that the state of this tick already reflects (0: none yet).
+    uint32_t last_input_sequence = 0;
 };
 
 /// `bit i` set means the tick `latest_tick - 1 - i` was applied as well.

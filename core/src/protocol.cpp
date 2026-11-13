@@ -178,6 +178,7 @@ void EncodeStateBuffer(const StateBufferHeader& header, std::span<const uint8_t>
     WriteKind(writer, MessageKind::StateBuffer);
     writer.WriteVarUInt(header.tick);
     writer.WriteVarUInt(header.batches_sent);
+    writer.WriteVarUInt(header.last_input_sequence);
     writer.Finish();
     out.insert(out.end(), payload.begin(), payload.end());
 }
@@ -191,7 +192,7 @@ bool DecodeStateBuffer(std::span<const uint8_t> message, StateBufferHeader* head
     StateBufferHeader read{};
     read.tick = reader.ReadVarUInt();
     read.batches_sent = reader.ReadVarUInt();
-    if (!reader.ok()) {
+    if (!ReadU32(reader, &read.last_input_sequence)) {
         return false;
     }
     const uint64_t consumed_bits = message.size() * 8ull - reader.BitsLeft();

@@ -43,7 +43,7 @@ std::vector<std::vector<uint8_t>> OneOfEachMessage() {
     Encode(ClientHello{kProtocolVersion, 0xFEDCBA9876543210ull}, messages[0]);
     Encode(ServerHello{true, RejectReason::None, kProtocolVersion, 17, 30, 65536, 32}, messages[1]);
     Encode(MakeBatch(3, 900, 20), messages[2]);
-    EncodeStateBuffer(StateBufferHeader{900, 3}, std::vector<uint8_t>{1, 2, 3, 4, 5}, messages[3]);
+    EncodeStateBuffer(StateBufferHeader{900, 3, 0xC0FFEEu}, std::vector<uint8_t>{1, 2, 3, 4, 5}, messages[3]);
     Encode(Ack{900, 0xA5A5A5A5u}, messages[4]);
     return messages;
 }
@@ -145,13 +145,61 @@ TESSERA_TEST(state_buffer_payload_is_returned_unchanged_and_may_be_empty) {
             payload[i] = static_cast<uint8_t>(i * 31 + 7);
         }
         std::vector<uint8_t> bytes;
-        EncodeStateBuffer(StateBufferHeader{123456, 42}, payload, bytes);
+        EncodeStateBuffer(StateBufferHeader{123456, 42, 0xFFFFFFFFu}, payload, bytes);
         StateBufferHeader header{};
         std::span<const uint8_t> back;
         TESSERA_CHECK(DecodeStateBuffer(bytes, &header, &back));
-        TESSERA_CHECK(header.tick == 123456 && header.batches_sent == 42);
+        TESSERA_CHECK(header.tick == 123456 && header.batches_sent == 42 &&
+                      header.last_input_sequence == 0xFFFFFFFFu);
         TESSERA_CHECK(back.size() == payload.size() && std::equal(back.begin(), back.end(), payload.begin()));
     }
+}
+
+TESSERA_TEST(state_buffer_header_round_trips_the_last_input_sequence) {
+    for (const uint32_t sequence : {0u, 1u, 0x7FFFFFFFu, 0xFFFFFFFFu}) {
+        for (const size_t size : {size_t{0}, size_t{1100}}) {
+            std::vector<uint8_t> payload(size);
+            for (size_t i = 0; i < size; ++i) {
+                payload[i] = static_cast<uint8_t>(i * 13 + 5);
+            }
+            std::vector<uint8_t> bytes;
+            EncodeStateBuffer(StateBufferHeader{777, 9, sequence}, payload, bytes);
+            StateBufferHeader header{};
+            std::span<const uint8_t> back;
+            TESSERA_CHECK(DecodeStateBuffer(bytes, &header, &back));
+            TESSERA_CHECK(header.tick == 777 && header.batches_sent == 9 &&
+                          header.last_input_sequence == sequence);
+            TESSERA_CHECK(back.size() == payload.size() &&
+                          std::equal(back.begin(), back.end(), payload.begin()));
+        }
+    }
+}
+
+TESSERA_TEST(state_buffer_with_a_last_input_sequence_above_32_bits_is_refused) {
+    std::vector<uint8_t> bytes;
+    BitWriter writer(bytes);
+    writer.WriteBits(static_cast<uint64_t>(MessageKind::StateBuffer), 8);
+    writer.WriteVarUInt(5);
+    writer.WriteVarUInt(1);
+    writer.WriteVarUInt(1ull << 32);
+    writer.Finish();
+    StateBufferHeader header{11, 22, 33};
+    std::span<const uint8_t> payload;
+    TESSERA_CHECK(!DecodeStateBuffer(bytes, &header, &payload));
+    TESSERA_CHECK(header.tick == 11 && header.batches_sent == 22 && header.last_input_sequence == 33);
+}
+
+TESSERA_TEST(state_buffer_truncated_inside_the_last_input_sequence_is_refused) {
+    std::vector<uint8_t> bytes;
+    EncodeStateBuffer(StateBufferHeader{300, 70000, 0xFFFFFFFFu}, std::vector<uint8_t>{}, bytes);
+    for (size_t length = 0; length < bytes.size(); ++length) {
+        StateBufferHeader header{};
+        std::span<const uint8_t> payload;
+        TESSERA_CHECK(!DecodeStateBuffer(std::span<const uint8_t>(bytes.data(), length), &header, &payload));
+    }
+    StateBufferHeader header{};
+    std::span<const uint8_t> payload;
+    TESSERA_CHECK(DecodeStateBuffer(bytes, &header, &payload) && payload.empty());
 }
 
 TESSERA_TEST(peek_kind_reads_the_first_byte_and_rejects_unknown_kinds) {
