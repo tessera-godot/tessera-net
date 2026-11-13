@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Connects to a Tessera server and draws a sphere for every entity it replicates. With the server started with
-# --players, each connected player has a sphere too, and WASD moves yours.
+# --players, each connected player has a sphere too, and WASD moves yours: the green sphere moves at once, on the
+# client's own guess of where the server will put it, and the server's answer corrects the guess.
 extends Node3D
 
 const DEFAULT_HOST := "127.0.0.1"
@@ -8,6 +9,9 @@ const DEFAULT_PORT := 7777
 # How many times a second the input is sent, and how far the keys push (the server reads -127 to 127).
 const INPUT_RATE := 30.0
 const AXIS_MAX := 127
+# The movement rule of the server, which the client needs to move the sphere before the answer comes.
+const PLAYER_SPEED := 8.0
+const WORLD_SIDE := 200.0
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
 
@@ -15,6 +19,7 @@ var client := TesseraClient.new()
 var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
 var input_clock := 0.0
+var own_entity := -1  # the entity of this player, once the server has told us about it
 
 
 func _ready() -> void:
@@ -51,16 +56,19 @@ func _process(delta: float) -> void:
 	client.poll()
 	_send_input(delta)
 	for id in spheres:
-		var position = client.get_property(id, "position")
+		# Your own sphere shows the prediction; the others show what the server last said, not smoothed.
+		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_property(id, "position")
 		if position != null:
 			spheres[id].position = position
-	status.text = "%s, %d entities %s\nWASD moves the green sphere; it follows your input after a round trip" % [
-		_state_name(), spheres.size(), client.get_rejection()]
+	var stats := client.get_prediction_stats()
+	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\nWASD moves the green sphere at once; the others are not smoothed" % [
+		_state_name(), spheres.size(), client.get_rejection(),
+		"on" if client.is_predicting() else "off", stats["last_error"]]
 
 
-# Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected. The
-# server reads each as a number from -127 to 127 and moves the player's entity; this demo does not predict where
-# it will be, so the sphere moves when the server's answer arrives.
+# Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected, zeros
+# included: the prediction counts one step for each input, so the client sends one for every tick of the server.
+# The server reads each as a number from -127 to 127 and moves the player's entity.
 func _send_input(delta: float) -> void:
 	if client.get_state() != TesseraClient.State.CONNECTED:
 		return
@@ -91,13 +99,44 @@ func _on_entity_appeared(id: int) -> void:
 	var owner = client.get_property(id, "owner")
 	if owner != null:
 		var material := StandardMaterial3D.new()
-		material.albedo_color = OWN_COLOR if owner == client.get_connection_id() else OTHER_PLAYER_COLOR
+		var is_own: bool = owner == client.get_connection_id()
+		material.albedo_color = OWN_COLOR if is_own else OTHER_PLAYER_COLOR
 		sphere.material_override = material
+		if is_own:
+			own_entity = id
+			# The prediction starts with the first state that arrives after this, which the server sends as soon
+			# as it has an input to confirm.
+			if client.set_prediction(id, PackedStringArray(["position"]), predict) != OK:
+				push_warning("No prediction: " + client.get_last_error())
 	add_child(sphere)
 	spheres[id] = sphere
 
 
+# The movement rule of the example server, for one input and one step of dt seconds: the two bytes are the axes
+# along x and z (-127 to 127), the speed is at most PLAYER_SPEED and the player stays inside the world. This has
+# to stay the same as the rule on the server; where the two differ, the server wins and the sphere is corrected.
+# The two agree for the 2-byte inputs this script sends. A shorter input is ignored by the server, which keeps
+# the last axes, while this rule does not move at all; the demo never sends one.
+func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
+	if input.size() < 2:
+		return state
+	var position: Vector3 = state["position"]
+	var dx := maxi(input.decode_s8(0), -127) / 127.0
+	var dz := maxi(input.decode_s8(1), -127) / 127.0
+	var length := sqrt(dx * dx + dz * dz)
+	if length == 0.0:
+		return state
+	if length > 1.0:
+		dx /= length
+		dz /= length
+	position.x = clampf(position.x + dx * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
+	position.z = clampf(position.z + dz * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
+	return {"position": position}
+
+
 func _on_entity_removed(id: int) -> void:
+	if id == own_entity:
+		own_entity = -1
 	if spheres.has(id):
 		spheres[id].queue_free()
 		spheres.erase(id)

@@ -45,6 +45,14 @@ bytes, the axis along x and the axis along z, each from -127 to 127. A value out
 most 8 meters per second, and a player that sends nothing for half a second stops. A client then has to describe type 2
 as well, or the server refuses it, because the schema does not match. Without `--players` nothing changes.
 
+Each state buffer carries the newest input of the player that the state reflects, so that a client can predict its own
+entity (see [Prediction and reconciliation](../docs/reference/networking.md#prediction-and-reconciliation)). The state of
+a tick is made before the network phase reads that tick's inputs, so the number is the one read by the phase before; a
+game that simulates before it calls `ReplicationServer::Update` (as `ServerHost` does) gets this for free. A player that
+sends input while none of its entities changes (it stands still, or pushes against a wall) is sent a buffer with only the
+header, a few bytes, each time the number moves. For the prediction to match, the game should handle one input for each
+tick of the server and keep the same movement rule on the client.
+
 ```powershell
 ./build/windows-msvc-enet/server/Release/tessera_example_server.exe --players
 ```

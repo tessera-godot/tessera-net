@@ -7,11 +7,15 @@
 
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int64_array.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
+
+#include <chrono>
 
 namespace godot {
 
@@ -45,6 +49,36 @@ public:
     // The id the server gave this client, or -1 while it is not CONNECTED. Safe in any state.
     int get_connection_id() const;
 
+    // Predicts the player's own entity. `rule` is the movement rule of the game, a Callable that takes
+    // (state: Dictionary, input: PackedByteArray, dt: float) and returns a Dictionary: `state` has the value
+    // of each predicted property by name (a position is a Vector3, an angle a float, an integer an int), and
+    // the result holds the values after one step of `dt` seconds with that input. A name left out keeps its
+    // value; a name that is not predicted is ignored. A rule that does not return a Dictionary, or gives a
+    // value of the wrong type, makes the rule fail, which turns the prediction off with one warning. Call it
+    // with the id of the player's entity once it is known; it starts when the next state buffer arrives, so
+    // the game sends an input on every tick (zeros included) and the prediction begins within a round trip.
+    // The rule must not call back into this client (send_input, poll, set_prediction, clear_prediction,
+    // connect_to, disconnect_from_server): while it runs those calls are refused, with the reason in
+    // get_last_error(). Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() (ERR_BUSY if
+    // called from inside the rule). Safe in any state.
+    int set_prediction(int64_t entity, const PackedStringArray& properties, const Callable& rule);
+    // Stops predicting. A disconnection does the same.
+    void clear_prediction();
+    // The value to show for a property: the predicted and smoothed one if `entity` is the predicted entity,
+    // the prediction is running and `name` is one of the predicted properties; otherwise the same as
+    // get_property(), which always gives what the server last said.
+    Variant get_predicted_property(int64_t entity, const String& name) const;
+    bool is_predicting() const;
+    // The state ("off", "waiting", "active", "paused" or "failed") and the counts of the prediction:
+    // reconciliations, snaps, rule_failures, history_overflows and last_error (in world units).
+    Dictionary get_prediction_stats() const;
+    // How long (0 to 5 seconds) a difference between the prediction and the server takes to fade, and the
+    // distance (above 0) over which it jumps instead.
+    void set_smoothing_seconds(double seconds);
+    double get_smoothing_seconds() const;
+    void set_snap_distance(double distance);
+    double get_snap_distance() const;
+
     int get_state() const;
     String get_rejection() const;
     String get_last_error() const;
@@ -63,6 +97,14 @@ private:
     Ref<TesseraSchema> schema_;
     String last_error_;
     bool emitting_ = false;
+    double smoothing_seconds_ = 0.1;
+    double snap_distance_ = 2.0;
+    bool has_last_poll_ = false;
+    std::chrono::steady_clock::time_point last_poll_;
+
+    void ReportRuleFailure();
+    // True, with the reason in last_error_, while the prediction rule runs: a rule must not call back.
+    bool RefusedInRule();
 };
 TESSERA_GODOT_CLASS_END
 

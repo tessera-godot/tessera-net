@@ -7,6 +7,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Prediction and reconciliation of the player's own entity. The core has `Predictor` and, in `ClientReplica`,
+  `SetPrediction`, `SetPredictionSettings`, `ClearPrediction`, `AdvancePrediction`, `Prediction`, `PredictionInfo`,
+  `PredictionPending`, `PredictedComponents`, `Predicted` and `TickRate`: the game gives a movement rule, `SendInput`
+  applies it at once, and each state buffer drops the inputs the server has used, starts from the server's state and
+  applies the rest. The difference slides away in 100 milliseconds, or the shown state jumps above 2 world units (both
+  can be changed). `ServerStats::input_confirmations_sent` counts the buffers that only confirm an input.
+- In the Godot extension, `TesseraClient.set_prediction(entity, properties, rule)`, `clear_prediction()`,
+  `get_predicted_property(id, name)`, `is_predicting()`, `get_prediction_stats()` and the properties
+  `smoothing_seconds` and `snap_distance`. A rule that fails turns the prediction off with one warning. A rule must not
+  call back into the client: while it runs, `send_input`, `poll`, `connect_to`, `disconnect_from_server`,
+  `set_prediction` and `clear_prediction` are refused, with the reason in `get_last_error()`.
+- In the demo project, the green sphere is predicted with the movement rule of the example server written in GDScript,
+  and the label shows the size of the last correction. The other players' spheres are not smoothed.
+- Tests: the default build now has 592 tests (it had 539), with a test of the prediction against the example server on a
+  simulated network that loses, duplicates and delays messages; the server tests, the extension tests and the headless
+  Godot test cover the prediction too.
+- Architecture decision record 0018, "Prediction and reconciliation" (Proposed).
 - Player input, from the client to the server. A new message, `Input`, carries up to 4 inputs (the newest and the 3
   before it), each with a sequence number and up to 16 bytes that the game defines. The server hands each new input to
   the game once and in order (`IGameLogic::OnPlayerInput`, `ReplicationServer::SetInputHandler`), drops repeats and
@@ -25,8 +42,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Architecture decision record 0017, "Player input" (Accepted).
 
 ### Changed
-- **The protocol version is now 2.** Clients and servers of 0.2.0-alpha no longer connect to the new ones: the server
-  refuses their hello with `VersionMismatch`. The bytes of the messages that already existed did not change.
+- **The protocol version is now 3** (0.2.0-alpha spoke version 1). Clients and servers of 0.2.0-alpha no longer connect to
+  the new ones: the server refuses their hello with `VersionMismatch`. Version 2 added the `Input` message; version 3
+  adds a field to the header of the `StateBuffer`, the newest input of the player that the state reflects. No other
+  message changed.
+- The server sends a buffer with only the header to a player that is sending input while nothing about its entities
+  changes, so that the input is confirmed. While the bandwidth budget leaves entities out of a player's buffer, the
+  buffer keeps the input number it sent before, because its state is behind the inputs the server has read.
 
 ## [0.2.0-alpha] - 2026-11-13
 

@@ -116,10 +116,10 @@ cannot be right.
 
 | Message | Direction, channel | Carries |
 |---|---|---|
-| `ClientHello` | player to server, reliable | The protocol version (2 now) and the hash of the schema. |
+| `ClientHello` | player to server, reliable | The protocol version (3 now) and the hash of the schema. |
 | `ServerHello` | server to player, reliable | Accepted, or the reason (`VersionMismatch`, `SchemaMismatch`, `ServerFull`); if accepted, the player's connection id, the tick rate, how many compact ids it may use and how many ticks of history it keeps. |
 | `EventBatch` | server to player, reliable | A number (1, 2, 3, ...), the tick, and the visibility events of that tick. Sent only when there are events. |
-| `StateBuffer` | server to player, unreliable | The tick, how many event batches the server had sent when it wrote it, and the buffer from the replication engine, unchanged. Sent only when it holds a record. |
+| `StateBuffer` | server to player, unreliable | The tick, how many event batches the server had sent when it wrote it, the newest input sequence of that player that the state reflects (0 if none yet), and the buffer from the replication engine, unchanged. Sent when it holds a record, or when that sequence has moved (see [Prediction and reconciliation](#prediction-and-reconciliation)). |
 | `Ack` | player to server, unreliable | The newest tick applied and a mask of the 32 before it. |
 | `Input` | player to server, unreliable | Up to 4 inputs, the newest and the 3 before it, each with a sequence number and up to 16 bytes the game defines. See [Player input](#player-input). |
 
@@ -137,8 +137,17 @@ cannot be right.
    and the same events go to the replication engine.
 4. **Replication.** The engine writes one buffer per player.
 5. **State buffers.** Each buffer that holds a record goes out as a `StateBuffer` on the unreliable channel, with
-   the number of event batches sent so far. A player with nothing to receive, or whose budget is empty, gets no
-   message at all.
+   the number of event batches sent so far and the newest input the state reflects. A player with nothing to
+   receive, or whose budget is empty, gets no message at all, except a player whose newest input has moved since the
+   last buffer: it gets a buffer with only the header, which confirms the input and holds no record
+   (`ServerStats::input_confirmations_sent` counts these; they are not counted against the budget).
+   If the budget left any entity out of a player's buffer, the newest input is not confirmed in it: the buffer repeats
+   the number sent before, because the state in it is behind the inputs read (the player's own entity may be one
+   of those left out). The number moves on again with the first buffer that leaves nothing out. If that takes longer
+   than the client's history of 64 inputs, the prediction pauses and resumes with the next state.
+6. **Inputs read.** The inputs this call read are first simulated on the next tick, so the state that went out reflects
+   the inputs read by the calls before this one. The server notes, for each player, the newest input read, and the next
+   call's buffer carries it.
 
 Before `Update`, call `server.Refresh(table)` for each table, after you have written the replicated columns and
 called `table.MarkDirty(entity)`. This is the "quantize what changed" step of [replicated state](replicated-state.md).
@@ -221,10 +230,12 @@ const uint32_t sequence = client.SendInput(keys);
 - **The answer** is the input's sequence number: 1 for the first, then 2, 3, ... (after 4,294,967,295 it starts again
   at 1). It is 0, and nothing is sent, when the client is not `Connected` (before the connection is accepted, after
   it ended, or after a refusal) and when the input is larger than 16 bytes; the second case is counted in
-  `Stats().inputs_refused`. It is safe to call in any state.
+  `Stats().inputs_refused`. It is safe to call in any state. A client that predicts also applies its rule to the input
+  here (see [Prediction and reconciliation](#prediction-and-reconciliation)).
 - **Each input travels in four messages.** A message on the unreliable channel carries the new input and the up to 3 before
-  it, so a lost message is usually covered by the next one. Nothing tells the client whether the server got an input:
-  there is no confirmation in this version, and no prediction. The worst message, 4 inputs of 16 bytes, is at most 80
+  it, so a lost message is usually covered by the next one. Nothing tells the client, by itself, whether the server got
+  an input: the state buffers say which input they reflect (see
+  [Prediction and reconciliation](#prediction-and-reconciliation)). The worst message, 4 inputs of 16 bytes, is at most 80
   bytes. A burst of more than 3 lost messages loses the inputs that only those carried.
 - **The server** judges each input against what it already delivered for that player. A repeat is dropped
   (`inputs_repeated`), an input older than the newest delivered that never arrived is dropped (`inputs_old`), and a new one is
@@ -242,6 +253,60 @@ const uint32_t sequence = client.SendInput(keys);
   and their range before using them. Without a handler the server still judges and counts them (`inputs_delivered`).
 - `ServerStats` has `inputs_delivered`, `inputs_repeated`, `inputs_old` and `inputs_dropped`. The reasons for these
   choices are in [record 0017](../adr/0017-player-input.md).
+
+## Prediction and reconciliation
+
+The client can move the player's own entity at once, before the server has answered, with a movement rule the game
+writes for the client (the server has its own copy), and correct it when the state of the server arrives. The
+reasons for the choices are in [record 0018](../adr/0018-prediction-and-reconciliation.md).
+
+```cpp
+tessera::net::PredictionConfig config;
+config.entity = own_entity;                 // the entity of the player
+config.properties = {0};                    // by index in the type's schema: here its position
+config.rule = [](std::span<double> state, std::span<const uint8_t> input, double dt) {
+    // state[0], state[1], state[2] are x, y, z; change them to what one step of dt seconds with this input gives
+    state[0] += static_cast<int8_t>(input[0]) / 127.0 * 8.0 * dt;
+    return true;                            // false if the rule could not be applied
+};
+client.SetPrediction(config);               // false, with the reason, if it cannot work
+// every tick: client.SendInput(...); client.Poll(); client.AdvancePrediction(seconds_since_last_frame);
+double shown[3];
+if (client.Predicted(shown)) { /* draw the player at shown */ }
+```
+
+- **What is predicted.** One entity, the player's, and the properties the game names: a position is 3 numbers, an angle
+  1 (radians), an integer 1 and an enum 1. A bit mask cannot be predicted. `SetPrediction` refuses a configuration that
+  cannot work and says why; it is safe to call in any state, and the prediction starts when the next state buffer is
+  applied.
+- **The step.** Each `SendInput` applies the rule once, with `dt` equal to one over the tick rate of the server's hello.
+  **The game has to send one input for every tick of the server, zeros included.** A client that stops sending leaves
+  the server holding the last axes (the example server for up to half a second), and the two drift apart.
+- **Reconciliation.** When a state buffer newer than the last one used is applied, the client drops the inputs the
+  buffer says the server has used, starts from the server's state of the entity and applies the rule to the inputs that
+  are left. An older buffer is ignored for the prediction. If the entity leaves the view, or the connection ends, the
+  prediction is dropped (the configuration stays), and it starts again with the next state.
+- **The error.** The distance, over the position properties, between what was shown and the corrected state, in
+  `PredictionInfo().last_error`. A difference slides away in `smoothing_seconds` (0.1 by default, 0 to 5), moved by
+  `AdvancePrediction(seconds)`; above `snap_distance` (2 world units by default) the shown state jumps. The core reads
+  no clock.
+- **The history** holds 64 inputs (`Predictor::kHistoryCapacity`). If the server confirms none of them for that long, the
+  prediction pauses (`Prediction() == Paused`, `history_overflows` counts it) and starts again with the next state.
+- **A rule that fails** (it returns false, throws, or leaves a number that is not finite) ends the prediction
+  (`Prediction() == Failed`, `rule_failures`) until `SetPrediction` is called again. The exception does not leave the
+  client.
+- **A rule must not call back into the client.** It runs inside `SendInput` and `Poll`. While it runs, `SendInput`
+  returns 0, `Poll` and `Disconnect` do nothing, and `SetPrediction` (and the settings) are refused; `ClearPrediction`
+  and `Advance` do nothing. `RuleRunning()` says whether a rule is running. Reading values is fine.
+- **How much error to expect.** With a rule equal to the server's and one input for every tick, a correction is within
+  the quantization step of the schema on a steady network. With delays between 0 and 2 ticks it reached 0.27 m at worst.
+  On a very bad network (30% loss, 10% duplication and delays between 0 and 2 ticks) the corrected error reached about
+  0.6 m at the 95th percentile and 1.1 m at worst, covered by the slide. It comes from the server applying one step for
+  each tick with the axes of the last input it has. The way to remove it is for the game to tell the core which input it
+  applied, and that is not built yet.
+- `ClientReplica` has `SetPrediction`, `SetPredictionSettings`, `ClearPrediction`, `AdvancePrediction`, `Prediction`,
+  `PredictionInfo` (reconciliations, snaps, rule failures, history overflows, last error), `PredictionPending`,
+  `PredictedComponents`, `Predicted` and `TickRate`.
 
 A server hello that cannot work (a protocol version that is not the client's, more than 262,144 compact ids,
 a baseline age outside 1 to 255 ticks or a tick rate outside 1 to 1,000) is a protocol error and ends the
@@ -614,7 +679,7 @@ with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI wor
 
 ## Coming next
 
-The Godot extension that exposes the client, prediction and reconciliation, and priority by distance.
+Smoothing of the other players, the game telling the core which input it applied, and priority by distance.
 
 ## Example
 

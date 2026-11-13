@@ -73,6 +73,8 @@ struct ServerStats {
     /// Drop events: a new input over the per-tick limit. The same input counts again each time a later message
     /// repeats it and it is dropped again.
     uint64_t inputs_dropped = 0;
+    /// State buffers sent with nothing to say about entities, only to confirm inputs.
+    uint64_t input_confirmations_sent = 0;
 };
 
 /// Called for each new input of a player, in the order the player sent them and never twice. The bytes are
@@ -120,7 +122,8 @@ public:
         return replication_.Refresh(table);
     }
 
-    /// The network phase of one tick. `tick` must grow.
+    /// The network phase of one tick. `tick` must grow. The inputs this call reads are first simulated on the
+    /// next tick, so the state it sends reflects the inputs read by the previous calls.
     void Update(uint64_t tick);
 
     /// Players that have been accepted and have not left.
@@ -143,6 +146,8 @@ private:
         uint64_t input_tick = 0;      // the tick `inputs_this_tick` counts for
         bool input_tick_set = false;
         uint32_t inputs_this_tick = 0; // new inputs delivered for this player in `input_tick`
+        uint32_t state_input = 0;      // the newest input that the state of the next buffer reflects
+        uint32_t last_sent_input = 0;  // the one that the last buffer sent to this player carried
     };
 
     static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config,
@@ -152,6 +157,7 @@ private:
     void ProcessTransport();
     void SendEventBatches(uint64_t tick);
     void SendStateBuffers(uint64_t tick);
+    void CommitInputs();
     void HandleMessage(TransportConnection connection, Peer& peer, const TransportEvent& event);
     void HandleHello(TransportConnection connection, Peer& peer, const ClientHello& hello);
     void HandleInput(Peer& peer, const TransportEvent& event);

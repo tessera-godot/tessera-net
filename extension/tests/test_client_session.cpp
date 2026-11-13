@@ -11,6 +11,8 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -920,4 +922,440 @@ TESSERA_TEST(session_send_input_from_inside_the_poll_hook_works) {
     TESSERA_CHECK(!sequences.empty() && sequences.front() == 0); // not connected yet: nothing sent
     TESSERA_CHECK(sequences.back() != 0);                        // and once it is, the sequence comes back
     TESSERA_CHECK(session.State() == SessionState::Connected);
+}
+
+namespace {
+
+// The movement rule of the example server over named values: the same arithmetic as the server's, for the
+// "position" property. `scale` makes a rule that does not agree with the server's.
+ValueRule PlayerRule(double scale = 1.0) {
+    return [scale](std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt) {
+        if (input.size() < 2) {
+            return true;
+        }
+        if (input[0] == 99) {
+            return false; // a rule that gives up, for the tests that need one
+        }
+        double dx = std::max<int>(static_cast<int8_t>(input[0]), -127) / 127.0;
+        double dz = std::max<int>(static_cast<int8_t>(input[1]), -127) / 127.0;
+        const double length = std::sqrt(dx * dx + dz * dz);
+        if (length == 0.0) {
+            return true;
+        }
+        if (length > 1.0) {
+            dx /= length;
+            dz /= length;
+        }
+        const double speed = server::example::ExampleGame::kPlayerSpeed * scale;
+        for (NamedValue& named : state) {
+            if (named.name == "position") {
+                named.value.vec[0] = std::clamp(named.value.vec[0] + dx * speed * dt, 0.0, 200.0);
+                named.value.vec[2] = std::clamp(named.value.vec[2] + dz * speed * dt, 0.0, 200.0);
+            }
+        }
+        return true;
+    };
+}
+
+// A player of the example server: the world, a connected session and its own entity, with the prediction
+// started (zeros are sent until the first state after it arrives).
+struct Predicting {
+    server::example::ExampleGame game{0, false, true};
+    World world{game};
+    ClientSession session{world.Factory()};
+    std::vector<SessionEvent> events;
+    uint64_t own = 0;
+    bool ok = false;
+
+    explicit Predicting(ValueRule rule, PredictionSettings settings = {}, bool start = true) {
+        std::string error;
+        if (!session.Connect(PlayersSchema(), "127.0.0.1", 7777, error) ||
+            !world.Converge(session, events, 1)) {
+            return;
+        }
+        own = OwnEntity(session);
+        if (!start) {
+            ok = own != 0;
+            return;
+        }
+        ok = own != 0 && session.SetPrediction(own, {"position"}, std::move(rule), settings, error);
+        for (int i = 0; ok && i < 60 && session.Prediction().status != net::PredictionStatus::Active; ++i) {
+            Tick(0, 0);
+        }
+        ok = ok && session.Prediction().status == net::PredictionStatus::Active;
+    }
+
+    void Tick(int8_t x, int8_t z) {
+        const uint8_t bytes[2] = {static_cast<uint8_t>(x), static_cast<uint8_t>(z)};
+        session.SendInput(bytes);
+        world.Step(&session, &events);
+    }
+    std::optional<Value> Predicted() const {
+        return session.PredictedProperty(own, "position");
+    }
+    std::optional<Value> Authoritative() const {
+        return session.Property(own, "position");
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(session_set_prediction_checks_the_entity_type_and_the_names) {
+    Predicting p(PlayerRule(), {}, false);
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    // Not connected: nothing to predict on.
+    ClientSession idle(NoTransport());
+    TESSERA_CHECK(!idle.SetPrediction(p.own, {"position"}, PlayerRule(), {}, error) && !error.empty());
+    TESSERA_CHECK(idle.Prediction().status == net::PredictionStatus::Off);
+
+    error.clear();
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {"nope"}, PlayerRule(), {}, error) &&
+                  Contains(error, "nope"));
+    error.clear();
+    TESSERA_CHECK(!p.session.SetPrediction(0, {"position"}, PlayerRule(), {}, error) && !error.empty());
+    error.clear();
+    const uint64_t unknown_type = net::EntityId::Make(0, 9, 1, 0).raw();
+    TESSERA_CHECK(!p.session.SetPrediction(unknown_type, {"position"}, PlayerRule(), {}, error) &&
+                  !error.empty());
+    error.clear();
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {}, PlayerRule(), {}, error) && !error.empty());
+    error.clear();
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {"position", "position"}, PlayerRule(), {}, error) &&
+                  !error.empty());
+    error.clear();
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {"position"}, ValueRule(), {}, error) && !error.empty());
+    error.clear();
+    PredictionSettings bad;
+    bad.smoothing_seconds = 6.0;
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {"position"}, PlayerRule(), bad, error) && !error.empty());
+    bad = PredictionSettings{};
+    bad.snap_distance = 0.0;
+    TESSERA_CHECK(!p.session.SetPrediction(p.own, {"position"}, PlayerRule(), bad, error) && !error.empty());
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Off);
+
+    TESSERA_CHECK(p.session.SetPrediction(p.own, {"position", "owner"}, PlayerRule(), {}, error));
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Waiting);
+    // The settings can change while it is set, and only within their ranges.
+    PredictionSettings fine;
+    fine.smoothing_seconds = 0.5;
+    fine.snap_distance = 3.0;
+    TESSERA_CHECK(p.session.SetPredictionSettings(fine, error));
+    TESSERA_CHECK(!p.session.SetPredictionSettings(bad, error) && !error.empty());
+}
+
+TESSERA_TEST(session_predicts_with_a_value_rule_and_returns_named_values) {
+    Predicting p(PlayerRule());
+    TESSERA_CHECK(p.ok);
+    const auto before = p.Predicted();
+    TESSERA_CHECK(before.has_value() && before->kind == Value::Kind::Vector3);
+    const uint8_t east[] = {127, 0};
+    TESSERA_CHECK(p.session.SendInput(east) != 0);
+    // No `Poll` between the input and the read.
+    const auto after = p.Predicted();
+    TESSERA_CHECK(after.has_value());
+    if (before && after) {
+        const double step = server::example::ExampleGame::kPlayerSpeed / 100.0; // the world runs at 100 Hz
+        TESSERA_CHECK(Near(after->vec[0] - before->vec[0], step, 0.001));
+        TESSERA_CHECK(Near(after->vec[2], before->vec[2], 0.001));
+    }
+    // The authoritative value did not move with it.
+    const auto server_value = p.Authoritative();
+    TESSERA_CHECK(server_value.has_value() && before.has_value() && after.has_value());
+    if (server_value && after) {
+        TESSERA_CHECK(after->vec[0] > server_value->vec[0] + 0.05);
+    }
+    // The other property is read the ordinary way.
+    const auto owner = p.session.PredictedProperty(p.own, "owner");
+    TESSERA_CHECK(owner && owner->kind == Value::Kind::Int && owner->integer == p.session.ConnectionId());
+}
+
+TESSERA_TEST(session_predicted_value_before_a_rule_is_the_authoritative_one) {
+    Predicting p(PlayerRule(), {}, false);
+    TESSERA_CHECK(p.ok);
+    const auto plain = p.Authoritative();
+    const auto predicted = p.Predicted();
+    TESSERA_CHECK(plain && predicted);
+    if (plain && predicted) {
+        TESSERA_CHECK(plain->vec[0] == predicted->vec[0] && plain->vec[2] == predicted->vec[2]);
+    }
+    TESSERA_CHECK(!p.session.PredictedProperty(p.own, "nope").has_value());
+    TESSERA_CHECK(!p.session.PredictedProperty(12345, "position").has_value());
+    // While it is set but has not started, the same.
+    std::string error;
+    TESSERA_CHECK(p.session.SetPrediction(p.own, {"position"}, PlayerRule(), {}, error));
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Waiting);
+    const auto waiting = p.Predicted();
+    TESSERA_CHECK(waiting && plain && waiting->vec[0] == plain->vec[0]);
+}
+
+TESSERA_TEST(session_a_failing_value_rule_disables_prediction_once) {
+    for (const int how : {0, 1, 2}) {
+        ValueRule base = PlayerRule();
+        ValueRule rule = [how, base](std::vector<NamedValue>& state, std::span<const uint8_t> input,
+                                     double dt) {
+            if (input.size() >= 2 && input[0] == 99) {
+                if (how == 1) {
+                    throw std::runtime_error("the rule broke");
+                }
+                if (how == 2) {
+                    state[0].value.kind = Value::Kind::Int; // a value of the wrong type
+                    return true;
+                }
+            }
+            return base(state, input, dt);
+        };
+        Predicting p(rule);
+        TESSERA_CHECK(p.ok);
+        for (int i = 0; i < 5; ++i) {
+            p.Tick(99, 0); // the rule fails on these
+        }
+        const PredictionReport report = p.session.Prediction();
+        TESSERA_CHECK(report.status == net::PredictionStatus::Failed);
+        TESSERA_CHECK(!report.failure.empty());
+        TESSERA_CHECK(report.stats.rule_failures == 1);
+        // The value read is the server's again.
+        const auto predicted = p.Predicted();
+        const auto plain = p.Authoritative();
+        TESSERA_CHECK(predicted && plain && predicted->vec[0] == plain->vec[0]);
+        TESSERA_CHECK(p.session.State() == SessionState::Connected);
+        p.Tick(127, 0); // the game goes on
+        TESSERA_CHECK(p.session.Prediction().stats.rule_failures == 1);
+    }
+}
+
+TESSERA_TEST(session_prediction_follows_the_example_server) {
+    Predicting p(PlayerRule());
+    TESSERA_CHECK(p.ok);
+    const auto start = p.Authoritative();
+    double worst = 0.0;
+    for (int i = 0; i < 60; ++i) {
+        p.Tick(127, 0);
+        worst = std::max(worst, p.session.Prediction().stats.last_error);
+    }
+    TESSERA_CHECK(worst <= 0.0101);
+    for (int i = 0; i < 40; ++i) {
+        p.Tick(0, 0);
+    }
+    p.session.Advance(10.0);
+    const auto shown = p.Predicted();
+    const auto plain = p.Authoritative();
+    TESSERA_CHECK(start && shown && plain);
+    if (start && shown && plain) {
+        TESSERA_CHECK(plain->vec[0] > start->vec[0] + 3.0);
+        TESSERA_CHECK(Near(shown->vec[0], plain->vec[0], 0.0101));
+        TESSERA_CHECK(Near(shown->vec[2], plain->vec[2], 0.0101));
+    }
+    TESSERA_CHECK(p.session.Prediction().stats.snaps == 0);
+}
+
+TESSERA_TEST(session_two_sessions_predict_independently) {
+    server::example::ExampleGame game(0, false, true);
+    World world(game);
+    ClientSession a(world.Factory());
+    ClientSession b(world.Factory());
+    std::string error;
+    TESSERA_CHECK(a.Connect(PlayersSchema(), "a", 1, error) && b.Connect(PlayersSchema(), "b", 2, error));
+    bool both = false;
+    for (int i = 0; i < 200 && !both; ++i) {
+        StepBoth(world, a, b);
+        both = a.Entities().size() == 2 && b.Entities().size() == 2;
+    }
+    TESSERA_CHECK(both);
+    const uint64_t a_entity = OwnEntity(a);
+    const uint64_t b_entity = OwnEntity(b);
+    TESSERA_CHECK(a_entity != 0 && b_entity != 0 && a_entity != b_entity);
+    TESSERA_CHECK(a.SetPrediction(a_entity, {"position"}, PlayerRule(1.0), {}, error));
+    TESSERA_CHECK(b.SetPrediction(b_entity, {"position"}, PlayerRule(0.5), {}, error));
+    const uint8_t zeros[] = {0, 0};
+    for (int i = 0; i < 20; ++i) {
+        a.SendInput(zeros);
+        b.SendInput(zeros);
+        StepBoth(world, a, b);
+    }
+    TESSERA_CHECK(a.Prediction().status == net::PredictionStatus::Active);
+    TESSERA_CHECK(b.Prediction().status == net::PredictionStatus::Active);
+    const auto a_before = a.PredictedProperty(a_entity, "position");
+    const auto b_before = b.PredictedProperty(b_entity, "position");
+    const uint8_t east[] = {127, 0};
+    a.SendInput(east);
+    b.SendInput(east);
+    const auto a_after = a.PredictedProperty(a_entity, "position");
+    const auto b_after = b.PredictedProperty(b_entity, "position");
+    TESSERA_CHECK(a_before && b_before && a_after && b_after);
+    if (a_before && b_before && a_after && b_after) {
+        const double step = server::example::ExampleGame::kPlayerSpeed / 100.0;
+        TESSERA_CHECK(Near(a_after->vec[0] - a_before->vec[0], step, 0.001));
+        TESSERA_CHECK(Near(b_after->vec[0] - b_before->vec[0], step * 0.5, 0.001)); // its own rule
+    }
+    // One session's entity is plain data for the other.
+    const auto other = b.PredictedProperty(a_entity, "position");
+    const auto plain = b.Property(a_entity, "position");
+    TESSERA_CHECK(other && plain && other->vec[0] == plain->vec[0]);
+}
+
+TESSERA_TEST(session_advance_moves_the_slide) {
+    PredictionSettings slow;
+    slow.smoothing_seconds = 5.0; // a long slide, so that a few ticks of correction are still showing
+    Predicting p(PlayerRule(0.5), slow); // a rule that is wrong on purpose: half of the speed
+    TESSERA_CHECK(p.ok);
+    for (int i = 0; i < 30; ++i) {
+        p.Tick(127, 0);
+    }
+    const auto shown = p.Predicted();
+    p.session.Advance(-1.0);
+    p.session.Advance(std::nan(""));
+    const auto unchanged = p.Predicted();
+    TESSERA_CHECK(shown && unchanged && shown->vec[0] == unchanged->vec[0]);
+    p.session.Advance(100.0);
+    const auto done = p.Predicted();
+    TESSERA_CHECK(done.has_value());
+    if (shown && done) {
+        TESSERA_CHECK(std::fabs(done->vec[0] - shown->vec[0]) > 0.02); // the correction was still showing
+    }
+    // Once it has slid, the value is the corrected one: the server's state plus what is still pending.
+    const auto plain = p.Authoritative();
+    TESSERA_CHECK(plain && done && done->vec[0] >= plain->vec[0] - 0.0101);
+}
+
+TESSERA_TEST(session_clear_prediction_and_disconnect_discard_it) {
+    Predicting p(PlayerRule());
+    TESSERA_CHECK(p.ok);
+    p.Tick(127, 0);
+    const uint8_t east[] = {127, 0};
+    p.session.SendInput(east);
+    const auto predicted = p.Predicted();
+    const auto plain = p.Authoritative();
+    TESSERA_CHECK(predicted && plain && predicted->vec[0] > plain->vec[0] + 0.01);
+    p.session.ClearPrediction();
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Off);
+    const auto cleared = p.Predicted();
+    const auto plain_again = p.Authoritative();
+    TESSERA_CHECK(cleared && plain_again && cleared->vec[0] == plain_again->vec[0]);
+    p.session.ClearPrediction(); // harmless twice
+
+    std::string error;
+    TESSERA_CHECK(p.session.SetPrediction(p.own, {"position"}, PlayerRule(), {}, error));
+    for (int i = 0; i < 20; ++i) {
+        p.Tick(0, 0);
+    }
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Active);
+    p.session.Disconnect();
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Off);
+    TESSERA_CHECK(!p.session.PredictedProperty(p.own, "position").has_value());
+    p.session.Advance(1.0); // harmless
+}
+
+namespace {
+
+// A rule that calls back into the session it belongs to, which no rule may do. It only does so a few times,
+// so that a session that lets it recurse still ends.
+struct SessionCallbacks {
+    ClientSession* session = nullptr;
+    bool armed = false;
+    int calls = 0;
+    int depth = 0;
+    int deepest = 0;
+    bool running_inside = false;
+    uint32_t sent = 99;
+    bool set_prediction = true;
+    bool connect = true;
+    bool settings = true;
+    std::string set_error;
+    std::string connect_error;
+
+    ValueRule Rule(ValueRule base) {
+        return [this, base](std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt) {
+            ++depth;
+            deepest = std::max(deepest, depth);
+            if (armed && ++calls <= 3) {
+                running_inside = session->RuleRunning();
+                const uint8_t bytes[2] = {127, 0};
+                sent = session->SendInput(bytes);
+                std::vector<SessionEvent> out;
+                session->Poll(out);
+                session->Advance(1.0);
+                std::string error;
+                settings = session->SetPredictionSettings(PredictionSettings{0.5, 3.0}, error);
+                set_prediction =
+                    session->SetPrediction(1, {"position"}, ValueRule(base), PredictionSettings{}, set_error);
+                connect = session->Connect(PlayersSchema(), "127.0.0.1", 7777, connect_error);
+                session->ClearPrediction(); // would destroy the rule that is running
+                session->Disconnect();      // would destroy the connection it runs on
+            }
+            const bool result = base(state, input, dt);
+            --depth;
+            return result;
+        };
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(session_a_rule_that_calls_back_into_the_session_is_refused) {
+    SessionCallbacks back;
+    Predicting p(back.Rule(PlayerRule()));
+    TESSERA_CHECK(p.ok);
+    TESSERA_CHECK(!p.session.RuleRunning());
+    back.session = &p.session;
+    back.armed = true;
+    const uint64_t sent_before = p.session.Prediction().stats.reconciliations;
+    p.Tick(127, 0); // sends the input; the rule runs inside, and then inside a reconciliation as well
+    TESSERA_CHECK(back.calls >= 1 && back.deepest == 1);
+    TESSERA_CHECK(back.running_inside);
+    TESSERA_CHECK(back.sent == 0 && !back.set_prediction && !back.connect && !back.settings);
+    TESSERA_CHECK(!back.set_error.empty() && !back.connect_error.empty());
+    TESSERA_CHECK(p.session.State() == SessionState::Connected);
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Active);
+    TESSERA_CHECK(p.session.Prediction().stats.reconciliations >= sent_before);
+    TESSERA_CHECK(p.session.Prediction().stats.rule_failures == 0);
+    // Outside the rule everything works again, the session is the same one.
+    back.armed = false;
+    TESSERA_CHECK(p.session.SendInput(std::vector<uint8_t>{0, 0}) != 0);
+    p.session.ClearPrediction();
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Off);
+}
+
+TESSERA_TEST(session_the_failure_of_a_rule_is_taken_once) {
+    Predicting p(PlayerRule());
+    TESSERA_CHECK(p.ok);
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty()); // nothing failed
+    for (int i = 0; i < 5; ++i) {
+        p.Tick(99, 0); // the rule fails on these
+    }
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Failed);
+    const std::string first = p.session.TakeRuleFailure();
+    TESSERA_CHECK(!first.empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty()); // said once
+    p.Tick(99, 0);
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+    // A new prediction that fails again is a new failure.
+    std::string error;
+    TESSERA_CHECK(p.session.SetPrediction(p.own, {"position"}, PlayerRule(), {}, error));
+    for (int i = 0; i < 60 && p.session.Prediction().status != net::PredictionStatus::Active; ++i) {
+        p.Tick(0, 0);
+    }
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Active);
+    for (int i = 0; i < 5; ++i) {
+        p.Tick(99, 0);
+    }
+    TESSERA_CHECK(!p.session.TakeRuleFailure().empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+}
+
+TESSERA_TEST(session_a_rule_that_leaves_a_number_that_is_not_finite_still_has_a_failure_text) {
+    ValueRule base = PlayerRule();
+    ValueRule rule = [base](std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt) {
+        if (input.size() >= 2 && input[0] == 99) {
+            state[0].value.vec[0] = std::nan(""); // right type, no number
+            return true;
+        }
+        return base(state, input, dt);
+    };
+    Predicting p(rule);
+    TESSERA_CHECK(p.ok);
+    p.Tick(99, 0);
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Failed);
+    TESSERA_CHECK(!p.session.TakeRuleFailure().empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
 }

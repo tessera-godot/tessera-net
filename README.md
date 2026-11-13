@@ -15,7 +15,7 @@ Godot's built-in multiplayer sends every visible node to every client, and that 
 >
 > What works today: a C++ core, the server as a library with a small example program, replication over real sockets (ENet), and a first Godot client (a GDExtension plus a demo project). The client has been loaded into Godot 4.7.2 and run end to end on Windows and, in a container, on Linux. CI builds and tests all of it on Ubuntu and Windows.
 >
-> What doesn't exist yet: the editor plugin, prediction and reconciliation, smoothing on the client, and anything you should run in production. Follow the [roadmap](docs/roadmap.md) for progress.
+> What doesn't exist yet: the editor plugin, smoothing of the other players on the client, and anything you should run in production. Follow the [roadmap](docs/roadmap.md) for progress.
 
 **Want to see it move?** Build the extension and run the demo: [`examples/godot-client-demo`](examples/godot-client-demo/README.md).
 
@@ -38,7 +38,7 @@ This project builds the missing pieces so Godot developers can make those games:
 - **Multi-threaded replication**: spreads the work across CPU cores.
 - **A standalone dedicated server**: a lean program that does not need the Godot engine (a library plus an example, see [`server/`](server/README.md)).
 - **A Godot client**: a GDExtension to connect a Godot project to a server, read its entities and send the player's input (a first version, see [`extension/`](extension/README.md)).
-- **Prediction and reconciliation** for smooth movement under lag.
+- **Prediction and reconciliation** for smooth movement under lag: the player's own entity moves at once and is corrected by the server; the other players are not smoothed yet.
 - **Editor tools**: configure everything from the Godot editor, no networking PhD required.
 
 ![Frame rate of a Godot server using the built-in replication as the entity count grows](docs/images/baseline-godot-replication.svg)

@@ -4,6 +4,7 @@
 #include "tessera/net/entity_id.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <iterator>
 #include <stdexcept>
@@ -49,6 +50,8 @@ private:
     bool& flag_;
 };
 
+const char* const kRefusedInRule = "a prediction rule cannot call back into the client";
+
 } // namespace
 
 ClientSession::ClientSession(TransportFactory factory) : factory_(std::move(factory)) {
@@ -67,6 +70,8 @@ void ClientSession::Close() noexcept {
     }
     // The replica refers to the transport and to the schema, so they go in this order.
     replica_.reset();
+    prediction_.reset();
+    predicted_numbers_.clear();
     transport_.reset();
     schema_.reset();
     known_.clear();
@@ -75,6 +80,10 @@ void ClientSession::Close() noexcept {
 
 bool ClientSession::Connect(std::shared_ptr<const BuiltSchema> schema, const std::string& host, int port,
                             std::string& error) {
+    if (RuleRunning()) {
+        error = kRefusedInRule;
+        return false;
+    }
     Disconnect();
     if (!schema) {
         error = "a schema is needed to connect";
@@ -107,6 +116,9 @@ bool ClientSession::Connect(std::shared_ptr<const BuiltSchema> schema, const std
 }
 
 void ClientSession::Disconnect() noexcept {
+    if (RuleRunning()) {
+        return; // it would destroy the connection the rule is running on
+    }
     const bool had_connection = replica_ != nullptr;
     Close();
     if (had_connection) {
@@ -115,7 +127,7 @@ void ClientSession::Disconnect() noexcept {
 }
 
 void ClientSession::Poll(std::vector<SessionEvent>& out) {
-    if (!replica_ || polling_) {
+    if (!replica_ || polling_ || RuleRunning()) {
         return;
     }
     const FlagGuard guard(polling_);
@@ -162,6 +174,9 @@ void ClientSession::Poll(std::vector<SessionEvent>& out) {
 
 uint32_t ClientSession::SendInput(std::span<const uint8_t> bytes) noexcept {
     try {
+        if (RuleRunning()) {
+            return 0;
+        }
         return replica_ ? replica_->SendInput(bytes) : 0; // 0 as well when the client is not connected
     } catch (...) {
         return 0;
@@ -248,6 +263,264 @@ std::vector<EntityView> ClientSession::Snapshot() const {
         snapshot.push_back(std::move(view));
     }
     return snapshot;
+}
+
+// What a prediction needs besides the core's: the rule as the game gave it, the names it works on (in the
+// order of the numbers the core hands over), and why it failed, if it did.
+struct ClientSession::PredictionState {
+    struct Slot {
+        ValueKind kind;
+        uint32_t offset; // of the first number in the core's state
+    };
+
+    ValueRule rule;
+    uint64_t entity = 0;
+    std::vector<Slot> slots;
+    std::vector<NamedValue> named; // one for each slot, reused by every call of the rule
+    std::string failure;
+    bool reported = false; // `TakeRuleFailure` has handed the failure over
+
+    void Note(const std::string& reason) {
+        if (failure.empty()) {
+            failure = reason;
+        }
+    }
+
+    // The core's numbers as the value of one slot.
+    Value ValueOf(size_t index, std::span<const double> numbers) const {
+        const Slot& slot = slots[index];
+        Value value;
+        switch (slot.kind) {
+        case ValueKind::Position:
+            value.kind = Value::Kind::Vector3;
+            for (uint32_t axis = 0; axis < 3; ++axis) {
+                value.vec[axis] = numbers[slot.offset + axis];
+            }
+            break;
+        case ValueKind::Angle:
+            value.kind = Value::Kind::Float;
+            value.number = numbers[slot.offset];
+            break;
+        default:
+            value.kind = Value::Kind::Int;
+            value.integer = static_cast<int64_t>(std::llround(numbers[slot.offset]));
+            break;
+        }
+        return value;
+    }
+
+    // What the rule did to the values, back as the core's numbers. False if a value is not of its kind.
+    bool Store(std::span<double> numbers) {
+        if (named.size() != slots.size()) {
+            Note("the rule changed the list of predicted properties");
+            return false;
+        }
+        for (size_t i = 0; i < slots.size(); ++i) {
+            const Slot& slot = slots[i];
+            const Value& value = named[i].value;
+            const char* wanted = nullptr;
+            switch (slot.kind) {
+            case ValueKind::Position:
+                if (value.kind == Value::Kind::Vector3) {
+                    for (uint32_t axis = 0; axis < 3; ++axis) {
+                        numbers[slot.offset + axis] = value.vec[axis];
+                    }
+                } else {
+                    wanted = "a Vector3";
+                }
+                break;
+            case ValueKind::Angle:
+                if (value.kind == Value::Kind::Float) {
+                    numbers[slot.offset] = value.number;
+                } else {
+                    wanted = "a float";
+                }
+                break;
+            default:
+                if (value.kind == Value::Kind::Int) {
+                    numbers[slot.offset] = static_cast<double>(value.integer);
+                } else {
+                    wanted = "an int";
+                }
+                break;
+            }
+            if (wanted != nullptr) {
+                Note("the rule gave a value of the wrong type for '" + named[i].name + "' (" + wanted +
+                     " was needed)");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool Run(std::span<double> numbers, std::span<const uint8_t> input, double dt_seconds) {
+        try {
+            for (size_t i = 0; i < slots.size(); ++i) {
+                named[i].value = ValueOf(i, numbers);
+            }
+            if (!rule(named, input, dt_seconds)) {
+                Note("the rule returned false");
+                return false;
+            }
+            return Store(numbers);
+        } catch (const std::exception& exception) {
+            Note(std::string("the rule threw an exception: ") + exception.what());
+            return false;
+        } catch (...) {
+            Note("the rule threw an exception");
+            return false;
+        }
+    }
+};
+
+bool ClientSession::SetPrediction(uint64_t entity, const std::vector<std::string>& properties, ValueRule rule,
+                                  const PredictionSettings& settings, std::string& error) {
+    try {
+        if (RuleRunning()) {
+            error = kRefusedInRule;
+            return false;
+        }
+        if (!replica_) {
+            error = "there is no connection to predict on";
+            return false;
+        }
+        const net::EntityId id = net::EntityId::FromRaw(entity);
+        if (entity == 0 || id.IsNull()) {
+            error = "the entity to predict is not valid";
+            return false;
+        }
+        const std::vector<PropertyInfo>* infos = schema_->Properties(id.type());
+        if (infos == nullptr) {
+            error = "the type of that entity is not in the schema";
+            return false;
+        }
+        if (properties.empty()) {
+            error = "name at least one property to predict";
+            return false;
+        }
+        if (!rule) {
+            error = "the prediction needs a rule";
+            return false;
+        }
+        auto state = std::make_shared<PredictionState>();
+        state->rule = std::move(rule);
+        state->entity = entity;
+        net::PredictionConfig config;
+        config.entity = id;
+        config.smoothing_seconds = settings.smoothing_seconds;
+        config.snap_distance = settings.snap_distance;
+        uint32_t offset = 0;
+        for (const std::string& name : properties) {
+            size_t index = 0;
+            while (index < infos->size() && (*infos)[index].name != name) {
+                ++index;
+            }
+            if (index == infos->size()) {
+                error = "the type has no property called '" + name + "'";
+                return false;
+            }
+            const ValueKind kind = (*infos)[index].kind;
+            if (kind == ValueKind::Flag || kind == ValueKind::Mask) {
+                error = "property '" + name + "' is a flag or a mask and cannot be predicted";
+                return false;
+            }
+            config.properties.push_back(static_cast<uint32_t>(index));
+            state->slots.push_back({kind, offset});
+            state->named.push_back(NamedValue{name, Value{}});
+            offset += kind == ValueKind::Position ? 3u : 1u;
+        }
+        config.rule = [state](std::span<double> numbers, std::span<const uint8_t> input, double dt_seconds) {
+            return state->Run(numbers, input, dt_seconds);
+        };
+        if (!replica_->SetPrediction(config, &error)) {
+            return false;
+        }
+        prediction_ = std::move(state);
+        predicted_numbers_.assign(replica_->PredictedComponents(), 0.0); // so that reading does not allocate
+        return true;
+    } catch (const std::exception& exception) {
+        error = std::string("could not set the prediction: ") + exception.what();
+    } catch (...) {
+        error = "could not set the prediction";
+    }
+    return false;
+}
+
+void ClientSession::ClearPrediction() noexcept {
+    if (RuleRunning()) {
+        return;
+    }
+    if (replica_) {
+        replica_->ClearPrediction();
+    }
+    prediction_.reset();
+    predicted_numbers_.clear();
+}
+
+bool ClientSession::SetPredictionSettings(const PredictionSettings& settings, std::string& error) {
+    try {
+        if (RuleRunning()) {
+            error = kRefusedInRule;
+            return false;
+        }
+        if (!replica_) {
+            error = "nothing is being predicted";
+            return false;
+        }
+        return replica_->SetPredictionSettings(settings.smoothing_seconds, settings.snap_distance, &error);
+    } catch (...) {
+        error = "could not change the settings";
+        return false;
+    }
+}
+
+void ClientSession::Advance(double seconds) noexcept {
+    if (replica_ && !RuleRunning()) {
+        replica_->AdvancePrediction(seconds);
+    }
+}
+
+std::optional<Value> ClientSession::PredictedProperty(uint64_t entity, std::string_view name) const {
+    if (replica_ && prediction_ && entity == prediction_->entity &&
+        replica_->Prediction() == net::PredictionStatus::Active) {
+        for (size_t i = 0; i < prediction_->slots.size(); ++i) {
+            if (prediction_->named[i].name != name) {
+                continue;
+            }
+            if (predicted_numbers_.size() == replica_->PredictedComponents() &&
+                replica_->Predicted(predicted_numbers_)) {
+                return prediction_->ValueOf(i, predicted_numbers_);
+            }
+        }
+    }
+    return Property(entity, name);
+}
+
+bool ClientSession::RuleRunning() const noexcept {
+    return replica_ != nullptr && replica_->RuleRunning();
+}
+
+std::string ClientSession::TakeRuleFailure() {
+    if (replica_ && prediction_ && !prediction_->reported &&
+        replica_->Prediction() == net::PredictionStatus::Failed) {
+        prediction_->reported = true;
+        // The rule can also fail by leaving a number that is not finite, which has no text of its own.
+        return prediction_->failure.empty() ? std::string("the rule left a number that is not finite")
+                                            : prediction_->failure;
+    }
+    return {};
+}
+
+PredictionReport ClientSession::Prediction() const {
+    PredictionReport report;
+    if (replica_) {
+        report.status = replica_->Prediction();
+        report.stats = replica_->PredictionInfo();
+        if (prediction_) {
+            report.failure = prediction_->failure;
+        }
+    }
+    return report;
 }
 
 } // namespace tessera::ext

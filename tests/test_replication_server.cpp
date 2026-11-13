@@ -781,6 +781,26 @@ TESSERA_TEST(a_hello_with_protocol_version_1_is_refused_with_version_mismatch) {
     FakeClient& current = h.ConnectAndGreet();
     current.Collect();
     const std::vector<ServerHello> accepted = current.Hellos();
-    TESSERA_CHECK(accepted.size() == 1 && accepted[0].accepted && accepted[0].version == 2);
+    TESSERA_CHECK(accepted.size() == 1 && accepted[0].accepted && accepted[0].version == kProtocolVersion);
+    TESSERA_CHECK(h.server.ConnectionCount() == 1);
+}
+
+TESSERA_TEST(a_hello_with_protocol_version_2_is_refused_with_version_mismatch) {
+    ServerHarness h;
+    FakeClient& old_client = h.AddClient();
+    h.Step();
+    old_client.SendHello(2, h.schema.Hash());
+    h.Step();
+    h.Step();
+    h.Step();
+    const std::vector<ServerHello> refused = old_client.Hellos();
+    TESSERA_CHECK(refused.size() == 1 && !refused[0].accepted &&
+                  refused[0].reason == RejectReason::VersionMismatch);
+    TESSERA_CHECK(old_client.disconnected && h.server.ConnectionCount() == 0);
+
+    FakeClient& current = h.ConnectAndGreet();
+    current.Collect();
+    const std::vector<ServerHello> accepted = current.Hellos();
+    TESSERA_CHECK(accepted.size() == 1 && accepted[0].accepted && accepted[0].version == 3);
     TESSERA_CHECK(h.server.ConnectionCount() == 1);
 }

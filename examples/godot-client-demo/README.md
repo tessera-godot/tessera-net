@@ -59,12 +59,21 @@ description of the entities and the one in `main.gd` differ, the label says the 
 W, A, S and D move your sphere, the green one. The other players' spheres are orange. The white ones are the 100
 entities the server keeps walking on their own; they have no owner, so nobody controls them. The demo sends the keys 30
 times a second; the server moves your entity at up to 8 meters per second and stops it half a second after the input
-stops. There is no prediction yet: the sphere moves when the server's answer arrives, one round trip after you press a
-key.
+stops.
+
+Your sphere is predicted. `main.gd` has the movement rule of the example server written once more, in GDScript
+(`predict`), and the client applies it to your sphere as soon as you press a key, without waiting for the server. When
+the server's state arrives, the client drops the inputs the server has already used, starts again from the server's
+position and applies the rest. If the two disagree, the difference fades over about 100 milliseconds, or the sphere
+jumps if it is more than 2 meters. The label shows whether the prediction is running and the size of the last
+correction. The other players' spheres are not smoothed: they move in the steps the server's updates give them. The
+prediction needs one input for every tick of the server, zeros included, so the demo keeps sending them while no key is
+pressed.
 
 ## What has been checked
 
 Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
-error, with the connect and disconnect lines in its output; in the same kind of run, a client moves its own entity with the same input bytes and sees the
-position the server works out. Nobody has looked at it with a window yet, so how it looks on screen, and how the keys
-feel, are not confirmed.
+error, with the connect and disconnect lines in its output. In that kind of run no key is pressed, so the correction
+shown in the label stays at zero, and the sphere has not been moved with the keys. A client in a headless Godot, with
+the same rule, moves its predicted value before the server answers and ends where the server puts the entity. Nobody
+has looked at the demo with a window yet, so how it looks on screen, and how the keys feel, are not confirmed.
