@@ -550,8 +550,7 @@ with 0 after a stop, with 2 for a bad setting (the message names the key) and wi
 from starting, such as a port that is already in use. Copy `server/example/` as the starting point for your own server.
 
 **Where it has been run.** It was built and tested locally on Windows with MSVC, and in an Ubuntu 24.04 container
-with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI workflow for Ubuntu and Windows, but it
-has not run yet; Linux is claimed once that workflow shows it.
+with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI workflow that builds and tests it on Ubuntu (GCC and Clang) and Windows (MSVC), and its jobs pass.
 
 ## Known limits
 

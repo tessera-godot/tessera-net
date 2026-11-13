@@ -18,9 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   The CI workflow does not run it, because there is no Linux Godot binary we could pin and verify.
 - Presets `windows-msvc-extension-debug`, `windows-msvc-extension-release`, `linux-extension-debug` and
   `linux-extension-release`, and two jobs in the CI workflow that build the extension and run its tests on Ubuntu (GCC
-  and Clang) and Windows (MSVC). They have not run yet.
+  and Clang) and Windows (MSVC). They pass in GitHub Actions.
 - A demo project, `examples/godot-client-demo`, the guide "Using the client in Godot" and architecture decision record
-  0016 (Proposed).
+  0016.
 - The dedicated server as a library, `tessera_server` (in `server/`), built only with `-DTESSERA_BUILD_SERVER=ON`
   (off by default; with it off the build and the 495 tests are unchanged). Settings from a file and from arguments
   with clear errors, a fixed-rate tick loop (`ServerHost`) around a game that implements `IGameLogic`, a clean stop that

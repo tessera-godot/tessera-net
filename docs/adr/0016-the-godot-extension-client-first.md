@@ -1,6 +1,6 @@
 # 0016. The Godot extension: client first
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-12
 
 ## Context
@@ -81,7 +81,7 @@ once). On Linux, in a container, the code compiles with GCC 13 and Clang 18 with
 pass, the export table is clean, and the same headless test passes against the example server in a Godot 4.7.2 that we
 built from source in that container (checked with the Debug library built by each compiler; there is no window and no
 graphics in that Godot). Both checks were done locally. The continuous-integration workflow builds the extension on both
-systems and has not run yet; it does not start Godot, because we have no Godot binary for Linux that we could pin and
+systems and passes there; it does not start Godot, because we have no Godot binary for Linux that we could pin and
 verify.
 
 ## Consequences
