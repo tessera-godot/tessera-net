@@ -33,9 +33,10 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    godot --headless --path build/windows-msvc-extension-debug/extension/stage/demo --import
    ```
 
-   (Opening the folder in the Godot editor does the same.) With Godot 4.7.2 we saw the very first import of a folder
-   with a new extension end in a crash (exit code 134 on Linux, 139 on Windows) and the second one finish cleanly. We
-   have not found the cause. If the first import crashes, run the same command again.
+   (Opening the folder in the Godot editor does the same.) With Godot 4.7.2 the very first import of a folder with a
+   new extension ends in a crash (exit code 134 on Linux, 139 on Windows) after the import has finished, and the second
+   one finishes cleanly. It is not caused by this extension: an extension that only registers one empty class does the
+   same, and one that registers no class does not. If the first import crashes, run the same command again.
 
 4. Run the demo. This opens a window:
 
