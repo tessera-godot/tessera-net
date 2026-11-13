@@ -23,6 +23,24 @@ uint32_t ComponentsOf(PropertyKind kind) noexcept {
     return kind == PropertyKind::Position ? 3u : 1u;
 }
 
+constexpr const char* kRefusedInRule = "the prediction cannot be changed from inside its rule";
+
+// Marks that the rule is running for as long as it lives.
+class RuleScope {
+public:
+    explicit RuleScope(bool& flag) noexcept : flag_(flag) {
+        flag_ = true;
+    }
+    ~RuleScope() {
+        flag_ = false;
+    }
+    RuleScope(const RuleScope&) = delete;
+    RuleScope& operator=(const RuleScope&) = delete;
+
+private:
+    bool& flag_;
+};
+
 bool ValidSettings(double smoothing_seconds, double snap_distance, std::string* error) {
     if (!std::isfinite(smoothing_seconds) || smoothing_seconds < 0.0 ||
         smoothing_seconds > kMaxSmoothingSeconds) {
@@ -42,6 +60,10 @@ Predictor::Predictor(const ReplicationSchema& schema) : schema_(schema) {
 }
 
 bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
+    if (rule_running_) {
+        Describe(error, kRefusedInRule);
+        return false;
+    }
     if (config.entity.IsNull()) {
         Describe(error, "the entity to predict is not valid");
         return false;
@@ -99,6 +121,10 @@ bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
 }
 
 bool Predictor::SetSettings(double smoothing_seconds, double snap_distance, std::string* error) {
+    if (rule_running_) {
+        Describe(error, kRefusedInRule);
+        return false;
+    }
     if (status_ == PredictionStatus::Off) {
         Describe(error, "nothing is being predicted");
         return false;
@@ -112,6 +138,9 @@ bool Predictor::SetSettings(double smoothing_seconds, double snap_distance, std:
 }
 
 void Predictor::Clear() noexcept {
+    if (rule_running_) {
+        return; // it would destroy the rule that is running
+    }
     config_ = PredictionConfig{};
     slots_.clear();
     components_ = 0;
@@ -125,6 +154,9 @@ void Predictor::Clear() noexcept {
 }
 
 void Predictor::Reset() noexcept {
+    if (rule_running_) {
+        return;
+    }
     ClearState();
     if (status_ != PredictionStatus::Off && status_ != PredictionStatus::Failed) {
         status_ = PredictionStatus::Waiting;
@@ -155,6 +187,9 @@ double Predictor::SlideLeft() const noexcept {
 }
 
 void Predictor::Advance(double seconds) noexcept {
+    if (rule_running_) {
+        return;
+    }
     if (std::isfinite(seconds) && seconds > 0.0) {
         elapsed_ += seconds;
     }
@@ -169,6 +204,7 @@ void Predictor::Fail() noexcept {
 
 bool Predictor::ApplyRule(std::span<double> state, std::span<const uint8_t> input,
                           double dt_seconds) noexcept {
+    const RuleScope running(rule_running_);
     try {
         if (!config_.rule(state, input, dt_seconds)) {
             return false;
@@ -220,7 +256,7 @@ void Predictor::DropConfirmed(uint32_t confirmed_sequence) noexcept {
 }
 
 bool Predictor::Predict(uint32_t sequence, std::span<const uint8_t> input, double dt_seconds) {
-    if (status_ != PredictionStatus::Active || input.size() > kMaxInputBytes) {
+    if (rule_running_ || status_ != PredictionStatus::Active || input.size() > kMaxInputBytes) {
         return false;
     }
     if (pending_ == kHistoryCapacity) {
@@ -250,7 +286,7 @@ bool Predictor::Predict(uint32_t sequence, std::span<const uint8_t> input, doubl
 
 bool Predictor::Reconcile(uint64_t tick, const uint32_t* entity_words, uint32_t confirmed_sequence,
                           double dt_seconds) {
-    if (status_ == PredictionStatus::Off || status_ == PredictionStatus::Failed) {
+    if (rule_running_ || status_ == PredictionStatus::Off || status_ == PredictionStatus::Failed) {
         return false;
     }
     if (any_tick_ && tick <= last_tick_) {

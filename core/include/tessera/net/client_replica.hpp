@@ -54,10 +54,12 @@ public:
     /// hello carries its hash, and the server refuses a different one).
     ClientReplica(ITransport& transport, const ReplicationSchema& schema);
 
-    /// Reads what the transport has, and acts on it.
+    /// Reads what the transport has, and acts on it. Does nothing when called from inside the prediction
+    /// rule.
     void Poll();
 
     /// Leaves the server: closes the connection and forgets what the client knew. Harmless if already left.
+    /// Does nothing when called from inside the prediction rule.
     void Disconnect();
 
     ClientState State() const noexcept {
@@ -76,8 +78,8 @@ public:
     /// and the up to 3 before it, so an input that is lost is usually covered by the next message; nothing
     /// tells the client whether the server got it. What the bytes mean is up to the game; they must not be
     /// more than `kMaxInputBytes` (an empty input is fine). Returns 0 and sends nothing when the client is
-    /// not `Connected`, and, counting it in `Stats().inputs_refused`, when the input is too large. Safe to
-    /// call in any state.
+    /// not `Connected`, when called from inside the prediction rule, and, counting it in
+    /// `Stats().inputs_refused`, when the input is too large. Safe to call in any state.
     uint32_t SendInput(std::span<const uint8_t> bytes);
 
     /// The tick rate the server announced (0 before the client is connected).
@@ -98,6 +100,9 @@ public:
     /// Lets the correction of the prediction slide forward by `seconds`; call it with the time that passed.
     void AdvancePrediction(double seconds) noexcept;
     PredictionStatus Prediction() const noexcept;
+    /// True while the prediction rule is running. The rule must not call back into the client: `Poll`,
+    /// `Disconnect`, `SendInput` and the calls that change the prediction refuse to act until it returns.
+    bool RuleRunning() const noexcept;
     const PredictionStats& PredictionInfo() const noexcept;
     /// How many inputs are waiting for the server to confirm them.
     uint32_t PredictionPending() const noexcept;

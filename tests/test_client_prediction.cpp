@@ -4,8 +4,10 @@
 #include "network_test_support.hpp"
 #include "test_support.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -399,4 +401,108 @@ TESSERA_TEST(an_input_refused_for_its_size_is_not_predicted) {
     // A 16-byte input is the largest and is predicted.
     TESSERA_CHECK(s.h.client.SendInput(std::vector<uint8_t>(16, 1)) == 1);
     TESSERA_CHECK(s.seen->calls == calls + 1 && Near(s.X(), 6.0));
+}
+
+namespace {
+
+// A rule that calls back into the client it belongs to, which no rule may do. It notes how deep the rule
+// was called and what each call gave it, and only calls back a few times so that a client that lets it
+// recurse still ends.
+struct CallsBack {
+    ClientReplica* client = nullptr;
+    std::function<void(ClientReplica&)> action;
+    int calls = 0;
+    int depth = 0;
+    int deepest = 0;
+
+    PredictionRule Rule() {
+        return [this](std::span<double> state, std::span<const uint8_t> input, double) {
+            ++depth;
+            deepest = std::max(deepest, depth);
+            if (++calls <= 3 && action) {
+                action(*client);
+            }
+            state[0] += input.empty() ? 0.0 : static_cast<double>(input[0]);
+            --depth;
+            return true;
+        };
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(a_rule_that_sends_an_input_or_polls_is_refused_and_does_not_recurse) {
+    Scene s;
+    CallsBack back;
+    back.client = &s.h.client;
+    uint32_t inner_sequence = 99;
+    back.action = [&](ClientReplica& client) {
+        inner_sequence = client.SendInput(std::vector<uint8_t>{7});
+        client.Poll(); // reads nothing and applies nothing from inside the rule
+    };
+    PredictionConfig config = s.Config();
+    config.rule = back.Rule();
+    TESSERA_CHECK(s.h.client.SetPrediction(config, nullptr));
+    s.ShowEntity(5.0);
+    TESSERA_CHECK(s.h.client.SendInput(std::vector<uint8_t>{1}) == 1);
+    TESSERA_CHECK(inner_sequence == 0); // refused
+    TESSERA_CHECK(back.calls == 1 && back.deepest == 1);
+    TESSERA_CHECK(s.h.client.Stats().inputs_sent == 1 && s.h.client.PredictionPending() == 1);
+    TESSERA_CHECK(s.h.client.Prediction() == PredictionStatus::Active && Near(s.X(), 6.0));
+    // The next input is numbered 2: the refused one took no number.
+    TESSERA_CHECK(s.h.client.SendInput(std::vector<uint8_t>{1}) == 2);
+}
+
+TESSERA_TEST(a_rule_that_runs_in_a_reconciliation_cannot_send_an_input_or_poll_either) {
+    Scene s;
+    CallsBack back;
+    back.client = &s.h.client;
+    PredictionConfig config = s.Config();
+    config.rule = back.Rule();
+    TESSERA_CHECK(s.h.client.SetPrediction(config, nullptr));
+    s.ShowEntity(5.0);
+    s.Input(1);
+    s.Input(1); // two inputs wait, and the first call of the rule is behind us
+    back.calls = 0;
+    uint32_t inner_sequence = 99;
+    back.action = [&](ClientReplica& client) {
+        inner_sequence = client.SendInput(std::vector<uint8_t>{7});
+        client.Poll();
+    };
+    // The server confirms none of them (and a second state buffer waits to be read): the replay runs the rule
+    // for both, from inside the poll.
+    s.Server(5.0, 0);
+    s.source.MoveX(s.entity, 5.0f);
+    s.h.SendStateBuffer(s.tick + 1, s.batches, s.source.Write(s.tick + 1), 0);
+    s.h.Step();
+    TESSERA_CHECK(back.calls >= 2 && back.deepest == 1);
+    TESSERA_CHECK(inner_sequence == 0);
+    TESSERA_CHECK(s.h.client.Stats().inputs_sent == 2 && s.h.client.PredictionPending() == 2);
+    TESSERA_CHECK(s.h.client.Prediction() == PredictionStatus::Active);
+}
+
+TESSERA_TEST(a_rule_that_disconnects_or_changes_the_prediction_is_refused_and_it_goes_on) {
+    Scene s;
+    CallsBack back;
+    back.client = &s.h.client;
+    bool refused = true;
+    back.action = [&](ClientReplica& client) {
+        client.Disconnect();
+        refused = refused && !client.SetPrediction(PredictionConfig{}, nullptr);
+        refused = refused && !client.SetPredictionSettings(0.5, 3.0, nullptr);
+        client.AdvancePrediction(1.0);
+        client.ClearPrediction(); // would destroy the rule that is running
+    };
+    PredictionConfig config = s.Config();
+    config.rule = back.Rule();
+    TESSERA_CHECK(s.h.client.SetPrediction(config, nullptr));
+    s.ShowEntity(5.0);
+    TESSERA_CHECK(s.h.client.SendInput(std::vector<uint8_t>{1}) == 1);
+    TESSERA_CHECK(refused);
+    TESSERA_CHECK(s.h.client.State() == ClientState::Connected);
+    TESSERA_CHECK(s.h.client.Prediction() == PredictionStatus::Active);
+    TESSERA_CHECK(Near(s.X(), 6.0));
+    // Outside the rule the same calls work.
+    s.h.client.ClearPrediction();
+    TESSERA_CHECK(s.h.client.Prediction() == PredictionStatus::Off);
 }

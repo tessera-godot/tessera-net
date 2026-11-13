@@ -16,9 +16,11 @@ namespace tessera::net {
 
 /// The movement rule of the game, written once for the client (the server has its own copy). It changes
 /// `state` in place to what it becomes after one step of `dt_seconds` with `input`, and returns false if it
-/// could not. `state` holds the components of the predicted properties in the order of
-/// `PredictionConfig::properties`: a position takes 3 (x, y, z), an angle 1 (radians), an integer 1 and an
-/// enum 1.
+/// could not. The rule must not call back into the client (send an input, poll, disconnect or change the
+/// prediction): it runs in the middle of those calls, and they refuse to act while it does.
+///
+/// `state` holds the components of the predicted properties in the order of `PredictionConfig::properties`: a
+/// position takes 3 (x, y, z), an angle 1 (radians), an integer 1 and an enum 1.
 using PredictionRule =
     std::function<bool(std::span<double> state, std::span<const uint8_t> input, double dt_seconds)>;
 
@@ -113,6 +115,12 @@ public:
     uint32_t Pending() const noexcept {
         return pending_;
     }
+    /// True while the rule is running. The rule must not call back into the client or the predictor: while it
+    /// runs, every call that would change the prediction is refused (`Predict`, `Reconcile`, `Configure` and
+    /// `SetSettings` return false; `Clear`, `Reset` and `Advance` do nothing).
+    bool RuleRunning() const noexcept {
+        return rule_running_;
+    }
 
 private:
     struct Slot {
@@ -144,6 +152,7 @@ private:
     uint32_t pending_ = 0;
     bool any_tick_ = false;
     uint64_t last_tick_ = 0;
+    bool rule_running_ = false;
 };
 
 } // namespace tessera::net

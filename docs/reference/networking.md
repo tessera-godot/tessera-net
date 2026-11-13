@@ -295,6 +295,9 @@ if (client.Predicted(shown)) { /* draw the player at shown */ }
 - **A rule that fails** (it returns false, throws, or leaves a number that is not finite) ends the prediction
   (`Prediction() == Failed`, `rule_failures`) until `SetPrediction` is called again. The exception does not leave the
   client.
+- **A rule must not call back into the client.** It runs inside `SendInput` and `Poll`. While it runs, `SendInput`
+  returns 0, `Poll` and `Disconnect` do nothing, and `SetPrediction` (and the settings) are refused; `ClearPrediction`
+  and `Advance` do nothing. `RuleRunning()` says whether a rule is running. Reading values is fine.
 - **How much error to expect.** With a rule equal to the server's and one input for every tick, a correction is within
   the quantization step of the schema on a steady network. With delays between 0 and 2 ticks it reached 0.27 m at worst.
   On a very bad network (30% loss, 10% duplication and delays between 0 and 2 ticks) the corrected error reached about

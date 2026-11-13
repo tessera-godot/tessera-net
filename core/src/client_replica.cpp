@@ -18,6 +18,9 @@ ClientReplica::ClientReplica(ITransport& transport, const ReplicationSchema& sch
     : transport_(transport), schema_(schema), predictor_(schema) {}
 
 void ClientReplica::Poll() {
+    if (predictor_.RuleRunning()) {
+        return; // a rule that polls would run the rule again, in the middle of a replay
+    }
     events_.clear();
     transport_.Poll(events_);
     for (const TransportEvent& event : events_) {
@@ -51,6 +54,9 @@ void ClientReplica::Poll() {
 }
 
 void ClientReplica::Disconnect() {
+    if (predictor_.RuleRunning()) {
+        return;
+    }
     if (state_ == ClientState::Disconnected) {
         return;
     }
@@ -60,7 +66,7 @@ void ClientReplica::Disconnect() {
 }
 
 uint32_t ClientReplica::SendInput(std::span<const uint8_t> bytes) {
-    if (state_ != ClientState::Connected) {
+    if (state_ != ClientState::Connected || predictor_.RuleRunning()) {
         return 0;
     }
     if (bytes.size() > kMaxInputBytes) {
@@ -112,6 +118,10 @@ void ClientReplica::AdvancePrediction(double seconds) noexcept {
 
 PredictionStatus ClientReplica::Prediction() const noexcept {
     return predictor_.Status();
+}
+
+bool ClientReplica::RuleRunning() const noexcept {
+    return predictor_.RuleRunning();
 }
 
 const PredictionStats& ClientReplica::PredictionInfo() const noexcept {
