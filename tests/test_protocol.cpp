@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 
 #include <cstdint>
+#include <initializer_list>
 #include <random>
 #include <vector>
 
@@ -45,6 +46,51 @@ std::vector<std::vector<uint8_t>> OneOfEachMessage() {
     EncodeStateBuffer(StateBufferHeader{900, 3}, std::vector<uint8_t>{1, 2, 3, 4, 5}, messages[3]);
     Encode(Ack{900, 0xA5A5A5A5u}, messages[4]);
     return messages;
+}
+
+// An input message with one entry for each sequence number, each holding `size` bytes of `0x10 + index`.
+Input MakeInput(std::initializer_list<uint32_t> sequences, size_t size) {
+    Input input;
+    uint8_t index = 0;
+    for (const uint32_t sequence : sequences) {
+        InputEntry entry;
+        entry.sequence = sequence;
+        entry.size = static_cast<uint8_t>(size);
+        for (size_t i = 0; i < size && i < entry.bytes.size(); ++i) {
+            entry.bytes[i] = static_cast<uint8_t>(0x10 + index);
+        }
+        input.entries.push_back(entry);
+        ++index;
+    }
+    return input;
+}
+
+// A hand-written `Input` message: the sequence of the newest, the count, then for each entry (oldest first)
+// its `back`, its size and `size` bytes.
+struct RawEntry {
+    uint64_t back;
+    uint64_t size;
+};
+
+std::vector<uint8_t> RawInput(uint64_t newest, uint64_t count, const std::vector<RawEntry>& entries,
+                              bool extra_byte = false, uint64_t kind = 6) {
+    std::vector<uint8_t> bytes;
+    BitWriter writer(bytes);
+    writer.WriteBits(kind, 8);
+    writer.WriteVarUInt(newest);
+    writer.WriteVarUInt(count);
+    for (const RawEntry& entry : entries) {
+        writer.WriteVarUInt(entry.back);
+        writer.WriteVarUInt(entry.size);
+        for (uint64_t i = 0; i < entry.size; ++i) {
+            writer.WriteBits(0xAB, 8);
+        }
+    }
+    if (extra_byte) {
+        writer.WriteBits(0x55, 8);
+    }
+    writer.Finish();
+    return bytes;
 }
 
 } // namespace
@@ -110,14 +156,18 @@ TESSERA_TEST(state_buffer_payload_is_returned_unchanged_and_may_be_empty) {
 
 TESSERA_TEST(peek_kind_reads_the_first_byte_and_rejects_unknown_kinds) {
     const std::vector<std::vector<uint8_t>> messages = OneOfEachMessage();
+    std::vector<std::vector<uint8_t>> all = messages;
+    all.emplace_back();
+    Encode(MakeInput({7}, 2), all.back());
     const MessageKind expected[] = {MessageKind::ClientHello, MessageKind::ServerHello,
-                                    MessageKind::EventBatch, MessageKind::StateBuffer, MessageKind::Ack};
-    for (size_t i = 0; i < messages.size(); ++i) {
+                                    MessageKind::EventBatch,  MessageKind::StateBuffer,
+                                    MessageKind::Ack,         MessageKind::Input};
+    for (size_t i = 0; i < all.size(); ++i) {
         MessageKind kind{};
-        TESSERA_CHECK(PeekKind(messages[i], &kind) && kind == expected[i]);
+        TESSERA_CHECK(PeekKind(all[i], &kind) && kind == expected[i]);
     }
     MessageKind kind{};
-    for (const uint8_t unknown : {uint8_t{0}, uint8_t{6}, uint8_t{255}}) {
+    for (const uint8_t unknown : {uint8_t{0}, uint8_t{7}, uint8_t{255}}) {
         const std::vector<uint8_t> bytes = {unknown, 1, 2, 3};
         TESSERA_CHECK(!PeekKind(bytes, &kind));
     }
@@ -170,8 +220,10 @@ TESSERA_TEST(random_bytes_never_crash_the_decoders) {
             b = static_cast<uint8_t>(random());
         }
         if (!bytes.empty() && round % 2 == 0) {
-            bytes[0] = static_cast<uint8_t>(1 + random() % 5); // a known kind, so the body is parsed
+            bytes[0] = static_cast<uint8_t>(1 + random() % 6); // a known kind, so the body is parsed
         }
+        Input input;
+        Decode(bytes, &input);
         ClientHello hello{};
         ServerHello server{};
         EventBatch batch;
@@ -254,4 +306,181 @@ TESSERA_TEST(ack_window_with_latest_zero_and_a_full_mask_does_not_underflow) {
     TESSERA_CHECK((window.Add(Ack{0, 0xFFFFFFFFu}) == std::vector<uint64_t>{0}));
     TESSERA_CHECK((window.Add(Ack{3, 0xFFFFFFFFu}) ==
                    std::vector<uint64_t>{1, 2, 3})); // ticks 2, 1 and 0 below 3; 0 known
+}
+
+TESSERA_TEST(input_round_trips_with_one_to_four_entries) {
+    for (uint32_t n = 1; n <= 4; ++n) {
+        Input input;
+        for (uint32_t i = 0; i < n; ++i) {
+            InputEntry entry;
+            entry.sequence = 100 + i;
+            entry.size = static_cast<uint8_t>(i);
+            for (uint32_t b = 0; b < i; ++b) {
+                entry.bytes[b] = static_cast<uint8_t>(0x10 + i);
+            }
+            input.entries.push_back(entry);
+        }
+        std::vector<uint8_t> bytes;
+        Encode(input, bytes);
+        Input back;
+        TESSERA_CHECK(Decode(bytes, &back));
+        TESSERA_CHECK(back.entries.size() == n);
+        for (uint32_t i = 0; i < n && i < back.entries.size(); ++i) {
+            TESSERA_CHECK(back.entries[i].sequence == 100 + i && back.entries[i].size == i);
+            for (uint32_t b = 0; b < i && b < back.entries[i].Bytes().size(); ++b) {
+                TESSERA_CHECK(back.entries[i].Bytes()[b] == 0x10 + i);
+            }
+        }
+    }
+}
+
+TESSERA_TEST(input_round_trips_empty_and_maximum_sized_bytes) {
+    Input input = MakeInput({5, 6}, 0);
+    input.entries[1].size = static_cast<uint8_t>(kMaxInputBytes);
+    input.entries[1].bytes.fill(0xFF);
+    std::vector<uint8_t> bytes;
+    Encode(input, bytes);
+    Input back;
+    TESSERA_CHECK(Decode(bytes, &back) && back.entries.size() == 2);
+    if (back.entries.size() == 2) {
+        TESSERA_CHECK(back.entries[0].size == 0 && back.entries[0].Bytes().empty());
+        TESSERA_CHECK(back.entries[1].size == kMaxInputBytes);
+        for (const uint8_t b : back.entries[1].Bytes()) {
+            TESSERA_CHECK(b == 0xFF);
+        }
+    }
+}
+
+TESSERA_TEST(input_sequences_across_the_uint32_wrap_round_trip) {
+    const Input input = MakeInput({0xFFFFFFFEu, 0xFFFFFFFFu, 1u}, 1);
+    std::vector<uint8_t> bytes;
+    Encode(input, bytes);
+    Input back;
+    TESSERA_CHECK(Decode(bytes, &back) && back.entries.size() == 3);
+    if (back.entries.size() == 3) {
+        TESSERA_CHECK(back.entries[0].sequence == 0xFFFFFFFEu && back.entries[1].sequence == 0xFFFFFFFFu &&
+                      back.entries[2].sequence == 1u);
+    }
+}
+
+TESSERA_TEST(input_truncated_at_every_length_is_refused) {
+    const Input input = MakeInput({1000, 1001, 1002, 1003}, 16);
+    std::vector<uint8_t> bytes;
+    Encode(input, bytes);
+    for (size_t length = 0; length < bytes.size(); ++length) {
+        Input result;
+        result.entries.resize(7);
+        TESSERA_CHECK(!Decode(std::span<const uint8_t>(bytes.data(), length), &result));
+        TESSERA_CHECK(result.entries.size() == 7); // left untouched
+    }
+    Input whole;
+    TESSERA_CHECK(Decode(bytes, &whole));
+}
+
+TESSERA_TEST(input_with_a_bad_count_size_order_or_extra_bytes_is_refused) {
+    Input input;
+    TESSERA_CHECK(Decode(RawInput(10, 1, {{0, 1}}), &input)); // the shape the checks below break
+    TESSERA_CHECK(!Decode(RawInput(10, 0, {}), &input));      // no entries
+    TESSERA_CHECK(!Decode(RawInput(10, 5, {{4, 1}, {3, 1}, {2, 1}, {1, 1}, {0, 1}}), &input)); // five
+    TESSERA_CHECK(!Decode(RawInput(10, 1, {{0, 17}}), &input));                                // size 17
+    TESSERA_CHECK(!Decode(RawInput(10, 2, {{1, 1}, {1, 1}}), &input));   // back does not fall
+    TESSERA_CHECK(!Decode(RawInput(10, 2, {{1, 1}, {2, 1}}), &input));   // back rises
+    TESSERA_CHECK(!Decode(RawInput(10, 2, {{3, 1}, {2, 1}}), &input));   // the newest has back 2
+    TESSERA_CHECK(!Decode(RawInput(10, 1, {{0, 1}}, true), &input));     // a byte too many
+    TESSERA_CHECK(!Decode(RawInput(10, 1, {{0, 1}}, false, 5), &input)); // another kind
+}
+
+TESSERA_TEST(random_bytes_never_crash_the_input_decoder) {
+    std::mt19937 random(77);
+    for (int round = 0; round < 10000; ++round) {
+        std::vector<uint8_t> bytes(random() % 100);
+        for (uint8_t& b : bytes) {
+            b = static_cast<uint8_t>(random());
+        }
+        if (!bytes.empty() && round % 2 == 0) {
+            bytes[0] = 6;
+        }
+        Input input;
+        if (Decode(bytes, &input)) {
+            TESSERA_CHECK(input.entries.size() >= 1 && input.entries.size() <= kMaxInputsPerMessage);
+            for (const InputEntry& entry : input.entries) {
+                TESSERA_CHECK(entry.size <= kMaxInputBytes);
+            }
+        }
+    }
+}
+
+TESSERA_TEST(the_largest_input_message_fits_one_packet) {
+    const Input input = MakeInput({0xFFFFFFFCu, 0xFFFFFFFDu, 0xFFFFFFFEu, 0xFFFFFFFFu}, kMaxInputBytes);
+    std::vector<uint8_t> bytes;
+    Encode(input, bytes);
+    TESSERA_CHECK(bytes.size() <= 80 && bytes.size() < 1200);
+}
+
+TESSERA_TEST(encode_cuts_an_entry_size_above_the_maximum) {
+    Input input = MakeInput({3}, 4);
+    input.entries[0].size = 200;
+    std::vector<uint8_t> bytes;
+    Encode(input, bytes);
+    Input back;
+    TESSERA_CHECK(Decode(bytes, &back) && back.entries.size() == 1 && back.entries[0].size == kMaxInputBytes);
+}
+
+TESSERA_TEST(next_input_sequence_counts_up_and_skips_zero) {
+    TESSERA_CHECK(NextInputSequence(1) == 2);
+    TESSERA_CHECK(NextInputSequence(0xFFFFFFFEu) == 0xFFFFFFFFu);
+    TESSERA_CHECK(NextInputSequence(0xFFFFFFFFu) == 1);
+    TESSERA_CHECK(NextInputSequence(0) == 1);
+}
+
+TESSERA_TEST(input_window_judges_new_repeated_and_late_entries) {
+    InputWindow window;
+    TESSERA_CHECK(window.Judge(5) == InputVerdict::New);
+    window.Accept(5);
+    TESSERA_CHECK(window.Judge(5) == InputVerdict::Repeated);
+    window.Accept(8);
+    TESSERA_CHECK(window.Judge(5) == InputVerdict::Repeated);
+    TESSERA_CHECK(window.Judge(6) == InputVerdict::Late);
+    TESSERA_CHECK(window.Judge(7) == InputVerdict::Late);
+    TESSERA_CHECK(window.Judge(8) == InputVerdict::Repeated);
+    TESSERA_CHECK(window.Judge(9) == InputVerdict::New);
+}
+
+TESSERA_TEST(input_window_wraps_around_uint32) {
+    InputWindow window;
+    window.Accept(0xFFFFFFFDu);
+    window.Accept(0xFFFFFFFFu);
+    TESSERA_CHECK(window.Judge(1) == InputVerdict::New);
+    window.Accept(1);
+    TESSERA_CHECK(window.Judge(0xFFFFFFFFu) == InputVerdict::Repeated);
+    TESSERA_CHECK(window.Judge(0xFFFFFFFEu) == InputVerdict::Late);
+    TESSERA_CHECK(window.Judge(0) == InputVerdict::Late);
+    TESSERA_CHECK(window.Latest() == 1);
+}
+
+TESSERA_TEST(input_window_a_missed_entry_that_arrives_after_newer_ones_is_late) {
+    InputWindow window;
+    window.Accept(1);
+    window.Accept(2);
+    window.Accept(4);
+    TESSERA_CHECK(window.Judge(3) == InputVerdict::Late); // never delivered, and 4 is already out
+    TESSERA_CHECK(window.Judge(2) == InputVerdict::Repeated);
+    TESSERA_CHECK(window.Judge(1) == InputVerdict::Repeated);
+    window.Accept(44); // a jump of 40: 4 falls out of the 32 the window remembers
+    TESSERA_CHECK(window.Judge(4) == InputVerdict::Late);
+    TESSERA_CHECK(window.Judge(44) == InputVerdict::Repeated);
+}
+
+TESSERA_TEST(input_window_judging_does_not_change_it_until_accepted) {
+    InputWindow window;
+    TESSERA_CHECK(window.Judge(9) == InputVerdict::New);
+    TESSERA_CHECK(window.Judge(9) == InputVerdict::New);
+    TESSERA_CHECK(window.Latest() == 0);
+    window.Accept(0); // 0 is never a sequence
+    TESSERA_CHECK(window.Latest() == 0);
+    window.Accept(9);
+    window.Accept(7); // late: not new, so it changes nothing
+    TESSERA_CHECK(window.Latest() == 9 && window.Judge(7) == InputVerdict::Late);
+    window.Accept(9);
+    TESSERA_CHECK(window.Latest() == 9);
 }

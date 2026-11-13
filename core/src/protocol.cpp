@@ -37,7 +37,7 @@ bool ReadU32(BitReader& reader, uint32_t* value) {
 } // namespace
 
 bool PeekKind(std::span<const uint8_t> message, MessageKind* kind) {
-    if (message.empty() || message[0] < 1 || message[0] > 5) {
+    if (message.empty() || message[0] < 1 || message[0] > 6) {
         return false;
     }
     *kind = static_cast<MessageKind>(message[0]);
@@ -198,6 +198,92 @@ bool DecodeStateBuffer(std::span<const uint8_t> message, StateBufferHeader* head
     *header = read;
     *payload = message.subspan(static_cast<size_t>((consumed_bits + 7) / 8));
     return true;
+}
+
+void Encode(const Input& message, std::vector<uint8_t>& out) {
+    BitWriter writer(out);
+    WriteKind(writer, MessageKind::Input);
+    const InputEntry& newest = message.entries.back();
+    writer.WriteVarUInt(newest.sequence);
+    writer.WriteVarUInt(message.entries.size());
+    for (const InputEntry& entry : message.entries) {
+        const uint32_t size = std::min<uint32_t>(entry.size, kMaxInputBytes);
+        writer.WriteVarUInt(
+            static_cast<uint32_t>(newest.sequence - entry.sequence)); // how far behind the newest
+        writer.WriteVarUInt(size);
+        for (uint32_t i = 0; i < size; ++i) {
+            writer.WriteBits(entry.bytes[i], 8);
+        }
+    }
+    writer.Finish();
+}
+
+bool Decode(std::span<const uint8_t> message, Input* result) {
+    BitReader reader(message);
+    uint32_t newest = 0;
+    uint32_t count = 0;
+    if (!ReadKind(reader, MessageKind::Input) || !ReadU32(reader, &newest) || !ReadU32(reader, &count) ||
+        count < 1 || count > kMaxInputsPerMessage) {
+        return false;
+    }
+    Input input;
+    input.entries.reserve(count);
+    uint64_t previous_back = UINT64_MAX;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t back = 0;
+        uint32_t size = 0;
+        if (!ReadU32(reader, &back) || !ReadU32(reader, &size) || size > kMaxInputBytes ||
+            back >= previous_back || (i + 1 == count) != (back == 0)) {
+            return false;
+        }
+        previous_back = back;
+        InputEntry entry;
+        entry.sequence = newest - back;
+        entry.size = static_cast<uint8_t>(size);
+        for (uint32_t b = 0; b < size; ++b) {
+            entry.bytes[b] = static_cast<uint8_t>(reader.ReadBits(8));
+        }
+        input.entries.push_back(entry);
+    }
+    if (!Finished(reader)) {
+        return false;
+    }
+    *result = std::move(input);
+    return true;
+}
+
+InputVerdict InputWindow::Judge(uint32_t sequence) const noexcept {
+    if (!any_) {
+        // The first one is new whatever it is, except 0, which is never a sequence number.
+        return sequence == 0 ? InputVerdict::Repeated : InputVerdict::New;
+    }
+    const uint32_t ahead = sequence - latest_; // serial arithmetic: wraps around 2^32
+    if (ahead == 0) {
+        return InputVerdict::Repeated;
+    }
+    if (ahead < 0x80000000u) {
+        return InputVerdict::New;
+    }
+    const uint32_t behind = latest_ - sequence; // 1 or more
+    if (behind <= 32 && ((seen_ >> (behind - 1)) & 1u) != 0) {
+        return InputVerdict::Repeated;
+    }
+    return InputVerdict::Late;
+}
+
+void InputWindow::Accept(uint32_t sequence) noexcept {
+    if (Judge(sequence) != InputVerdict::New) {
+        return;
+    }
+    if (any_) {
+        const uint32_t shift = sequence - latest_;
+        seen_ = shift < 32 ? seen_ << shift : 0;
+        if (shift <= 32) {
+            seen_ |= 1u << (shift - 1); // the old newest is now `shift` behind
+        }
+    }
+    any_ = true;
+    latest_ = sequence;
 }
 
 std::vector<uint64_t> AckWindow::Add(const Ack& ack) {
