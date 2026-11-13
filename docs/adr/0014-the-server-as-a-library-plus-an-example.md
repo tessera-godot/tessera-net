@@ -66,10 +66,8 @@ to use it. A plugin system that loads the game's code from a shared library was 
   input are likely to add to it, and each change comes with its own record.
 - **Linux and the CI.** A workflow in the repository builds and tests the code on Ubuntu with GCC and with Clang and on
   Windows with MSVC, in Release and Debug, with and without ENet, with warnings as errors, and it also builds the
-  default configuration. The workflow has not run yet. What has been checked is this: the code was built and tested
-  locally on Windows with MSVC, and in an Ubuntu 24.04 container (GCC 13 and Clang 18, Release and Debug, with
-  warnings as errors) the server library, the example and their tests were built and passed. That is all that has been
-  checked; fixing what the workflow finds is part of making the claim, and until its jobs pass the documentation
-  says Windows.
+  default configuration. When this record was written the workflow had not run. It was checked locally on Windows with MSVC, and in an
+  Ubuntu 24.04 container (GCC 13 and Clang 18, Release and Debug, with warnings as errors); the workflow has passed on
+  GitHub since.
 - **More to maintain.** A build option, two test executables (the server library, and the example over ENet in
   loopback) and a script that starts the example as a process and sends it signals.

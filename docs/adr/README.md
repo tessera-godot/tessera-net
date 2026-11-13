@@ -21,4 +21,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0013](0013-enet-as-the-first-real-transport.md) | ENet as the first real transport | Accepted |
 | [0014](0014-the-server-as-a-library-plus-an-example.md) | The server as a library plus an example | Accepted |
 | [0015](0015-preparing-for-server-meshing.md) | Preparing for server meshing | Accepted |
-| [0016](0016-the-godot-extension-client-first.md) | The Godot extension: client first | Proposed |
+| [0016](0016-the-godot-extension-client-first.md) | The Godot extension: client first | Accepted |
