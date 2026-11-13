@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -333,4 +334,312 @@ TESSERA_TEST(reset_discards_the_state_but_keeps_the_configuration) {
     TESSERA_CHECK(predictor.Displayed(out) && Near(out[0], 20.0, kStep));
     predictor.Clear();
     TESSERA_CHECK(predictor.Status() == PredictionStatus::Off);
+}
+
+namespace {
+
+// A rule for the properties {position, angle}: the state is x, y, z and the angle. The first three bytes of
+// an input move x, z and the angle by that many times a scale.
+PredictionRule Scaled(double x_scale, double z_scale, double angle_scale) {
+    return [=](std::span<double> state, std::span<const uint8_t> input, double) {
+        const auto at = [&input](size_t i) { return i < input.size() ? static_cast<double>(input[i]) : 0.0; };
+        state[0] += at(0) * x_scale;
+        state[2] += at(1) * z_scale;
+        state[3] += at(2) * angle_scale;
+        return true;
+    };
+}
+
+PredictionConfig PositionAndAngle(PredictionRule rule, double smoothing, double snap = 2.0) {
+    PredictionConfig config = Config(std::move(rule), {kPosition, kAngle});
+    config.smoothing_seconds = smoothing;
+    config.snap_distance = snap;
+    return config;
+}
+
+constexpr double kDt = 1.0 / 30.0;
+
+// The player's rule moves x by half of what the server's does. The server's state after the first input is 1
+// unit further than the player's, so the error of that correction is 0.5.
+struct Slide {
+    Source source;
+    Predictor predictor;
+
+    explicit Slide(const ReplicationSchema& schema, double smoothing = 0.1, double snap = 2.0)
+        : source(schema), predictor(schema) {
+        TESSERA_CHECK(predictor.Configure(PositionAndAngle(Scaled(0.5, 0.5, 0.0), smoothing, snap), nullptr));
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(100.0, 0.0, 50.0), 0, kDt));
+    }
+    double X() const {
+        double out[4] = {};
+        TESSERA_CHECK(predictor.Displayed(out));
+        return out[0];
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(a_different_rule_gives_an_error_that_slides_to_zero_over_the_smoothing_time) {
+    const ReplicationSchema schema = MakeTestSchema();
+    {
+        Slide slide(schema);
+        TESSERA_CHECK(slide.predictor.Predict(1, std::vector<uint8_t>{1}, kDt));
+        TESSERA_CHECK(Near(slide.X(), 100.5, kStep));
+        TESSERA_CHECK(slide.predictor.Reconcile(2, slide.source.Set(101.0, 0.0, 50.0), 1, kDt));
+        TESSERA_CHECK(Near(slide.predictor.Stats().last_error, 0.5, 0.001));
+        TESSERA_CHECK(slide.predictor.Stats().reconciliations == 2 && slide.predictor.Stats().snaps == 0);
+        // What was shown does not jump: the correction starts from it.
+        TESSERA_CHECK(Near(slide.X(), 100.5, 0.002));
+        const double expected[] = {100.625, 100.75, 100.875, 101.0};
+        double previous = slide.X();
+        for (const double want : expected) {
+            slide.predictor.Advance(0.025);
+            const double now = slide.X();
+            TESSERA_CHECK(Near(now, want, 0.002));
+            TESSERA_CHECK(now >= previous - 1e-9 && now <= 101.0 + 0.002); // never past the corrected value
+            previous = now;
+        }
+        slide.predictor.Advance(0.025); // and it stays there
+        TESSERA_CHECK(Near(slide.X(), 101.0, 0.002));
+    }
+    {
+        // A correction that arrives in the middle of a slide starts from what is being shown.
+        Slide slide(schema);
+        TESSERA_CHECK(slide.predictor.Predict(1, std::vector<uint8_t>{1}, kDt));
+        TESSERA_CHECK(slide.predictor.Reconcile(2, slide.source.Set(101.0, 0.0, 50.0), 1, kDt));
+        slide.predictor.Advance(0.05); // half way: 100.75
+        TESSERA_CHECK(Near(slide.X(), 100.75, 0.002));
+        TESSERA_CHECK(slide.predictor.Predict(2, std::vector<uint8_t>{1}, kDt)); // 101.5, less what is left
+        TESSERA_CHECK(Near(slide.X(), 101.25, 0.002));
+        TESSERA_CHECK(slide.predictor.Reconcile(3, slide.source.Set(102.0, 0.0, 50.0), 2, kDt));
+        TESSERA_CHECK(Near(slide.predictor.Stats().last_error, 0.75, 0.001));
+        TESSERA_CHECK(Near(slide.X(), 101.25, 0.002)); // no jump
+        slide.predictor.Advance(0.1);
+        TESSERA_CHECK(Near(slide.X(), 102.0, 0.002));
+    }
+}
+
+TESSERA_TEST(an_error_above_the_snap_distance_is_zeroed_at_once_and_counted) {
+    const ReplicationSchema schema = MakeTestSchema();
+    struct Outcome {
+        double error;
+        uint64_t snaps;
+        double x;
+        double z;
+    };
+    const auto run = [&schema](double snap, uint8_t x_input, uint8_t z_input) {
+        Source source(schema);
+        Predictor predictor(schema);
+        TESSERA_CHECK(predictor.Configure(PositionAndAngle(Scaled(0.5, 0.5, 1.0), 0.1, snap), nullptr));
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(100.0, 0.0, 50.0), 0, kDt));
+        TESSERA_CHECK(predictor.Predict(1, std::vector<uint8_t>{x_input, z_input, 1}, kDt));
+        // The server moved x and z by the full input and did not turn at all.
+        TESSERA_CHECK(predictor.Reconcile(2, source.Set(100.0 + x_input, 0.0, 50.0 + z_input, 0.0f), 1, kDt));
+        double shown[4] = {};
+        TESSERA_CHECK(predictor.Displayed(shown));
+        return Outcome{predictor.Stats().last_error, predictor.Stats().snaps, shown[0], shown[2]};
+    };
+    // Half of (3, 4) is (1.5, 2): the error is 2.5, above 2. The angle is wrong by a whole radian, which is
+    // not a distance and does not count.
+    {
+        const Outcome far = run(2.0, 3, 4);
+        TESSERA_CHECK(Near(far.error, 2.5, 0.01));
+        TESSERA_CHECK(far.snaps == 1);
+        // Already at the corrected value.
+        TESSERA_CHECK(Near(far.x, 103.0, 0.002) && Near(far.z, 54.0, 0.002));
+    }
+    // Half of (1, 1) is (0.5, 0.5): 0.71 slides.
+    {
+        const Outcome near = run(2.0, 1, 1);
+        TESSERA_CHECK(Near(near.error, std::sqrt(0.5), 0.01));
+        TESSERA_CHECK(near.snaps == 0);
+        TESSERA_CHECK(Near(near.x, 100.5, 0.002) && Near(near.z, 50.5, 0.002)); // still where it was shown
+    }
+    // The limit itself slides; anything a little under it jumps. The error is read first, with room to spare.
+    const double measured = run(100.0, 3, 4).error;
+    TESSERA_CHECK(run(measured, 3, 4).snaps == 0);
+    TESSERA_CHECK(run(std::nextafter(measured, 0.0), 3, 4).snaps == 1);
+}
+
+TESSERA_TEST(smoothing_of_zero_seconds_corrects_at_once) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Slide slide(schema, 0.0);
+    TESSERA_CHECK(slide.predictor.Predict(1, std::vector<uint8_t>{1}, kDt));
+    TESSERA_CHECK(Near(slide.X(), 100.5, kStep));
+    TESSERA_CHECK(slide.predictor.Reconcile(2, slide.source.Set(101.0, 0.0, 50.0), 1, kDt));
+    TESSERA_CHECK(Near(slide.X(), 101.0, 0.002));
+    TESSERA_CHECK(Near(slide.predictor.Stats().last_error, 0.5, 0.001) && slide.predictor.Stats().snaps == 0);
+}
+
+TESSERA_TEST(a_slide_ends_exactly_at_the_predicted_value) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Slide slide(schema);
+    Slide twin(schema, 0.0); // the same inputs, corrected at once: the value the slide has to end at
+    for (Slide* s : {&slide, &twin}) {
+        TESSERA_CHECK(s->predictor.Predict(1, std::vector<uint8_t>{1}, kDt));
+        TESSERA_CHECK(s->predictor.Reconcile(2, s->source.Set(101.0, 0.0, 50.0), 1, kDt));
+    }
+    slide.predictor.Advance(0.04);
+    const double middle = slide.X();
+    TESSERA_CHECK(middle > 100.5 && middle < 101.0);
+    // Time that does not make sense changes nothing.
+    slide.predictor.Advance(-1.0);
+    slide.predictor.Advance(std::numeric_limits<double>::quiet_NaN());
+    slide.predictor.Advance(-std::numeric_limits<double>::infinity());
+    TESSERA_CHECK(slide.X() == middle);
+    slide.predictor.Advance(10.0);
+    TESSERA_CHECK(slide.X() == twin.X());
+    slide.predictor.Advance(1e9);
+    TESSERA_CHECK(slide.X() == twin.X());
+}
+
+TESSERA_TEST(a_full_history_pauses_jumps_and_resumes_at_the_next_reconcile) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Source source(schema);
+    Predictor predictor(schema);
+    auto seen = std::make_shared<Seen>();
+    PredictionConfig config = Config(MoveXByInput(seen));
+    config.smoothing_seconds = 0.1;
+    TESSERA_CHECK(predictor.Configure(config, nullptr));
+    TESSERA_CHECK(predictor.Reconcile(1, source.Set(10.0, 0.0, 0.0), 0, kDt));
+    for (uint32_t sequence = 1; sequence <= Predictor::kHistoryCapacity; ++sequence) {
+        TESSERA_CHECK(predictor.Predict(sequence, Byte(1), kDt));
+    }
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Active);
+    TESSERA_CHECK(predictor.Pending() == Predictor::kHistoryCapacity);
+    const size_t calls = seen->first_bytes.size();
+    // One more with nothing confirmed does not fit.
+    TESSERA_CHECK(!predictor.Predict(Predictor::kHistoryCapacity + 1, Byte(1), kDt));
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Paused);
+    TESSERA_CHECK(predictor.Stats().history_overflows == 1);
+    TESSERA_CHECK(predictor.Pending() == 0 && seen->first_bytes.size() == calls); // the rule did not run
+    double out[3] = {};
+    TESSERA_CHECK(!predictor.Displayed(out)); // the game falls back to what the server says
+    for (uint32_t i = 0; i < 1000; ++i) {
+        TESSERA_CHECK(!predictor.Predict(100 + i, Byte(1), kDt));
+        TESSERA_CHECK(predictor.Pending() <= Predictor::kHistoryCapacity);
+    }
+    TESSERA_CHECK(predictor.Stats().history_overflows == 1 && seen->first_bytes.size() == calls);
+    // The next state of the server starts it again, from that state.
+    TESSERA_CHECK(predictor.Reconcile(2, source.Set(55.0, 0.0, 0.0), 1000, kDt));
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Active && predictor.Pending() == 0);
+    TESSERA_CHECK(predictor.Displayed(out) && Near(out[0], 55.0, kStep));
+    TESSERA_CHECK(predictor.Predict(2000, Byte(2), kDt));
+    TESSERA_CHECK(predictor.Displayed(out) && Near(out[0], 57.0, kStep));
+}
+
+TESSERA_TEST(a_rule_that_returns_false_stops_the_prediction) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Source source(schema);
+    {
+        Predictor predictor(schema);
+        PredictionRule refuses = [](std::span<double>, std::span<const uint8_t>, double) { return false; };
+        TESSERA_CHECK(predictor.Configure(Config(refuses), nullptr));
+        // No inputs yet: nothing to refuse.
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+        TESSERA_CHECK(!predictor.Predict(1, Byte(1), kDt));
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed && predictor.Stats().rule_failures == 1);
+        double out[3] = {};
+        TESSERA_CHECK(!predictor.Displayed(out));
+        TESSERA_CHECK(!predictor.Predict(2, Byte(1), kDt));
+        TESSERA_CHECK(!predictor.Reconcile(2, source.Set(2.0, 0.0, 0.0), 0, kDt));
+        TESSERA_CHECK(predictor.Stats().rule_failures == 1); // counted once
+        predictor.Reset(); // a new connection does not bring it back
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed);
+        // Only configuring again does.
+        TESSERA_CHECK(predictor.Configure(Config(MoveXByInput()), nullptr));
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Waiting &&
+                      predictor.Stats().rule_failures == 0);
+    }
+    {
+        // A rule that works for the input and fails when a reconciliation applies it again.
+        Predictor predictor(schema);
+        auto calls = std::make_shared<int>(0);
+        PredictionRule second_time_fails = [calls](std::span<double> state, std::span<const uint8_t>,
+                                                   double) {
+            state[0] += 1.0;
+            return ++*calls < 2;
+        };
+        TESSERA_CHECK(predictor.Configure(Config(second_time_fails), nullptr));
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+        TESSERA_CHECK(predictor.Predict(1, Byte(1), kDt));
+        TESSERA_CHECK(!predictor.Reconcile(2, source.Set(1.0, 0.0, 0.0), 0, kDt));
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed && predictor.Stats().rule_failures == 1);
+    }
+}
+
+TESSERA_TEST(a_rule_that_throws_is_caught_and_stops_the_prediction) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Source source(schema);
+    for (const int kind : {0, 1}) {
+        Predictor predictor(schema);
+        PredictionRule throws = [kind](std::span<double>, std::span<const uint8_t>, double) -> bool {
+            if (kind == 0) {
+                throw std::runtime_error("the rule broke");
+            }
+            throw 42;
+        };
+        TESSERA_CHECK(predictor.Configure(Config(throws), nullptr));
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+        bool escaped = false;
+        try {
+            TESSERA_CHECK(!predictor.Predict(1, Byte(1), kDt));
+        } catch (...) {
+            escaped = true;
+        }
+        TESSERA_CHECK(!escaped);
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed && predictor.Stats().rule_failures == 1);
+    }
+    // And during a reconciliation.
+    Predictor predictor(schema);
+    auto calls = std::make_shared<int>(0);
+    PredictionRule later = [calls](std::span<double>, std::span<const uint8_t>, double) -> bool {
+        if (++*calls > 1) {
+            throw std::runtime_error("the rule broke");
+        }
+        return true;
+    };
+    TESSERA_CHECK(predictor.Configure(Config(later), nullptr));
+    TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+    TESSERA_CHECK(predictor.Predict(1, Byte(1), kDt));
+    bool escaped = false;
+    try {
+        TESSERA_CHECK(!predictor.Reconcile(2, source.Set(1.0, 0.0, 0.0), 0, kDt));
+    } catch (...) {
+        escaped = true;
+    }
+    TESSERA_CHECK(!escaped && predictor.Status() == PredictionStatus::Failed);
+}
+
+TESSERA_TEST(a_rule_that_leaves_a_number_that_is_not_finite_stops_the_prediction) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Source source(schema);
+    const double inf = std::numeric_limits<double>::infinity();
+    for (const double bad : {std::numeric_limits<double>::quiet_NaN(), inf, -inf}) {
+        Predictor predictor(schema);
+        PredictionRule rule = [bad](std::span<double> state, std::span<const uint8_t>, double) {
+            state[1] = bad; // the y component, not the one a test would look at first
+            return true;    // and it says all is well
+        };
+        TESSERA_CHECK(predictor.Configure(Config(rule), nullptr));
+        TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+        TESSERA_CHECK(!predictor.Predict(1, Byte(1), kDt));
+        TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed && predictor.Stats().rule_failures == 1);
+        double out[3] = {};
+        TESSERA_CHECK(!predictor.Displayed(out));
+    }
+    // The same during a reconciliation: a rule that turns bad on its second call.
+    Predictor predictor(schema);
+    auto calls = std::make_shared<int>(0);
+    PredictionRule later = [calls](std::span<double> state, std::span<const uint8_t>, double) {
+        if (++*calls > 1) {
+            state[0] = std::numeric_limits<double>::quiet_NaN();
+        }
+        return true;
+    };
+    TESSERA_CHECK(predictor.Configure(Config(later), nullptr));
+    TESSERA_CHECK(predictor.Reconcile(1, source.Set(1.0, 0.0, 0.0), 0, kDt));
+    TESSERA_CHECK(predictor.Predict(1, Byte(1), kDt));
+    TESSERA_CHECK(!predictor.Reconcile(2, source.Set(1.0, 0.0, 0.0), 0, kDt));
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed);
 }

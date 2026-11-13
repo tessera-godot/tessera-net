@@ -83,7 +83,9 @@ bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
     components_ = components;
     stats_ = PredictionStats{};
     state_.assign(components_, 0.0);
+    shift_.assign(components_, 0.0);
     work_.assign(components_, 0.0);
+    shown_.assign(components_, 0.0);
     ClearState();
     status_ = PredictionStatus::Waiting;
     return true;
@@ -95,7 +97,9 @@ void Predictor::Clear() noexcept {
     components_ = 0;
     stats_ = PredictionStats{};
     state_.clear();
+    shift_.clear();
     work_.clear();
+    shown_.clear();
     ClearState();
     status_ = PredictionStatus::Off;
 }
@@ -112,8 +116,27 @@ void Predictor::ClearState() noexcept {
     pending_ = 0;
     any_tick_ = false;
     last_tick_ = 0;
+    elapsed_ = 0.0;
     for (double& value : state_) {
         value = 0.0;
+    }
+    for (double& value : shift_) {
+        value = 0.0;
+    }
+}
+
+// The part of the last correction that has not faded yet: 1 when it begins, down to 0 (and no lower) after
+// the smoothing time.
+double Predictor::SlideLeft() const noexcept {
+    if (config_.smoothing_seconds <= 0.0) {
+        return 0.0;
+    }
+    return std::max(0.0, 1.0 - elapsed_ / config_.smoothing_seconds);
+}
+
+void Predictor::Advance(double seconds) noexcept {
+    if (std::isfinite(seconds) && seconds > 0.0) {
+        elapsed_ += seconds;
     }
 }
 
@@ -180,13 +203,18 @@ bool Predictor::Predict(uint32_t sequence, std::span<const uint8_t> input, doubl
     if (status_ != PredictionStatus::Active || input.size() > kMaxInputBytes) {
         return false;
     }
+    if (pending_ == kHistoryCapacity) {
+        // The server has not confirmed any of the inputs in so long that the history cannot hold another. The
+        // prediction is dropped, and what is shown jumps back to the server's state; it resumes with the next
+        // state that arrives.
+        ++stats_.history_overflows;
+        ClearState();
+        status_ = PredictionStatus::Paused;
+        return false;
+    }
     if (!ApplyRule(state_, input, dt_seconds)) {
         Fail();
         return false;
-    }
-    if (pending_ == kHistoryCapacity) {
-        head_ = (head_ + 1) % kHistoryCapacity; // the oldest makes room
-        --pending_;
     }
     InputEntry& entry = history_[(head_ + pending_) % kHistoryCapacity];
     entry = InputEntry{};
@@ -208,10 +236,20 @@ bool Predictor::Reconcile(uint64_t tick, const uint32_t* entity_words, uint32_t 
     any_tick_ = true;
     last_tick_ = tick;
     if (entity_words == nullptr) {
-        head_ = 0;
-        pending_ = 0;
+        // The entity has no state any more: nothing to predict from, until it comes back.
+        const uint64_t keep_tick = last_tick_;
+        ClearState();
+        any_tick_ = true;
+        last_tick_ = keep_tick;
         status_ = PredictionStatus::Waiting;
         return false;
+    }
+    const bool had_state = status_ == PredictionStatus::Active;
+    if (had_state) {
+        const double left = SlideLeft();
+        for (uint32_t i = 0; i < components_; ++i) {
+            shown_[i] = state_[i] + shift_[i] * left;
+        }
     }
     DropConfirmed(confirmed_sequence);
     ReadState(entity_words, work_);
@@ -222,6 +260,40 @@ bool Predictor::Reconcile(uint64_t tick, const uint32_t* entity_words, uint32_t 
             return false;
         }
     }
+    // How far what was shown is from the corrected state, over the positions only: an angle or a count is not
+    // a distance.
+    double error = 0.0;
+    if (had_state) {
+        double squares = 0.0;
+        for (const Slot& slot : slots_) {
+            if (slot.kind == PropertyKind::Position) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
+                    const double gap = shown_[slot.offset + axis] - work_[slot.offset + axis];
+                    squares += gap * gap;
+                }
+            }
+        }
+        error = std::sqrt(squares);
+    }
+    ++stats_.reconciliations;
+    stats_.last_error = error;
+    const bool jump = error > config_.snap_distance;
+    if (jump) {
+        ++stats_.snaps;
+    }
+    for (double& value : shift_) {
+        value = 0.0;
+    }
+    if (had_state && !jump && config_.smoothing_seconds > 0.0) {
+        for (const Slot& slot : slots_) {
+            if (slot.kind == PropertyKind::Position) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
+                    shift_[slot.offset + axis] = shown_[slot.offset + axis] - work_[slot.offset + axis];
+                }
+            }
+        }
+    }
+    elapsed_ = 0.0;
     state_.swap(work_);
     status_ = PredictionStatus::Active;
     return true;
@@ -231,8 +303,9 @@ bool Predictor::Displayed(std::span<double> out) const noexcept {
     if (status_ != PredictionStatus::Active || out.size() < components_) {
         return false;
     }
+    const double left = SlideLeft();
     for (uint32_t i = 0; i < components_; ++i) {
-        out[i] = state_[i];
+        out[i] = state_[i] + shift_[i] * left;
     }
     return true;
 }

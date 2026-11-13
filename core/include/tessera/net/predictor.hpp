@@ -86,6 +86,9 @@ public:
     bool Reconcile(uint64_t tick, const uint32_t* entity_words, uint32_t confirmed_sequence,
                    double dt_seconds);
 
+    /// Lets the correction slide forward by `seconds`. Negative or not finite time does nothing.
+    void Advance(double seconds) noexcept;
+
     PredictionStatus Status() const noexcept {
         return status_;
     }
@@ -118,6 +121,7 @@ private:
     void Fail() noexcept;
     void DropConfirmed(uint32_t confirmed_sequence) noexcept;
     void ClearState() noexcept;
+    double SlideLeft() const noexcept;
 
     const ReplicationSchema& schema_;
     PredictionConfig config_;
@@ -126,7 +130,10 @@ private:
     std::vector<Slot> slots_;
     uint32_t components_ = 0;
     std::vector<double> state_; // the predicted state
+    std::vector<double> shift_; // how far the shown state was from it when the last correction began
     std::vector<double> work_;  // scratch for a reconciliation
+    std::vector<double> shown_; // scratch: what was shown before a reconciliation
+    double elapsed_ = 0.0;      // seconds since the last correction began
     std::array<InputEntry, kHistoryCapacity> history_{}; // the oldest first, from `head_`
     uint32_t head_ = 0;
     uint32_t pending_ = 0;
