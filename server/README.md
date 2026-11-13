@@ -8,7 +8,8 @@ section "Running a server" of the [networking reference](../docs/reference/netwo
   implements (`IGameLogic`), the host that runs the tick loop and stops cleanly (`ServerHost`), and a logger with an
   optional summary line.
 - `tessera_example_server` (`example/`): a small game, entities that walk and bounce, on a real UDP port over ENet. It is
-  the model for your own `main`.
+  the model for your own `main`. Started with `--players`, it also makes one entity for each connected player and moves
+  it with the input the player sends.
 
 ## Building
 
@@ -38,6 +39,16 @@ not run yet; Linux is claimed once it shows it.
 ./build/windows-msvc-enet/server/Release/tessera_example_server.exe --config=server.cfg --log_level=debug
 ```
 
+With `--players` the example makes one more entity for each player that connects (entity type 2, with a position and the
+id of the connection that owns it), starts it near the middle of the world, and moves it with the input it receives: two
+bytes, the axis along x and the axis along z, each from -127 to 127. A value outside that range is cut, the speed is at
+most 8 meters per second, and a player that sends nothing for half a second stops. A client then has to describe type 2
+as well, or the server refuses it, because the schema does not match. Without `--players` nothing changes.
+
+```powershell
+./build/windows-msvc-enet/server/Release/tessera_example_server.exe --players
+```
+
 Stop it with Ctrl+C (SIGINT or SIGTERM on Linux). It finishes the tick in progress, hands what is pending to the network
 and exits with 0. A bad setting exits with 2 and a message that names the key; a port that is in use exits with 1.
 `--help` lists the settings.
@@ -62,5 +73,6 @@ range stop the server before it starts.
 
 Copy `example/` and change three things. Write a class that implements `IGameLogic` (`DescribeWorld` says which
 properties are replicated and who sees what, `OnStart` makes the tables and entities, `OnTick` simulates and hands the
-changes to `Refresh`). Put `context.shard_id` in the `TableConfig` of each of your tables. And keep the shape of `main`:
+changes to `Refresh`; `OnPlayerInput` receives what a client sent with `SendInput`, in order and once, and the bytes are
+not to be trusted: check their size and their range, as the example does). Put `context.shard_id` in the `TableConfig` of each of your tables. And keep the shape of `main`:
 `ResolveConfig`, a transport, a `ServerHost` around your game, `Run()`. Callbacks must not throw.

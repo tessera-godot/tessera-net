@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -71,6 +72,14 @@ public:
     uint64_t Generation() const noexcept {
         return generation_;
     }
+
+    /// Sends one input of the player and returns its sequence number (1, 2, 3, ...). Returns 0, and sends
+    /// nothing, when the session is not connected, when the input is larger than `net::kMaxInputBytes`, or if
+    /// anything goes wrong. Never throws, and may be called from anywhere, a transport callback included.
+    uint32_t SendInput(std::span<const uint8_t> bytes) noexcept;
+
+    /// The id the server gave this client, or -1 while the session is not `Connected`.
+    int64_t ConnectionId() const noexcept;
 
     /// The entities that have a state, by increasing id.
     std::vector<uint64_t> Entities() const;

@@ -5,4 +5,4 @@ larger worlds. Added as features are released.
 
 | Example | What it shows |
 |---|---|
-| [`godot-client-demo`](godot-client-demo/README.md) | A Godot project that connects to the example server and draws one sphere for each entity. |
+| [`godot-client-demo`](godot-client-demo/README.md) | A Godot project that connects to the example server, draws one sphere for each entity, and moves your own sphere with WASD. |

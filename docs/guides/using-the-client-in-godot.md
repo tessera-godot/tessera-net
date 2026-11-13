@@ -95,10 +95,16 @@ extends Node3D
 
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
+# How many times a second the input is sent, and how far the keys push (the server reads -127 to 127).
+const INPUT_RATE := 30.0
+const AXIS_MAX := 127
+const OWN_COLOR := Color(0.2, 0.85, 0.3)
+const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
 
 var client := TesseraClient.new()
 var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
+var input_clock := 0.0
 
 
 func _ready() -> void:
@@ -106,6 +112,11 @@ func _ready() -> void:
 	# the same order, and the same kind and numbers for each one.
 	var schema := TesseraSchema.new()
 	schema.add_type(1, [{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}])
+	# The players of a server started with --players: a position and the connection that owns the entity.
+	schema.add_type(2, [
+		{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0},
+		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
+	])
 	client.schema = schema
 
 	client.entity_appeared.connect(_on_entity_appeared)
@@ -125,19 +136,23 @@ func _ready() -> void:
 	_build_scene()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	# Nothing is read from the network, and no signal is sent, until poll() is called.
 	client.poll()
+	_send_input(delta)
 	for id in spheres:
 		var position = client.get_property(id, "position")
 		if position != null:
 			spheres[id].position = position
-	status.text = "%s, %d entities %s" % [_state_name(), spheres.size(), client.get_rejection()]
+	status.text = "%s, %d entities %s\nWASD moves the green sphere; it follows your input after a round trip" % [
+		_state_name(), spheres.size(), client.get_rejection()]
 ```
 
-This is the start of the [demo script](../../examples/godot-client-demo/main.gd), word for word. The rest of the file makes
-one sphere for each entity that appears, removes it when the entity goes, builds the camera and the light, and shows the
-state on screen.
+This is the start of the [demo script](../../examples/godot-client-demo/main.gd), word for word. The rest of the file sends
+the input (see [Send input](#send-input)), makes one sphere for each entity that appears, removes it when the entity goes,
+builds the camera and the light, and shows the state on screen. The second type is the one the example server makes for
+its players when it is started with `--players`; with a server that does not, the schema is refused, because it
+describes more than the server does.
 
 Call `poll()` once per frame. That is when the client reads the network, updates what it knows, and sends signals.
 The schema is copied when you call `connect_to`: changing the resource afterwards does not change a client that is
@@ -148,6 +163,8 @@ already connecting.
 | `connect_to(host, port)` | Starts connecting. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`: no valid schema, a port outside 1 to 65535, a host name that cannot be resolved, or a connection that could not be opened. A server that refuses you, or is not there, shows up later, as the state. |
 | `disconnect_from_server()` | Leaves the server. Sends no signal. Harmless if you call it twice or before connecting. |
 | `poll()` | Reads what arrived and sends the signals for it. |
+| `send_input(bytes)` | Sends one input of the player and returns its sequence number, or 0 if nothing was sent. See [Send input](#send-input). |
+| `get_connection_id()` | The id the server gave this client, or -1 while the state is not `CONNECTED`. |
 | `get_state()` | One of `TesseraClient.State.CONNECTING`, `HANDSHAKING`, `CONNECTED`, `REJECTED`, `DISCONNECTED`. A new client is `DISCONNECTED`. |
 | `get_rejection()` | Why the server said no. Empty unless the state is `REJECTED`. |
 | `get_last_error()` | The reason the last `connect_to` failed, or the last `poll()` hit a problem it could not report any other way. |
@@ -169,6 +186,50 @@ Inside a signal you may call the client again. `poll()` there does nothing. If a
 `disconnect_from_server()` or `connect_to()`, the signals that were still waiting from that read are dropped, because
 they were about the old connection.
 
+## Send input
+
+`send_input(bytes)` sends one input of the player, as a `PackedByteArray` that the game on the server defines. The
+[example server](../../server/README.md), started with `--players`, makes one entity for each connected player (type 2,
+with a `position` and an `owner`, the id of the connection that owns it) and reads two bytes from each input: the axis
+along x and the axis along z, each from -127 to 127 (a byte that GDScript sends as 0 to 255 is read as a number with a
+sign, so 129 is -127). The demo sends them 30 times a second:
+
+```gdscript
+# Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected. The
+# server reads each as a number from -127 to 127 and moves the player's entity; this demo does not predict where
+# it will be, so the sphere moves when the server's answer arrives.
+func _send_input(delta: float) -> void:
+	if client.get_state() != TesseraClient.State.CONNECTED:
+		return
+	input_clock += delta
+	if input_clock < 1.0 / INPUT_RATE:
+		return
+	input_clock = fmod(input_clock, 1.0 / INPUT_RATE)
+	var x := 0
+	var z := 0
+	if Input.is_physical_key_pressed(KEY_D):
+		x += AXIS_MAX
+	if Input.is_physical_key_pressed(KEY_A):
+		x -= AXIS_MAX
+	if Input.is_physical_key_pressed(KEY_S):
+		z += AXIS_MAX  # the camera looks toward -z, so S moves toward it
+	if Input.is_physical_key_pressed(KEY_W):
+		z -= AXIS_MAX
+	client.send_input(PackedByteArray([x & 0xFF, z & 0xFF]))
+```
+
+- **What it returns.** The sequence number of the input, 1 for the first and then 2, 3, ..., or 0 when nothing was sent:
+  the client is not `CONNECTED` (not yet, after `disconnect_from_server()`, after a refusal or after the server went
+  away), or the array has more than 16 bytes. An empty array is a valid input. It is safe in every state and from inside
+  a signal, and it never raises an error.
+- **How it travels.** Each input goes in four messages: its own and the three after it. A lost message is usually
+  covered by the next one, and nothing tells the client whether the server got an input.
+- **Which entity is yours.** `get_connection_id()` is the id the server gave the client, and the example server puts it in
+  the `owner` of the player's entity. The demo compares the two to color its own sphere.
+- **There is no prediction.** The server moves the entity and tells the client, so the sphere moves one round trip after
+  the key press. The server moves a player at up to 8 meters per second whatever the client sends, and stops it half a
+  second after the input stops.
+
 ## When something goes wrong
 
 - **The schema does not match the server's.** The state becomes `REJECTED`, the `rejected` signal fires and
@@ -182,12 +243,13 @@ they were about the old connection.
   exist can take a second or more; an IP address needs no lookup.
 - **The server is full.** The state becomes `REJECTED` and the reason says the server is full.
 - **Using the client at the wrong moment.** Every call is safe in every state: before connecting and after
-  disconnecting, `get_entities()` is empty, `get_property()` is `null`, and `poll()` does nothing.
+  disconnecting, `get_entities()` is empty, `get_property()` is `null`, `poll()` does nothing, `send_input()` returns 0
+  and `get_connection_id()` returns -1.
 
 ## What the client does not do
 
-There is no prediction or reconciliation, no smoothing between updates (an entity jumps from one received position to
-the next), no code generation and no shared schema file with the server (you write the description twice), and the
+The client sends input (see [Send input](#send-input)), but there is no prediction or reconciliation, no smoothing
+between updates (an entity jumps from one received position to the next), no code generation and no shared schema file with the server (you write the description twice), and the
 server is not a Godot node. There is no editor plugin yet.
 
 ## Limits to know about

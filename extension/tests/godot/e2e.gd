@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Runs the extension against the example server in a headless Godot. Started by run_godot_e2e.py, which gives the
-# port of a running example server, the port of a place where nothing listens and the port of a second example
-# server that the script stops when this one prints STOP_SERVER (to see what a client does when its server goes).
+# port of a running example server, the port of a place where nothing listens, the port of a second example
+# server that the script stops when this one prints STOP_SERVER (to see what a client does when its server goes)
+# and the port of a third one, started with --players, for the player input checks.
 extends SceneTree
 
 # The hash of the example server's schema (one type with a position of step 0.01 and range 2048).
@@ -18,6 +19,7 @@ const MAX_SPEED := 5.0
 var port := 0
 var dead_port := 0
 var doomed_port := 0
+var input_port := 0
 var failures := 0
 var started_ms := 0
 
@@ -30,8 +32,10 @@ func _initialize() -> void:
 			dead_port = int(argument.substr(12))
 		elif argument.begins_with("--doomed_port="):
 			doomed_port = int(argument.substr(14))
-	if port == 0 or dead_port == 0 or doomed_port == 0:
-		print("FAIL setup: --port, --dead_port and --doomed_port are needed")
+		elif argument.begins_with("--input_port="):
+			input_port = int(argument.substr(13))
+	if port == 0 or dead_port == 0 or doomed_port == 0 or input_port == 0:
+		print("FAIL setup: --port, --dead_port, --doomed_port and --input_port are needed")
 		quit(2)
 		return
 	started_ms = Time.get_ticks_msec()
@@ -64,6 +68,13 @@ func run_all() -> void:
 	check_schema_survives_duplicate_and_save()
 	await check_server_going_away_removes_entities_then_disconnects()
 	await check_works_next_to_godots_own_enet()
+	await check_send_input_outside_a_connection()
+	var player: TesseraClient = await check_input_moves_the_player_entity()
+	if player != null:
+		await check_input_stops_when_it_stops_arriving(player)
+	await check_two_connections_are_independent()
+	await check_out_of_range_and_short_input_is_cut_and_ignored()
+	await check_leaving_removes_the_player_entity()
 
 
 func ok(check: String) -> void:
@@ -509,6 +520,8 @@ func check_server_going_away_removes_entities_then_disconnects() -> void:
 		every_one = every_one and removed.has(id)
 	expect(name, every_one, "some entity was not reported as removed")
 	expect(name, client.get_entities().size() == 0, "the client still has entities")
+	expect(name, client.send_input(PackedByteArray([1, 2])) == 0, "send_input answered something after the server went away")
+	expect(name, client.get_connection_id() == -1, "a connection id after the server went away")
 	finish(name, before)
 
 
@@ -545,4 +558,261 @@ func check_works_next_to_godots_own_enet() -> void:
 	listener.destroy()
 	visitor.destroy()
 	client.disconnect_from_server()
+	finish(name, before)
+
+
+# ---- Player input ---------------------------------------------------------------------------------------------
+# The third example server runs with --players: it makes one entity for each connected player (type 2, with a
+# position and the owner's connection id) and moves it with the two input bytes it gets (the axes along x and z,
+# -127 to 127). It moves at 8 m/s at the most and stops half a second after the last input. A player starts at
+# (100 + 2 * (id % 16), 100).
+
+func make_player_schema() -> TesseraSchema:
+	var schema := TesseraSchema.new()
+	schema.add_type(1, [{"name": "position", "kind": "position", "step": STEP, "range": 2048.0}])
+	schema.add_type(2, [
+		{"name": "position", "kind": "position", "step": STEP, "range": 2048.0},
+		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
+	])
+	return schema
+
+
+func make_player_client() -> TesseraClient:
+	var client := TesseraClient.new()
+	client.schema = make_player_schema()
+	return client
+
+
+# The entity of the player this client is (the one whose owner is the client's connection id), or -1.
+func find_own_entity(client: TesseraClient) -> int:
+	return find_entity_of(client, client.get_connection_id())
+
+
+# The entity of the player with this connection id, or -1.
+func find_entity_of(client: TesseraClient, connection_id: int) -> int:
+	if connection_id < 0:
+		return -1
+	for id in client.get_entities():
+		var owner = client.get_property(id, "owner")
+		if owner != null and owner == connection_id:
+			return id
+	return -1
+
+
+# Connects a new client to the player server and waits until it is connected and holds its own entity.
+func join_as_player() -> TesseraClient:
+	var client := make_player_client()
+	if not expect("join_as_player", client.connect_to("127.0.0.1", input_port) == OK, "connect_to failed: " + client.get_last_error()):
+		return null
+	var ready: bool = await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED and find_own_entity(client) != -1, 10.0)
+	if not expect("join_as_player", ready, "state %d, own entity %d" % [client.get_state(), find_own_entity(client)]):
+		return null
+	return client
+
+
+func spawn_of(connection_id: int) -> Vector3:
+	return Vector3(100.0 + 2.0 * (connection_id % 16), 0.0, 100.0)
+
+
+func position_of(client: TesseraClient, entity: int) -> Vector3:
+	var position = client.get_property(entity, "position")
+	return position if position is Vector3 else Vector3(INF, INF, INF)
+
+
+# Sends the same input once every 8 ms for `seconds`, reading the clients meanwhile, and checks that the
+# sequence numbers counted 1, 2, 3, ... without a gap.
+func drive(clients: Array, inputs: Array, seconds: float, check: String) -> void:
+	var last := []
+	for _client in clients:
+		last.append(0)
+	var deadline := Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < deadline:
+		for index in clients.size():
+			var sequence: int = clients[index].send_input(inputs[index])
+			if sequence != last[index] + 1 and last[index] != 0:
+				fail(check, "the sequence went from %d to %d" % [last[index], sequence])
+			if sequence == 0:
+				fail(check, "send_input returned 0 on a connected client")
+			last[index] = sequence
+			clients[index].poll()
+		OS.delay_msec(8)
+		await process_frame
+
+
+func check_send_input_outside_a_connection() -> void:
+	var name := "send_input_outside_a_connection"
+	var before := failures
+	var client := make_player_client()
+	for _pass in 3:
+		expect(name, client.send_input(PackedByteArray()) == 0, "an empty input before connecting")
+		expect(name, client.send_input(PackedByteArray([1, 2])) == 0, "an input before connecting")
+		expect(name, client.get_connection_id() == -1, "a connection id before connecting")
+		client.poll()
+	# A connected client: the answer is a sequence number, also from inside a signal; after leaving it is 0 again.
+	var connected := make_client()
+	var inside := {"sequence": -1}
+	connected.connected.connect(func(): inside["sequence"] = connected.send_input(PackedByteArray([1, 2])))
+	expect(name, connected.connect_to("127.0.0.1", port) == OK, "connect_to failed: " + connected.get_last_error())
+	var arrived: bool = await pump([connected], func(): return connected.get_state() == TesseraClient.State.CONNECTED, 10.0)
+	expect(name, arrived, "the client did not connect")
+	expect(name, inside["sequence"] == 1, "send_input from inside the connected signal answered %d" % inside["sequence"])
+	expect(name, connected.get_connection_id() >= 0, "no connection id once connected")
+	expect(name, connected.send_input(PackedByteArray([3, 4])) == 2, "the second input is not number 2")
+	connected.disconnect_from_server()
+	expect(name, connected.send_input(PackedByteArray([1, 2])) == 0, "an input after disconnect_from_server")
+	expect(name, connected.get_connection_id() == -1, "a connection id after disconnect_from_server")
+	# A client that was refused.
+	var refused := make_client(0.02)
+	refused.connect_to("127.0.0.1", port)
+	var rejected: bool = await pump([refused], func(): return refused.get_state() == TesseraClient.State.REJECTED, 10.0)
+	expect(name, rejected, "the client was not rejected")
+	expect(name, refused.send_input(PackedByteArray([1, 2])) == 0, "an input after being rejected")
+	expect(name, refused.get_connection_id() == -1, "a connection id after being rejected")
+	finish(name, before)
+
+
+# Returns the client, still connected, for the next check.
+func check_input_moves_the_player_entity() -> TesseraClient:
+	var name := "input_moves_the_player_entity"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return null
+	var own := find_own_entity(client)
+	var start := position_of(client, own)
+	var spawn := spawn_of(client.get_connection_id())
+	expect(name, absf(start.x - spawn.x) <= 0.02 and absf(start.z - spawn.z) <= 0.02, "the player starts at %s, not at %s" % [str(start), str(spawn)])
+	var started := Time.get_ticks_msec()
+	var last := 0
+	var moved := false
+	while Time.get_ticks_msec() - started < 6000:
+		var sequence := client.send_input(PackedByteArray([127, 0]))
+		expect(name, sequence == last + 1, "the sequence went from %d to %d" % [last, sequence])
+		last = sequence
+		client.poll()
+		OS.delay_msec(8)
+		await process_frame
+		if position_of(client, own).x >= start.x + 3.0:
+			moved = true
+			break
+	var elapsed := (Time.get_ticks_msec() - started) / 1000.0
+	var end := position_of(client, own)
+	expect(name, moved, "the player did not move 3 m in 6 s (it is at %s)" % str(end))
+	expect(name, absf(end.z - start.z) <= 0.05, "z changed by %f" % (end.z - start.z))
+	expect(name, end.x - start.x <= 8.0 * elapsed + 1.0, "it moved %f m in %f s, faster than 8 m/s" % [end.x - start.x, elapsed])
+	finish(name, before)
+	return client
+
+
+func check_input_stops_when_it_stops_arriving(client: TesseraClient) -> void:
+	var name := "input_stops_when_it_stops_arriving"
+	var before := failures
+	var own := find_own_entity(client)
+	await pump([client], func(): return false, 1.0)
+	var stopped := position_of(client, own)
+	await pump([client], func(): return false, 0.5)
+	var later := position_of(client, own)
+	expect(name, stopped.distance_to(later) <= 0.02, "the player kept moving: %s then %s" % [str(stopped), str(later)])
+	expect(name, client.get_state() == TesseraClient.State.CONNECTED, "the client is no longer connected")
+	finish(name, before)
+	client.disconnect_from_server()
+
+
+func check_two_connections_are_independent() -> void:
+	var name := "two_connections_are_independent"
+	var before := failures
+	var a: TesseraClient = await join_as_player()
+	var b: TesseraClient = await join_as_player()
+	if a == null or b == null:
+		fail(name, "could not join the player server twice")
+		return
+	var a_id := a.get_connection_id()
+	var b_id := b.get_connection_id()
+	expect(name, a_id != b_id, "both clients have connection id %d" % a_id)
+	var both_see_both: bool = await pump([a, b], func(): return find_entity_of(a, b_id) != -1 and find_entity_of(b, a_id) != -1, 10.0)
+	expect(name, both_see_both, "each client does not see the other's player")
+	var a_start := position_of(a, find_own_entity(a))
+	var b_start := position_of(b, find_own_entity(b))
+	await drive([a, b], [PackedByteArray([127, 0]), PackedByteArray([0, 127])], 1.5, name)
+	await pump([a, b], func(): return false, 1.5) # both stop, and the last positions arrive
+	var a_end := position_of(a, find_own_entity(a))
+	var b_end := position_of(b, find_own_entity(b))
+	expect(name, a_end.x - a_start.x > 2.0, "A did not move along x: %s to %s" % [str(a_start), str(a_end)])
+	expect(name, b_end.z - b_start.z > 2.0, "B did not move along z: %s to %s" % [str(b_start), str(b_end)])
+	expect(name, absf(a_end.z - a_start.z) <= 0.05, "A's z changed because of B: %s to %s" % [str(a_start), str(a_end)])
+	expect(name, absf(b_end.x - b_start.x) <= 0.05, "B's x changed because of A: %s to %s" % [str(b_start), str(b_end)])
+	var a_seen_by_b := position_of(b, find_entity_of(b, a_id))
+	var b_seen_by_a := position_of(a, find_entity_of(a, b_id))
+	expect(name, a_end.distance_to(a_seen_by_b) <= 0.5, "B sees A at %s, A is at %s" % [str(a_seen_by_b), str(a_end)])
+	expect(name, b_end.distance_to(b_seen_by_a) <= 0.5, "A sees B at %s, B is at %s" % [str(b_seen_by_a), str(b_end)])
+	a.disconnect_from_server()
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+func check_out_of_range_and_short_input_is_cut_and_ignored() -> void:
+	var name := "out_of_range_and_short_input_is_cut_and_ignored"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var own := find_own_entity(client)
+	# The byte 128 is -128 to the server. Whatever the server does with it, the player must walk along -x and
+	# no faster than the speed limit. (That -128 itself is clipped is pinned by the C++ test
+	# an_axis_outside_minus_127_to_127_is_clipped; the speed cap here would hold either way.)
+	var start := position_of(client, own)
+	var started := Time.get_ticks_msec()
+	await drive([client], [PackedByteArray([128, 0])], 1.0, name)
+	await pump([client], func(): return false, 0.3)
+	var elapsed := (Time.get_ticks_msec() - started) / 1000.0
+	var end := position_of(client, own)
+	expect(name, start.x - end.x > 2.0, "128 did not move the player along -x: %s to %s" % [str(start), str(end)])
+	expect(name, start.x - end.x <= 8.0 * elapsed + 1.0, "128 moved the player %f m in %f s" % [start.x - end.x, elapsed])
+	# Both axes at full: the diagonal is no faster than a straight line.
+	await pump([client], func(): return false, 1.0)
+	start = position_of(client, own)
+	started = Time.get_ticks_msec()
+	await drive([client], [PackedByteArray([127, 127])], 1.0, name)
+	await pump([client], func(): return false, 0.3)
+	elapsed = (Time.get_ticks_msec() - started) / 1000.0
+	end = position_of(client, own)
+	var plane := Vector2(end.x - start.x, end.z - start.z)
+	expect(name, plane.x > 1.0 and plane.y > 1.0, "the diagonal did not move the player along both axes: %s" % str(plane))
+	expect(name, plane.length() <= 8.0 * elapsed + 1.0, "the diagonal moved the player %f m in %f s" % [plane.length(), elapsed])
+	# An input of one byte is ignored.
+	await pump([client], func(): return false, 1.0)
+	start = position_of(client, own)
+	await drive([client], [PackedByteArray([127])], 1.0, name)
+	await pump([client], func(): return false, 0.3)
+	end = position_of(client, own)
+	expect(name, start.distance_to(end) <= 0.02, "an input of one byte moved the player: %s to %s" % [str(start), str(end)])
+	# An input larger than 16 bytes is refused on this side.
+	var too_big := PackedByteArray()
+	too_big.resize(17)
+	expect(name, client.send_input(too_big) == 0, "an input of 17 bytes was sent")
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_leaving_removes_the_player_entity() -> void:
+	var name := "leaving_removes_the_player_entity"
+	var before := failures
+	var a: TesseraClient = await join_as_player()
+	var b: TesseraClient = await join_as_player()
+	if a == null or b == null:
+		fail(name, "could not join the player server twice")
+		return
+	var removed := {}
+	b.entity_removed.connect(func(id): removed[id] = true)
+	var a_id := a.get_connection_id()
+	var seen: bool = await pump([a, b], func(): return find_entity_of(b, a_id) != -1, 10.0)
+	expect(name, seen, "B does not see A's player")
+	var a_entity := find_entity_of(b, a_id)
+	a.disconnect_from_server()
+	var told: bool = await pump([b], func(): return removed.has(a_entity), 3.0)
+	expect(name, told, "B was not told that A's player is gone")
+	expect(name, find_entity_of(b, a_id) == -1, "B still has A's player")
+	b.disconnect_from_server()
 	finish(name, before)

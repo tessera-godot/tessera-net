@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +34,9 @@ struct ServerConfig {
     uint32_t max_baseline_age_ticks = 32;
     /// Recent sends remembered per entity and player (1 to 255); see `ReplicationConfig`.
     uint32_t max_unconfirmed_sends = 8;
+    /// Most new inputs handed to the game per player in one Update, 1 to 64; the rest are dropped and
+    /// counted.
+    uint32_t max_inputs_per_tick = 8;
     /// What one player may be sent: an average of `rate_kbps` kilobits per second (0 means no limit) and,
     /// over any 10 seconds, at most `peak_kbps` (at least the rate). A buffer is never larger than
     /// `max_buffer_bytes`, 64 to 65,535; the default fits one packet of the usual 1,200 bytes.
@@ -63,7 +67,18 @@ struct ServerStats {
     uint64_t messages_ignored = 0;   ///< Readable messages that make no sense at that point.
     uint64_t state_buffers_sent = 0;
     uint64_t event_batches_sent = 0;
+    uint64_t inputs_delivered = 0; ///< Inputs handed to the game.
+    uint64_t inputs_repeated = 0;  ///< Inputs that had already been delivered (the repeats a client sends).
+    uint64_t inputs_old = 0;     ///< Inputs older than the newest delivered, and never delivered themselves.
+    /// Drop events: a new input over the per-tick limit. The same input counts again each time a later message
+    /// repeats it and it is dropped again.
+    uint64_t inputs_dropped = 0;
 };
+
+/// Called for each new input of a player, in the order the player sent them and never twice. The bytes are
+/// only valid during the call.
+using InputHandler =
+    std::function<void(ConnectionId player, uint32_t sequence, std::span<const uint8_t> bytes)>;
 
 /// The server's side of the network phase of a tick: it reads the transport (greetings, confirmations,
 /// disconnections), runs the relevancy engine, sends each player the visibility events and the state buffer,
@@ -88,6 +103,10 @@ public:
     /// `Replication().Connection(other)` does not yet show them.
     void SetCallbacks(std::function<void(ConnectionId)> on_connected,
                       std::function<void(ConnectionId)> on_disconnected);
+
+    /// Where the inputs of the players go, called from `Update` while the transport is being read. Without a
+    /// handler the server still judges and counts the inputs.
+    void SetInputHandler(InputHandler handler);
 
     RelevancyEngine& Relevancy() noexcept {
         return relevancy_;
@@ -120,6 +139,10 @@ private:
         AckWindow acks;               // the ticks this player has confirmed
         bool sent_state = false;      // a state buffer has gone to this player
         uint64_t last_state_tick = 0; // the tick of the newest one: an ack beyond it is not believed
+        InputWindow inputs;           // which inputs of this player were delivered
+        uint64_t input_tick = 0;      // the tick `inputs_this_tick` counts for
+        bool input_tick_set = false;
+        uint32_t inputs_this_tick = 0; // new inputs delivered for this player in `input_tick`
     };
 
     static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config,
@@ -131,6 +154,7 @@ private:
     void SendStateBuffers(uint64_t tick);
     void HandleMessage(TransportConnection connection, Peer& peer, const TransportEvent& event);
     void HandleHello(TransportConnection connection, Peer& peer, const ClientHello& hello);
+    void HandleInput(Peer& peer, const TransportEvent& event);
     void Reject(TransportConnection connection, RejectReason reason);
     void Fail(TransportConnection connection);
     void RemovePeer(TransportConnection connection);
@@ -146,6 +170,7 @@ private:
     uint64_t now_tick_ = 0; // the tick `Update` is running, for measuring how long a confirmation took
     std::function<void(ConnectionId)> on_connected_;
     std::function<void(ConnectionId)> on_disconnected_;
+    InputHandler on_input_;
     ServerStats stats_;
     std::vector<TransportEvent> events_; // scratch
 };

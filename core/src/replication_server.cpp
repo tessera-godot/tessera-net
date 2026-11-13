@@ -66,6 +66,9 @@ RelevancyConfig ReplicationServer::PrepareRelevancy(RelevancyConfig relevancy, c
         throw std::invalid_argument(
             "ServerConfig::initial_resend_ticks must be from min_resend_ticks to max_resend_ticks");
     }
+    if (config.max_inputs_per_tick == 0 || config.max_inputs_per_tick > 64) {
+        throw std::invalid_argument("ServerConfig::max_inputs_per_tick must be 1 to 64");
+    }
     for (const uint8_t weight : config.type_weight) {
         if (weight == 0) {
             throw std::invalid_argument("ServerConfig::type_weight must be 1 to 255 for every type");
@@ -105,6 +108,10 @@ void ReplicationServer::SetCallbacks(std::function<void(ConnectionId)> on_connec
                                      std::function<void(ConnectionId)> on_disconnected) {
     on_connected_ = std::move(on_connected);
     on_disconnected_ = std::move(on_disconnected);
+}
+
+void ReplicationServer::SetInputHandler(InputHandler handler) {
+    on_input_ = std::move(handler);
 }
 
 void ReplicationServer::Update(uint64_t tick) {
@@ -211,11 +218,12 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
         }
         return;
     }
-    // Hellos come on the reliable channel, confirmations on the unreliable one; the server never receives the
-    // others.
+    // Hellos come on the reliable channel, confirmations and inputs on the unreliable one; the server never
+    // receives the others.
     const bool right_channel =
         (kind == MessageKind::ClientHello && event.channel == Channel::ReliableOrdered) ||
-        (kind == MessageKind::Ack && event.channel == Channel::Unreliable);
+        (kind == MessageKind::Ack && event.channel == Channel::Unreliable) ||
+        (kind == MessageKind::Input && event.channel == Channel::Unreliable);
     if (!right_channel) {
         if (event.channel == Channel::ReliableOrdered) {
             Fail(connection);
@@ -235,6 +243,10 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
             return;
         }
         HandleHello(connection, peer, hello);
+        return;
+    }
+    if (kind == MessageKind::Input) {
+        HandleInput(peer, event);
         return;
     }
     // An Ack.
@@ -266,6 +278,48 @@ void ReplicationServer::HandleMessage(TransportConnection connection, Peer& peer
         const uint64_t waited = now_tick_ - ack.latest_tick; // huge if the ticks went backwards; cut below
         replication_.NoteRoundTrip(
             peer.id, static_cast<uint32_t>(std::min<uint64_t>(waited, config_.max_resend_ticks)));
+    }
+}
+
+void ReplicationServer::HandleInput(Peer& peer, const TransportEvent& event) {
+    Input input;
+    if (!Decode(event.data, &input)) {
+        ++stats_.malformed_messages;
+        return;
+    }
+    if (!peer.handshaken) {
+        ++stats_.messages_ignored;
+        return;
+    }
+    if (!peer.input_tick_set || peer.input_tick != now_tick_) {
+        peer.input_tick = now_tick_;
+        peer.input_tick_set = true;
+        peer.inputs_this_tick = 0;
+    }
+    const ConnectionId player = peer.id;
+    for (const InputEntry& entry : input.entries) { // the oldest first
+        switch (peer.inputs.Judge(entry.sequence)) {
+        case InputVerdict::Repeated:
+            ++stats_.inputs_repeated;
+            break;
+        case InputVerdict::Late:
+            ++stats_.inputs_old;
+            break;
+        case InputVerdict::New:
+            if (peer.inputs_this_tick >= config_.max_inputs_per_tick) {
+                // Dropped without moving the window: the next message repeats it, and it is delivered then,
+                // still in order.
+                ++stats_.inputs_dropped;
+                break;
+            }
+            peer.inputs.Accept(entry.sequence);
+            ++peer.inputs_this_tick;
+            ++stats_.inputs_delivered;
+            if (on_input_) {
+                on_input_(player, entry.sequence, entry.Bytes());
+            }
+            break;
+        }
     }
 }
 

@@ -121,10 +121,10 @@ def free_port():
 class Server:
     """The example server as a process, with its output collected line by line."""
 
-    def __init__(self, exe, port):
+    def __init__(self, exe, port, extra_args=()):
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0
         self.proc = subprocess.Popen(
-            [exe, f"--port={port}", "--tick_rate=30", "--log_level=info"],
+            [exe, f"--port={port}", "--tick_rate=30", "--log_level=info", *extra_args],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -175,13 +175,17 @@ def e2e(godot, stage, server_exe):
     doomed_port = free_port()
     while doomed_port in (port, dead_port):
         doomed_port = free_port()
+    input_port = free_port()
+    while input_port in (port, dead_port, doomed_port):
+        input_port = free_port()
     server = Server(server_exe, port)
     doomed = Server(server_exe, doomed_port)  # a second server, stopped while the test runs
+    players = Server(server_exe, input_port, ["--players"])  # a third one, with an entity for each player
     doomed_stopped = []
     result = 1
     try:
-        if not server.wait_until_listening() or not doomed.wait_until_listening():
-            print("FAIL server: it did not start\n" + "\n".join(server.lines + doomed.lines))
+        if not server.wait_until_listening() or not doomed.wait_until_listening() or not players.wait_until_listening():
+            print("FAIL server: it did not start\n" + "\n".join(server.lines + doomed.lines + players.lines))
             return 1
         if not import_project(godot, stage):
             return 1
@@ -202,6 +206,7 @@ def e2e(godot, stage, server_exe):
                 f"--port={port}",
                 f"--dead_port={dead_port}",
                 f"--doomed_port={doomed_port}",
+                f"--input_port={input_port}",
             ],
             remaining,
             on_line,
@@ -222,6 +227,10 @@ def e2e(godot, stage, server_exe):
             doomed_stopped.append(doomed.stop())
         if doomed_stopped[0] != 0:
             print(f"FAIL second server: exit code {doomed_stopped[0]}, expected 0\n" + "\n".join(doomed.lines[-10:]))
+            result = 1
+        players_code = players.stop()
+        if players_code != 0:
+            print(f"FAIL third server: exit code {players_code}, expected 0\n" + "\n".join(players.lines[-10:]))
             result = 1
     if result == 0:
         print(f"E2E RUN PASS in {time.monotonic() - started:.1f} s")

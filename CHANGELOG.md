@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+- Player input, from the client to the server. A new message, `Input`, carries up to 4 inputs (the newest and the 3
+  before it), each with a sequence number and up to 16 bytes that the game defines. The server hands each new input to
+  the game once and in order (`IGameLogic::OnPlayerInput`, `ReplicationServer::SetInputHandler`), drops repeats and
+  late ones, and limits how many a player can have handled per tick (`ServerConfig::max_inputs_per_tick`, 8 by
+  default). `ServerStats` counts the inputs delivered, repeated, old and dropped; `ClientStats` counts the inputs sent and
+  refused. The client sends with `ClientReplica::SendInput`, which gives the sequence number, or 0 when nothing was sent.
+- In the Godot extension, `TesseraClient.send_input(bytes)` and `TesseraClient.get_connection_id()`.
+- The example server started with `--players` makes one entity for each connected player (type 2, with a position and
+  the owner's connection id), moves it with the two input bytes it receives, keeps the player's observer with it and
+  removes it when the player leaves. Without `--players` nothing changes, the schema hash included.
+- In the demo project, the player's own sphere (green; the other players' are orange) moves with W, A, S and D. There is
+  no prediction yet: the sphere moves one round trip after the key press.
+- Tests: the default build now has 539 tests (it had 495), with a test of the input against a simulated network that loses
+  30 percent of what the client sends; the server tests, the extension tests and the headless Godot test cover the
+  example's players and the two new calls.
+- Architecture decision record 0017, "Player input" (Proposed).
+
+### Changed
+- **The protocol version is now 2.** Clients and servers of 0.2.0-alpha no longer connect to the new ones: the server
+  refuses their hello with `VersionMismatch`. The bytes of the messages that already existed did not change.
+
 ## [0.2.0-alpha] - 2026-11-13
 
 ### Added

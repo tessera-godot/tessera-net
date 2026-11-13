@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <span>
 
 namespace tessera::server {
 
@@ -68,6 +69,17 @@ public:
     }
     virtual void OnPlayerDisconnected(net::ConnectionId player) {
         (void)player;
+    }
+
+    /// An input of a player, sent by its client with `ClientReplica::SendInput`. Called while the network
+    /// phase reads the transport, once for each new input, in the order the player sent them, and never after
+    /// `OnPlayerDisconnected` for that player. The bytes come from the client: nothing says they are what the
+    /// game expects, so check their size and their range. They are only valid during the call. It may not
+    /// throw.
+    virtual void OnPlayerInput(net::ConnectionId player, uint32_t sequence, std::span<const uint8_t> bytes) {
+        (void)player;
+        (void)sequence;
+        (void)bytes;
     }
 
     /// Called once, after the last tick and after what was still pending has been handed to the transport.

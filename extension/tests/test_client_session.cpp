@@ -724,3 +724,200 @@ TESSERA_TEST(session_poll_after_a_protocol_break_ends_cleanly) {
     }
     TESSERA_CHECK(session.Entities().empty());
 }
+
+namespace {
+
+// The schema of the example server with `players`: type 1 as before, and type 2 with a position and an owner.
+std::shared_ptr<const BuiltSchema> PlayersSchema() {
+    PropertyDescription position;
+    position.name = "position";
+    position.kind = "position";
+    position.step = 0.01;
+    position.range = 2048.0;
+    PropertyDescription owner;
+    owner.name = "owner";
+    owner.kind = "integer";
+    owner.min_value = 0;
+    owner.max_value = 65535;
+    owner.is_signed = false;
+    const TypeDescription types[] = {{1, {position}}, {2, {position, owner}}};
+    BuildResult result = BuildSchema(std::span<const TypeDescription>(types, 2));
+    return std::shared_ptr<const BuiltSchema>(std::move(result.schema));
+}
+
+// The entity of the player that owns the connection, or 0 (an id that cannot exist: the type is in it).
+uint64_t OwnEntity(const ClientSession& session) {
+    for (const uint64_t id : session.Entities()) {
+        const auto owner = session.Property(id, "owner");
+        if (owner && owner->integer == session.ConnectionId()) {
+            return id;
+        }
+    }
+    return 0;
+}
+
+// One tick of a world with two sessions.
+void StepBoth(World& world, ClientSession& a, ClientSession& b) {
+    world.network.Advance(++world.now);
+    std::vector<SessionEvent> events;
+    a.Poll(events);
+    b.Poll(events);
+    world.host.Step();
+}
+
+} // namespace
+
+TESSERA_TEST(session_send_input_before_connect_and_after_disconnect_returns_0) {
+    const uint8_t bytes[] = {1, 2};
+    ClientSession idle(NoTransport());
+    TESSERA_CHECK(idle.SendInput(bytes) == 0 && idle.ConnectionId() == -1);
+
+    TestGame game;
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(session.SendInput(bytes) == 0); // connecting
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    TESSERA_CHECK(session.SendInput(bytes) == 1);
+    session.Disconnect();
+    TESSERA_CHECK(session.SendInput(bytes) == 0 && session.ConnectionId() == -1);
+
+    // A server that refuses the schema.
+    TestGame other(0.02f, 3);
+    World refusing(other);
+    ClientSession rejected(refusing.Factory());
+    TESSERA_CHECK(rejected.Connect(ClientSchema(0.01), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> rejected_events;
+    TESSERA_CHECK(refusing.StepUntil(rejected, rejected_events,
+                                     [&] { return rejected.State() == SessionState::Rejected; }));
+    TESSERA_CHECK(rejected.SendInput(bytes) == 0 && rejected.ConnectionId() == -1);
+}
+
+TESSERA_TEST(session_connection_id_is_minus_1_until_connected_and_then_the_servers_id) {
+    TestGame game;
+    World world(game);
+    ClientSession first(world.Factory());
+    ClientSession second(world.Factory());
+    std::string error;
+    TESSERA_CHECK(first.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(first.ConnectionId() == -1); // connecting
+    std::vector<SessionEvent> events;
+    world.Step(&first, &events);
+    TESSERA_CHECK(first.State() == SessionState::Handshaking && first.ConnectionId() == -1);
+    TESSERA_CHECK(world.Converge(first, events, 3));
+    TESSERA_CHECK(first.ConnectionId() == 0);
+    TESSERA_CHECK(second.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> second_events;
+    TESSERA_CHECK(world.Converge(second, second_events, 3));
+    TESSERA_CHECK(second.ConnectionId() == 1 && first.ConnectionId() == 0);
+}
+
+TESSERA_TEST(session_send_input_moves_the_player_entity_of_the_example) {
+    server::example::ExampleGame game(0, false, true);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 1));
+    const uint64_t own = OwnEntity(session);
+    TESSERA_CHECK(own != 0);
+    const auto start = session.Property(own, "position");
+    TESSERA_CHECK(start.has_value());
+    const uint8_t east[] = {127, 0};
+    bool in_order = true;
+    for (uint32_t i = 1; i <= 30; ++i) {
+        in_order = in_order && session.SendInput(east) == i;
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(in_order);
+    for (int i = 0; i < 3; ++i) {
+        world.Step(&session, &events);
+    }
+    const auto end = session.Property(own, "position");
+    TESSERA_CHECK(end.has_value());
+    if (start && end) {
+        TESSERA_CHECK(end->vec[0] > start->vec[0] + 1.0); // 30 ticks of 10 ms at 8 m/s: about 2.4 m
+        TESSERA_CHECK(Near(end->vec[2], start->vec[2]));
+    }
+}
+
+TESSERA_TEST(session_two_sessions_have_independent_sequences_and_players) {
+    server::example::ExampleGame game(0, false, true);
+    World world(game);
+    ClientSession a(world.Factory());
+    ClientSession b(world.Factory());
+    std::string error;
+    TESSERA_CHECK(a.Connect(PlayersSchema(), "127.0.0.1", 7777, error));
+    TESSERA_CHECK(b.Connect(PlayersSchema(), "127.0.0.1", 7777, error));
+    for (int i = 0; i < 40; ++i) {
+        StepBoth(world, a, b);
+    }
+    TESSERA_CHECK(a.Entities().size() == 2 && b.Entities().size() == 2);
+    const uint64_t a_entity = OwnEntity(a);
+    const uint64_t b_entity = OwnEntity(b);
+    TESSERA_CHECK(a_entity != 0 && b_entity != 0 && a_entity != b_entity);
+    const auto a_start = a.Property(a_entity, "position");
+    const auto b_start = b.Property(b_entity, "position");
+    const uint8_t east[] = {127, 0};
+    const uint8_t south[] = {0, 127};
+    bool sequences = true;
+    for (uint32_t i = 1; i <= 30; ++i) {
+        sequences = sequences && a.SendInput(east) == i && b.SendInput(south) == i;
+        StepBoth(world, a, b);
+    }
+    TESSERA_CHECK(sequences);
+    for (int i = 0; i < 3; ++i) {
+        StepBoth(world, a, b);
+    }
+    const auto a_end = a.Property(a_entity, "position");
+    const auto b_end = b.Property(b_entity, "position");
+    TESSERA_CHECK(a_start && b_start && a_end && b_end);
+    if (a_start && b_start && a_end && b_end) {
+        TESSERA_CHECK(a_end->vec[0] > a_start->vec[0] + 1.0 && Near(a_end->vec[2], a_start->vec[2]));
+        TESSERA_CHECK(b_end->vec[2] > b_start->vec[2] + 1.0 && Near(b_end->vec[0], b_start->vec[0]));
+    }
+}
+
+TESSERA_TEST(session_send_input_with_too_many_bytes_returns_0) {
+    TestGame game;
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    const std::vector<uint8_t> too_many(net::kMaxInputBytes + 1, 1);
+    const std::vector<uint8_t> largest(net::kMaxInputBytes, 1);
+    TESSERA_CHECK(session.SendInput(too_many) == 0);
+    TESSERA_CHECK(session.SendInput(largest) == 1);
+    TESSERA_CHECK(session.SendInput(std::span<const uint8_t>()) == 2);
+}
+
+TESSERA_TEST(session_send_input_from_inside_the_poll_hook_works) {
+    TestGame game;
+    World world(game);
+    ClientSession* self = nullptr;
+    std::vector<uint32_t> sequences;
+    ClientSession session([&](const std::string&, uint16_t) {
+        auto transport = std::make_unique<World::Borrowed>(*world.network.AddClient());
+        transport->hook = [&] {
+            const uint8_t bytes[] = {7};
+            sequences.push_back(self->SendInput(bytes)); // from inside `Poll`, as a signal handler would
+        };
+        return std::unique_ptr<net::ITransport>(std::move(transport));
+    });
+    self = &session;
+    std::string error;
+    TESSERA_CHECK(session.Connect(ClientSchema(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 3));
+    for (int i = 0; i < 5; ++i) {
+        world.Step(&session, &events);
+    }
+    TESSERA_CHECK(!sequences.empty() && sequences.front() == 0); // not connected yet: nothing sent
+    TESSERA_CHECK(sequences.back() != 0);                        // and once it is, the sequence comes back
+    TESSERA_CHECK(session.State() == SessionState::Connected);
+}

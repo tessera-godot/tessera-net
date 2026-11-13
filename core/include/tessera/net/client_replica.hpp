@@ -7,6 +7,7 @@
 #include "tessera/net/replication/receiver_state.hpp"
 #include "tessera/net/transport/transport.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -33,6 +34,8 @@ struct ClientStats {
     uint64_t acks_sent = 0;
     uint64_t malformed_messages = 0; ///< Messages that could not be read, or came on the wrong channel.
     uint64_t messages_ignored = 0;   ///< Readable messages that make no sense at that point.
+    uint64_t inputs_sent = 0;        ///< Inputs that were given a sequence number and sent.
+    uint64_t inputs_refused = 0;     ///< Inputs `SendInput` refused for being larger than `kMaxInputBytes`.
 };
 
 /// The player's end of replication: it greets the server, applies the visibility events and the state buffers
@@ -66,6 +69,15 @@ public:
     uint32_t ConnectionId() const noexcept {
         return connection_id_;
     }
+    /// Sends one input of the player to the server and returns the sequence number it was given: 1, 2, 3, ...
+    /// (after 0xFFFFFFFF it starts again at 1). The message, on the unreliable channel, carries this input
+    /// and the up to 3 before it, so an input that is lost is usually covered by the next message; nothing
+    /// tells the client whether the server got it. What the bytes mean is up to the game; they must not be
+    /// more than `kMaxInputBytes` (an empty input is fine). Returns 0 and sends nothing when the client is
+    /// not `Connected`, and, counting it in `Stats().inputs_refused`, when the input is too large. Safe to
+    /// call in any state.
+    uint32_t SendInput(std::span<const uint8_t> bytes);
+
     /// How many entities this client can see.
     size_t VisibleCount() const noexcept {
         return compact_of_.size();
@@ -134,6 +146,9 @@ private:
     uint64_t applied_latest_ = 0;
     uint64_t applied_bits_ = 0;   // bit i: the tick applied_latest_ - i was applied
     bool apply_happened_ = false; // a buffer was applied since the last ack
+    std::array<InputEntry, kMaxInputsPerMessage> recent_inputs_{}; // the newest inputs, the oldest first
+    uint32_t recent_input_count_ = 0;
+    uint32_t next_input_sequence_ = 1;
     ClientStats stats_;
     std::vector<TransportEvent> events_; // scratch
 };

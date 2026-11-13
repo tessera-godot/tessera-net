@@ -39,13 +39,20 @@ public:
 } // namespace
 
 int main(int argc, char** argv) {
-    const std::vector<std::string_view> args(argv + 1, argv + argc);
+    std::vector<std::string_view> args(argv + 1, argv + argc);
     for (const std::string_view arg : args) {
         if (arg == "--help" || arg == "-h") {
             std::fputs(ConfigHelp().c_str(), stdout);
+            std::fputs(
+                "\n  --players  also make one entity for each connected player, which it moves with the "
+                "input it receives\n"
+                "             (a client then needs the player type in its schema)\n",
+                stdout);
             return 0;
         }
     }
+    // The only setting that is not `--key=value`; the rest is the configuration's.
+    const bool players = std::erase(args, std::string_view("--players")) > 0;
 
     ServerConfig config;
     try {
@@ -68,7 +75,7 @@ int main(int argc, char** argv) {
         listen.max_clients = config.max_players;
         tessera::net::EnetServerTransport transport(listen);
 
-        example::ExampleGame game;
+        example::ExampleGame game(100, true, players);
         ServerHost host(config, game, transport, log, [&transport] { transport.Flush(); });
         const StopSignalsScope signals(host);
 

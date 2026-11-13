@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int64_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
@@ -36,6 +37,13 @@ public:
     void disconnect_from_server();
     // Reads what arrived and sends the signals for it. A call from inside one of those signals does nothing.
     void poll();
+
+    // Sends one input of the player to the server, as bytes the game defines (at most 16; an empty array is
+    // fine). Returns its sequence number, 1, 2, 3, ..., or 0 when nothing was sent: the client is not
+    // connected, or the input is too large. Safe in any state, and from inside a signal.
+    int send_input(const PackedByteArray& bytes);
+    // The id the server gave this client, or -1 while it is not CONNECTED. Safe in any state.
+    int get_connection_id() const;
 
     int get_state() const;
     String get_rejection() const;

@@ -72,6 +72,10 @@ void ServerHost::Start() {
             log_.Info("player disconnected: " + std::to_string(player));
             logic_.OnPlayerDisconnected(player);
         });
+    replication_.SetInputHandler(
+        [this](net::ConnectionId player, uint32_t sequence, std::span<const uint8_t> bytes) {
+            logic_.OnPlayerInput(player, sequence, bytes);
+        });
     try {
         logic_.OnStart(context_);
     } catch (...) {

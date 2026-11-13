@@ -59,6 +59,36 @@ void ClientReplica::Disconnect() {
     ResetVisible();
 }
 
+uint32_t ClientReplica::SendInput(std::span<const uint8_t> bytes) {
+    if (state_ != ClientState::Connected) {
+        return 0;
+    }
+    if (bytes.size() > kMaxInputBytes) {
+        ++stats_.inputs_refused;
+        return 0;
+    }
+    const uint32_t sequence = next_input_sequence_;
+    next_input_sequence_ = NextInputSequence(sequence);
+    if (recent_input_count_ == recent_inputs_.size()) {
+        // The oldest leaves.
+        std::copy(recent_inputs_.begin() + 1, recent_inputs_.end(), recent_inputs_.begin());
+        --recent_input_count_;
+    }
+    InputEntry& entry = recent_inputs_[recent_input_count_++];
+    entry = InputEntry{};
+    entry.sequence = sequence;
+    entry.size = static_cast<uint8_t>(bytes.size());
+    std::copy(bytes.begin(), bytes.end(), entry.bytes.begin());
+    Input message;
+    message.entries.assign(recent_inputs_.begin(), recent_inputs_.begin() + recent_input_count_);
+    std::vector<uint8_t> encoded;
+    Encode(message, encoded);
+    // If the send fails the connection is going down, and the state will say so.
+    transport_.Send(0, Channel::Unreliable, encoded);
+    ++stats_.inputs_sent;
+    return sequence;
+}
+
 void ClientReplica::Malformed(Channel channel) {
     if (channel == Channel::ReliableOrdered) {
         Fail(); // the reliable stream is the server's own doing: if it is unreadable, something is wrong

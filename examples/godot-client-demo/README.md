@@ -1,7 +1,8 @@
 # Godot client demo
 
 A small Godot project that connects to the example server, describes its entities with a `TesseraSchema`, and draws one
-sphere for each entity it is told about. Its script is [`main.gd`](main.gd), and the guide
+sphere for each entity it is told about. When the server has players, it also sends the keys you press, so that you move
+your own sphere. Its script is [`main.gd`](main.gd), and the guide
 [Using the client in Godot](../../docs/guides/using-the-client-in-godot.md) explains each part.
 
 ## Run it
@@ -19,12 +20,15 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    The first configure fetches godot-cpp; see [the guide](../../docs/guides/using-the-client-in-godot.md#build-the-extension)
    to use a copy you already have.
 
-2. Start the example server in a terminal (it listens on port 7777 and keeps 100 entities walking in a square of 200 by
-   200 units):
+2. Start the example server in a terminal with `--players` (it listens on port 7777, keeps 100 entities walking in a
+   square of 200 by 200 units, and makes one more entity for each player that connects):
 
    ```powershell
-   ./build/windows-msvc-extension-debug/server/Debug/tessera_example_server.exe
+   ./build/windows-msvc-extension-debug/server/Debug/tessera_example_server.exe --players
    ```
+
+   Without `--players` the server does not describe the player entities, so it does not match the schema in `main.gd`:
+   the demo is refused and the label in the corner says why.
 
 3. Let Godot read the project once. Godot only loads an extension that an import has listed, so on a folder the
    build has just put together, run:
@@ -50,7 +54,15 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
 The label in the corner shows the state of the connection and how many entities the client has. If the server's
 description of the entities and the one in `main.gd` differ, the label says the connection was rejected and why.
 
+## Controls
+
+W, A, S and D move your sphere, the green one. The other players' spheres are orange. The demo sends the keys 30 times
+a second; the server moves your entity at up to 8 meters per second and stops it half a second after the input stops.
+There is no prediction yet: the sphere moves when the server's answer arrives, one round trip after you press a key.
+
 ## What has been checked
 
-Run in a headless Godot (no window), the demo project loads, connects to the example server and receives its 100 entities
-without a script error. Nobody has looked at it with a window yet, so how it looks on screen is not confirmed.
+Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
+error, with the connect and disconnect lines in its output; in the same kind of run, a client moves its own entity with the same input bytes and sees the
+position the server works out. Nobody has looked at it with a window yet, so how it looks on screen, and how the keys
+feel, are not confirmed.
