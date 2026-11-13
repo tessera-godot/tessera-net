@@ -13,6 +13,7 @@
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -54,6 +55,7 @@ size_t IndexOf(const std::vector<std::string>& events, const std::string& what) 
 class RecordingLogic final : public IGameLogic {
 public:
     std::vector<std::string> events;
+    std::vector<uint8_t> last_input_bytes;
     bool make_entity = false; // one entity that every player sees, made in OnStart
     EntityId entity = EntityId::Null();
     uint32_t seen_shard = 0xFFFFFFFF;
@@ -112,6 +114,10 @@ public:
     }
     void OnPlayerDisconnected(ConnectionId player) override {
         events.push_back("disconnected:" + std::to_string(player));
+    }
+    void OnPlayerInput(ConnectionId player, uint32_t sequence, std::span<const uint8_t> bytes) override {
+        events.push_back("input:" + std::to_string(player) + ":" + std::to_string(sequence));
+        last_input_bytes.assign(bytes.begin(), bytes.end());
     }
     void OnShutdown() override {
         events.push_back("shutdown");
@@ -255,6 +261,105 @@ TESSERA_TEST(host_player_callbacks_arrive_in_order) {
     TESSERA_CHECK(IndexOf(events, "connected:0") < IndexOf(events, "connected:1"));
     TESSERA_CHECK(IndexOf(events, "connected:1") < IndexOf(events, "disconnected:0"));
     TESSERA_CHECK(rig.host->Replication().ConnectionCount() == 1);
+}
+
+TESSERA_TEST(host_hands_inputs_to_the_game_in_order_with_the_player_id) {
+    Rig rig;
+    ClientReplica client(*rig.network.AddClient(), TestSchema());
+    for (int i = 0; i < 8 && client.State() != ClientState::Connected; ++i) {
+        rig.Step({&client});
+    }
+    TESSERA_CHECK(client.State() == ClientState::Connected);
+    for (const uint8_t byte : {uint8_t{11}, uint8_t{12}, uint8_t{13}}) {
+        client.SendInput(std::span<const uint8_t>(&byte, 1));
+        rig.Step({&client});
+    }
+    rig.Step({&client});
+    const auto& events = rig.logic.events;
+    TESSERA_CHECK(Count(events, "input:0:1") == 1 && Count(events, "input:0:2") == 1 &&
+                  Count(events, "input:0:3") == 1);
+    TESSERA_CHECK(IndexOf(events, "connected:0") < IndexOf(events, "input:0:1"));
+    TESSERA_CHECK(IndexOf(events, "input:0:1") < IndexOf(events, "input:0:2"));
+    TESSERA_CHECK(IndexOf(events, "input:0:2") < IndexOf(events, "input:0:3"));
+    TESSERA_CHECK((rig.logic.last_input_bytes == std::vector<uint8_t>{13}));
+}
+
+TESSERA_TEST(host_input_never_arrives_after_the_disconnect_callback) {
+    {
+        Rig rig;
+        ClientReplica client(*rig.network.AddClient(), TestSchema());
+        for (int i = 0; i < 8 && client.State() != ClientState::Connected; ++i) {
+            rig.Step({&client});
+        }
+        const uint8_t byte = 5;
+        TESSERA_CHECK(client.SendInput(std::span<const uint8_t>(&byte, 1)) == 1);
+        client.Disconnect(); // in the same step
+        rig.Step();
+        rig.Step();
+        const auto& events = rig.logic.events;
+        TESSERA_CHECK(Count(events, "input:0:1") == 1 && Count(events, "disconnected:0") == 1);
+        TESSERA_CHECK(IndexOf(events, "input:0:1") < IndexOf(events, "disconnected:0"));
+    }
+    {
+        // A client that breaks the protocol is dropped; an input it sent after that goes nowhere.
+        Rig rig;
+        ITransport* raw = rig.network.AddClient();
+        rig.network.Advance(++rig.now);
+        std::vector<uint8_t> bytes;
+        Encode(ClientHello{kProtocolVersion, TestSchema().Hash()}, bytes);
+        raw->Send(0, Channel::ReliableOrdered, bytes);
+        rig.Step();
+        rig.Step();
+        TESSERA_CHECK(Count(rig.logic.events, "connected:0") == 1);
+        raw->Send(0, Channel::ReliableOrdered, std::vector<uint8_t>{0xFF}); // not a message
+        Input input;
+        InputEntry entry;
+        entry.sequence = 1;
+        input.entries.push_back(entry);
+        bytes.clear();
+        Encode(input, bytes);
+        raw->Send(0, Channel::Unreliable, bytes);
+        rig.Step();
+        rig.Step();
+        const auto& events = rig.logic.events;
+        TESSERA_CHECK(Count(events, "disconnected:0") == 1 && Count(events, "input:0:1") == 0);
+    }
+}
+
+TESSERA_TEST(host_a_game_that_does_not_override_on_player_input_just_works) {
+    class PlainLogic final : public IGameLogic {
+    public:
+        WorldSetup DescribeWorld() override {
+            WorldSetup setup;
+            setup.schema = &TestSchema();
+            setup.relevancy.types[1] = TypeRelevancy{RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
+            return setup;
+        }
+        void OnTick(double) override {}
+    };
+    PlainLogic logic;
+    SimulatedNetwork network{NetworkConditions{}};
+    Logger log(LogLevel::Debug, [](const std::string&) {});
+    tessera::server::ServerConfig config;
+    config.max_players = 8;
+    ServerHost host(config, logic, network.Server(), log);
+    ClientReplica client(*network.AddClient(), TestSchema());
+    uint64_t now = 0;
+    auto step = [&] {
+        network.Advance(++now);
+        client.Poll();
+        host.Step();
+    };
+    for (int i = 0; i < 8 && client.State() != ClientState::Connected; ++i) {
+        step();
+    }
+    TESSERA_CHECK(client.State() == ClientState::Connected);
+    const uint8_t byte = 9;
+    TESSERA_CHECK(client.SendInput(std::span<const uint8_t>(&byte, 1)) == 1);
+    step();
+    step();
+    TESSERA_CHECK(host.Replication().Stats().inputs_delivered == 1);
+    TESSERA_CHECK(host.Replication().ConnectionCount() == 1);
 }
 
 TESSERA_TEST(host_client_that_leaves_before_hello_gets_no_callbacks) {
