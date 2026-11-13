@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/tessera-net-logo-dark.png">
+    <img src="docs/images/tessera-net-logo-light.png" alt="Tessera Net logo: a grid of tiles with one tile set apart and joined to it by a line" width="120">
+  </picture>
+</p>
+
 # Tessera Net
 
 Dedicated-server networking for Godot 4, made for large open worlds.
