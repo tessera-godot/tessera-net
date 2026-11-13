@@ -179,16 +179,21 @@ void ReplicationServer::SendStateBuffers(uint64_t tick) {
         const std::span<const uint8_t> output = replication_.Output(id);
         Peer& peer = peers_.at(slot_transport_[id]);
         const bool nothing_to_say = output.size() <= 1; // just the end marker
-        if (nothing_to_say && peer.state_input == peer.last_sent_input) {
+        // When the byte limit left entities out, the state in this buffer is behind the inputs the server has
+        // read (the player's own entity may be one of those left out), so the confirmation stays where it was
+        // until a buffer goes out without deferring anything.
+        const uint32_t confirmed =
+            replication_.DeferredEntities(id) > 0 ? peer.last_sent_input : peer.state_input;
+        if (nothing_to_say && confirmed == peer.last_sent_input) {
             continue; // an idle player costs nothing
         }
         // A player that sends input and whose entity does not change (standing still, or against a wall)
         // still needs to hear which inputs the state reflects, or its prediction would never be confirmed.
         peer.sent_state = true;
         peer.last_state_tick = tick;
-        peer.last_sent_input = peer.state_input;
+        peer.last_sent_input = confirmed;
         std::vector<uint8_t> bytes;
-        EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent, peer.state_input}, output, bytes);
+        EncodeStateBuffer(StateBufferHeader{tick, peer.batches_sent, confirmed}, output, bytes);
         transport_.Send(slot_transport_[id], Channel::Unreliable, bytes);
         ++stats_.state_buffers_sent;
         if (nothing_to_say) {

@@ -207,6 +207,13 @@ uint32_t ReplicationEngine::ResendAfterTicks(ConnectionId connection) const noex
     return connections_[connection]->rtt.ResendAfter();
 }
 
+uint32_t ReplicationEngine::DeferredEntities(ConnectionId connection) const noexcept {
+    if (connection >= connections_.size() || !connections_[connection]) {
+        return 0;
+    }
+    return connections_[connection]->stats.deferred;
+}
+
 int64_t ReplicationEngine::BudgetBytes(ConnectionId connection) const noexcept {
     if (connection >= connections_.size() || !connections_[connection]) {
         return 0;

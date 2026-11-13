@@ -312,3 +312,70 @@ TESSERA_TEST(a_header_only_buffer_is_confirmed_by_the_client_without_harm) {
     TESSERA_CHECK(h.server.Stats().protocol_errors == 0 && h.server.Stats().messages_ignored == 0);
     TESSERA_CHECK(h.server.Stats().input_confirmations_sent >= 7);
 }
+
+// With a bandwidth budget, the server may leave some entities out of a buffer and send them later. The state
+// in that buffer is then older than the inputs the server has read, so the buffer must not confirm them yet.
+TESSERA_TEST(the_confirmation_does_not_run_ahead_of_the_state_while_entities_are_deferred) {
+    ServerConfig config = SmallServerConfig();
+    config.rate_kbps = 16; // about 70 bytes a tick, far less than the mobs below need
+    config.peak_kbps = 16;
+    ServerHarness h(config);
+    std::vector<EntityId> mobs;
+    for (int i = 0; i < 60; ++i) {
+        mobs.push_back(h.AddMob(1.0f + 0.1f * static_cast<float>(i), 1.0f));
+    }
+    h.on_connect_hook = [&h](ConnectionId id) { h.Observe(id, 0.0f, 0.0f); };
+    FakeClient& client = h.ConnectAndGreet();
+
+    std::map<uint64_t, uint32_t> deferred_at; // update tick -> entities left out of that tick's buffer
+    uint32_t next_input = 1;
+    float x = 1.0f;
+    const auto step = [&](bool move) {
+        if (move) {
+            x += 0.5f;
+            for (const EntityId mob : mobs) {
+                h.MoveMob(mob, x, 1.0f);
+            }
+        }
+        client.SendInput(Channel::Unreliable, {next_input++});
+        h.Step();
+        deferred_at[h.tick - 1] = h.server.Replication().LastStats().deferred;
+        client.Collect();
+    };
+
+    // The mobs change every tick and do not fit: entities are deferred in every tick.
+    for (int i = 0; i < 30; ++i) {
+        step(true);
+    }
+    uint32_t held = 0;
+    size_t deferred_buffers = 0;
+    for (const FakeClient::Buffer& buffer : client.Buffers()) {
+        if (deferred_at[buffer.header.tick] > 0) {
+            ++deferred_buffers;
+            TESSERA_CHECK(buffer.header.last_input_sequence == held); // the confirmation waits
+        }
+        held = buffer.header.last_input_sequence;
+    }
+    TESSERA_CHECK(deferred_buffers >= 20);
+    TESSERA_CHECK(held + 10 < next_input); // the server had read far more than it confirmed
+
+    // The mobs stop and the client confirms what it gets: the backlog drains and the confirmation resumes.
+    int drained = 0;
+    while (drained < 200 && (drained == 0 || deferred_at[h.tick - 1] > 0)) {
+        step(false);
+        const std::vector<FakeClient::Buffer> buffers = client.Buffers();
+        if (!buffers.empty()) {
+            client.SendAck(buffers.back().header.tick, 0);
+        }
+        ++drained;
+    }
+    TESSERA_CHECK(deferred_at[h.tick - 1] == 0);
+    for (int i = 0; i < 6; ++i) {
+        step(false);
+    }
+    h.Step();
+    h.Step();
+    client.Collect();
+    const std::vector<FakeClient::Buffer> last = client.Buffers();
+    TESSERA_CHECK(!last.empty() && last.back().header.last_input_sequence == next_input - 1);
+}

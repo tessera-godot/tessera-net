@@ -128,6 +128,10 @@ public:
     /// unknown connection.
     int64_t BudgetBytes(ConnectionId connection) const noexcept;
 
+    /// How many entities the last `Update` left out of a connection's buffer because they did not fit in its
+    /// byte limit; 0 for an unknown connection.
+    uint32_t DeferredEntities(ConnectionId connection) const noexcept;
+
     /// The configuration the engine was built with.
     const ReplicationConfig& Config() const noexcept {
         return config_;

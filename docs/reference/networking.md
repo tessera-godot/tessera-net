@@ -140,7 +140,11 @@ cannot be right.
    the number of event batches sent so far and the newest input the state reflects. A player with nothing to
    receive, or whose budget is empty, gets no message at all, except a player whose newest input has moved since the
    last buffer: it gets a buffer with only the header, which confirms the input and holds no record
-   (`ServerStats::input_confirmations_sent` counts these).
+   (`ServerStats::input_confirmations_sent` counts these; they are not counted against the budget).
+   If the budget left any entity out of a player's buffer, the newest input is not confirmed in it: the buffer repeats
+   the number sent before, because the state in it is behind the inputs read (the player's own entity may be one
+   of those left out). The number moves on again with the first buffer that leaves nothing out. If that takes longer
+   than the client's history of 64 inputs, the prediction pauses and resumes with the next state.
 6. **Inputs read.** The inputs this call read are first simulated on the next tick, so the state that went out reflects
    the inputs read by the calls before this one. The server notes, for each player, the newest input read, and the next
    call's buffer carries it.

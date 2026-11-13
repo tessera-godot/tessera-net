@@ -44,8 +44,19 @@ no state to send, and the server sends nothing to a player with nothing to say. 
 confirmed: the client would send one input after another, none would be confirmed, and after a while the history would be
 full. So when the number to confirm has moved and there is nothing else to send, the server sends a buffer that holds the
 header and the end of the records, a few bytes (`ServerStats::input_confirmations_sent` counts them). It only goes to a
-player that is sending inputs, and only once for each step forward of the number. It is not counted against the budget of
+player that is sending inputs, and only once for each step forward of the number. Such a buffer is not counted against the budget of
 bytes. The format did not change; the client applies such a buffer like any other.
+
+**When the budget of bytes leaves entities out.** If the budget does not fit everything that changed, the server leaves
+some entities for a later buffer, and the player's own entity may be one of them. The state in that buffer is then behind
+the inputs the server has read, and confirming the newest input would make the client drop inputs the state does not
+include yet and replay from an old position, pulling what is shown back by a step or more, again and again. So while any
+entity was left out of a player's buffer, the buffer repeats the number sent before, and the number moves on with the
+first buffer that leaves nothing out. This also covers a header-only buffer: none is sent while the number is held. The
+price is that the client keeps more inputs waiting. If the budget is so tight that entities are left out for longer than
+the history holds (64 inputs, about 2 seconds at 30 a second), the prediction pauses, as it does after a long outage:
+what is shown goes to the server's state, and it resumes with the next state that arrives, pausing again if the number is
+still held. Raising `rate_kbps` is the way out of that.
 
 **Reconciliation.** When a state buffer is applied, and it is newer than the last one used, the client drops the inputs
 the server has used, takes the state of the player's entity from the server (the state it already had, if the buffer holds
