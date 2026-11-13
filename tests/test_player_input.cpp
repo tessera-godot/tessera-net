@@ -216,6 +216,27 @@ TESSERA_TEST(a_malformed_input_is_counted_and_dropped) {
     TESSERA_CHECK(h.server.ConnectionCount() == 1 && h.inputs.empty());
 }
 
+TESSERA_TEST(an_input_with_sequence_zero_is_counted_malformed_and_not_delivered) {
+    ServerHarness h;
+    FakeClient& client = h.ConnectAndGreet();
+    std::vector<uint8_t> message;
+    BitWriter writer(message);
+    writer.WriteBits(static_cast<uint64_t>(MessageKind::Input), 8);
+    writer.WriteVarUInt(1); // the newest is 1
+    writer.WriteVarUInt(2); // two entries
+    writer.WriteVarUInt(1); // 1 - 1 = 0
+    writer.WriteVarUInt(1);
+    writer.WriteBits(7, 8);
+    writer.WriteVarUInt(0); // 1 - 0 = 1
+    writer.WriteVarUInt(1);
+    writer.WriteBits(8, 8);
+    writer.Finish();
+    client.Send(Channel::Unreliable, message);
+    Settle(h);
+    TESSERA_CHECK(h.server.Stats().malformed_messages == 1);
+    TESSERA_CHECK(h.inputs.empty() && h.server.Stats().inputs_delivered == 0);
+}
+
 TESSERA_TEST(input_never_arrives_after_the_disconnect_callback) {
     ServerHarness h;
     FakeClient& client = h.ConnectAndGreet();

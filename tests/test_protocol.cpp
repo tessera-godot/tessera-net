@@ -377,6 +377,12 @@ TESSERA_TEST(input_truncated_at_every_length_is_refused) {
     TESSERA_CHECK(Decode(bytes, &whole));
 }
 
+TESSERA_TEST(an_input_entry_whose_sequence_works_out_to_zero_is_refused) {
+    Input input;
+    TESSERA_CHECK(!Decode(RawInput(1, 2, {{1, 1}, {0, 1}}), &input)); // the older entry would be 0
+    TESSERA_CHECK(Decode(RawInput(2, 2, {{1, 1}, {0, 1}}), &input));  // 1 and 2 are fine
+}
+
 TESSERA_TEST(input_with_a_bad_count_size_order_or_extra_bytes_is_refused) {
     Input input;
     TESSERA_CHECK(Decode(RawInput(10, 1, {{0, 1}}), &input)); // the shape the checks below break

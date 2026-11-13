@@ -239,6 +239,9 @@ bool Decode(std::span<const uint8_t> message, Input* result) {
         previous_back = back;
         InputEntry entry;
         entry.sequence = newest - back;
+        if (entry.sequence == 0) {
+            return false; // 0 is never a sequence number: it means nothing was sent
+        }
         entry.size = static_cast<uint8_t>(size);
         for (uint32_t b = 0; b < size; ++b) {
             entry.bytes[b] = static_cast<uint8_t>(reader.ReadBits(8));
