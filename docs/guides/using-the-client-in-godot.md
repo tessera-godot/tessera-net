@@ -98,6 +98,9 @@ const DEFAULT_PORT := 7777
 # How many times a second the input is sent, and how far the keys push (the server reads -127 to 127).
 const INPUT_RATE := 30.0
 const AXIS_MAX := 127
+# The movement rule of the server, which the client needs to move the sphere before the answer comes.
+const PLAYER_SPEED := 8.0
+const WORLD_SIDE := 200.0
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
 
@@ -105,6 +108,7 @@ var client := TesseraClient.new()
 var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
 var input_clock := 0.0
+var own_entity := -1  # the entity of this player, once the server has told us about it
 
 
 func _ready() -> void:
@@ -141,11 +145,14 @@ func _process(delta: float) -> void:
 	client.poll()
 	_send_input(delta)
 	for id in spheres:
-		var position = client.get_property(id, "position")
+		# Your own sphere shows the prediction; the others show what the server last said, not smoothed.
+		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_property(id, "position")
 		if position != null:
 			spheres[id].position = position
-	status.text = "%s, %d entities %s\nWASD moves the green sphere; it follows your input after a round trip" % [
-		_state_name(), spheres.size(), client.get_rejection()]
+	var stats := client.get_prediction_stats()
+	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\nWASD moves the green sphere at once; the others are not smoothed" % [
+		_state_name(), spheres.size(), client.get_rejection(),
+		"on" if client.is_predicting() else "off", stats["last_error"]]
 ```
 
 This is the start of the [demo script](../../examples/godot-client-demo/main.gd), word for word. The rest of the file sends
@@ -165,6 +172,7 @@ already connecting.
 | `poll()` | Reads what arrived and sends the signals for it. |
 | `send_input(bytes)` | Sends one input of the player and returns its sequence number, or 0 if nothing was sent. See [Send input](#send-input). |
 | `get_connection_id()` | The id the server gave this client, or -1 while the state is not `CONNECTED`. |
+| `set_prediction(...)`, `clear_prediction()`, `get_predicted_property(...)`, `is_predicting()`, `get_prediction_stats()` | Predict the player's own entity. See [Predict your player](#predict-your-player). |
 | `get_state()` | One of `TesseraClient.State.CONNECTING`, `HANDSHAKING`, `CONNECTED`, `REJECTED`, `DISCONNECTED`. A new client is `DISCONNECTED`. |
 | `get_rejection()` | Why the server said no. Empty unless the state is `REJECTED`. |
 | `get_last_error()` | The reason the last `connect_to` failed, or the last `poll()` hit a problem it could not report any other way. |
@@ -195,9 +203,9 @@ along x and the axis along z, each from -127 to 127 (a byte that GDScript sends 
 sign, so 129 is -127). The demo sends them 30 times a second:
 
 ```gdscript
-# Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected. The
-# server reads each as a number from -127 to 127 and moves the player's entity; this demo does not predict where
-# it will be, so the sphere moves when the server's answer arrives.
+# Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected, zeros
+# included: the prediction counts one step for each input, so the client sends one for every tick of the server.
+# The server reads each as a number from -127 to 127 and moves the player's entity.
 func _send_input(delta: float) -> void:
 	if client.get_state() != TesseraClient.State.CONNECTED:
 		return
@@ -226,9 +234,69 @@ func _send_input(delta: float) -> void:
   covered by the next one, and nothing tells the client whether the server got an input.
 - **Which entity is yours.** `get_connection_id()` is the id the server gave the client, and the example server puts it in
   the `owner` of the player's entity. The demo compares the two to color its own sphere.
-- **There is no prediction.** The server moves the entity and tells the client, so the sphere moves one round trip after
-  the key press. The server moves a player at up to 8 meters per second whatever the client sends, and stops it half a
-  second after the input stops.
+- **Without a prediction** the sphere moves one round trip after the key press, because the server moves the entity and
+  tells the client. See [Predict your player](#predict-your-player). The server moves a player at up to 8 meters per
+  second whatever the client sends, and stops it half a second after the input stops.
+
+## Predict your player
+
+To move your own sphere at once, give the client the movement rule of your game, as a function, and the entity to
+apply it to. The rule is the same one the server runs, written once more for the client (here, the rule of the example
+server). The demo's, word for word:
+
+```gdscript
+# The movement rule of the example server, for one input and one step of dt seconds: the two bytes are the axes
+# along x and z (-127 to 127), the speed is at most PLAYER_SPEED and the player stays inside the world. This has
+# to stay the same as the rule on the server; where the two differ, the server wins and the sphere is corrected.
+func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
+	if input.size() < 2:
+		return state
+	var position: Vector3 = state["position"]
+	var dx := maxi(input.decode_s8(0), -127) / 127.0
+	var dz := maxi(input.decode_s8(1), -127) / 127.0
+	var length := sqrt(dx * dx + dz * dz)
+	if length == 0.0:
+		return state
+	if length > 1.0:
+		dx /= length
+		dz /= length
+	position.x = clampf(position.x + dx * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
+	position.z = clampf(position.z + dz * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
+	return {"position": position}
+```
+
+It is given to the client when your own entity appears, and the sphere reads the predicted value:
+
+```gdscript
+client.set_prediction(id, PackedStringArray(["position"]), predict)
+...
+var position = client.get_predicted_property(id, "position")
+```
+
+| Call | What it does |
+|---|---|
+| `set_prediction(entity, properties, rule)` | Starts predicting `entity` (the player's own) with `rule`, a `Callable(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary`. `properties` are the names of what the rule moves. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`. The prediction starts when the next state arrives from the server. Safe in any state, but it needs a connection. |
+| `clear_prediction()` | Stops predicting. A disconnection does the same. |
+| `get_predicted_property(id, name)` | The value to show: the predicted and smoothed one for the predicted entity and its predicted properties while the prediction runs, and the same as `get_property` for anything else. |
+| `is_predicting()` | Whether the prediction runs. |
+| `get_prediction_stats()` | A dictionary: `state` (`"off"`, `"waiting"`, `"active"`, `"paused"` or `"failed"`), `reconciliations`, `snaps`, `rule_failures`, `history_overflows` and `last_error`, the size in world units of the last correction. |
+| `smoothing_seconds`, `snap_distance` | How long a correction slides (0 to 5 seconds, 0.1 by default) and the distance above which the shown value jumps (above 0, 2 by default). |
+
+- **The rule** gets the predicted properties by name in `state` (a position is a `Vector3`, an angle a float, an integer an
+  int) and returns a `Dictionary` with the values after one step. A name you leave out keeps its value. Returning
+  anything else than a `Dictionary`, a value of the wrong type, or an error in the script, turns the prediction off with
+  one warning, and `get_predicted_property` gives what the server says. The game goes on.
+- **Send one input for every tick of the server, zeros included.** The client takes one step of the rule for each
+  `send_input`, and the server takes one for each tick. The demo sends at 30 a second, even when no key is pressed. A
+  client that stops sending leaves the server holding your last keys for up to half a second (in the example), and the
+  two spheres drift apart until it stops.
+- **The prediction starts after a state arrives** that the server sends because it has an input to confirm, so send inputs
+  as soon as you call `set_prediction`. Before that, `get_predicted_property` is the server's value.
+- **How much error to expect.** With the same rule on both sides and one input for every tick, the correction is within
+  the quantization of the schema (1 centimeter in the example). In a very bad network (heavy loss, duplication and jitter
+  together) the corrected error can reach about 0.6 m at the 95th percentile and 1.1 m at worst, covered by the slide. The
+  way to remove it is for the game to tell the server's core which input it applied, which is not built yet.
+- **Other players' spheres** are not smoothed: they move in the steps of the server's updates.
 
 ## When something goes wrong
 
@@ -248,8 +316,9 @@ func _send_input(delta: float) -> void:
 
 ## What the client does not do
 
-The client sends input (see [Send input](#send-input)), but there is no prediction or reconciliation, no smoothing
-between updates (an entity jumps from one received position to the next), no code generation and no shared schema file with the server (you write the description twice), and the
+The client sends input (see [Send input](#send-input)) and can predict the player's own entity (see
+[Predict your player](#predict-your-player)), but there is no smoothing of the other entities between updates (an entity
+jumps from one received position to the next), no code generation and no shared schema file with the server (you write the description twice), and the
 server is not a Godot node. There is no editor plugin yet.
 
 ## Limits to know about
