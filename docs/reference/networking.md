@@ -2,7 +2,7 @@
 
 This is where the pieces meet. The [relevancy engine](relevancy.md) decides what each player sees, the
 [replicated state](replicated-state.md) engine turns it into bytes, and this part moves those bytes between a
-server and its players: a transport interface, a simulated network to test against, five messages, a
+server and its players: a transport interface, a simulated network to test against, six messages, a
 `ReplicationServer` that runs the whole Network phase of a tick, and a `ClientReplica` that applies what arrives.
 
 New to the terms? Read [Concepts explained simply](../concepts.md) first. This part of the core library is plain
@@ -18,7 +18,8 @@ C++20 and does not depend on Godot. Include files are under `tessera/net/`, and 
 3. Each tick the server first tells each player what became visible or invisible (**event batches**, reliable,
    numbered), then sends what changed (**state buffers**, unreliable).
 4. The player applies the events in order and the state buffers whole or not at all, and confirms what it applied
-   (**acks**, unreliable).
+   (**acks**, unreliable). It also sends what the person playing wants to do (**inputs**, unreliable, each one
+   repeated in the next messages), and the server hands them to the game.
 5. Nothing needs a retry timer. A state buffer that is lost is covered by the next one, because the server keeps
    sending whatever the player has not confirmed.
 
@@ -27,7 +28,7 @@ C++20 and does not depend on Godot. Include files are under `tessera/net/`, and 
 ```
  ReplicationServer          ClientReplica
    relevancy + replication     applies events and state
-   protocol (5 messages)       protocol
+   protocol (6 messages)       protocol
         |                          |
      ITransport  <--- network --->  ITransport
 ```
@@ -107,7 +108,7 @@ headers (the byte counts are the messages', without IP or UDP headers), and the 
 reliable channel. The loss rule for large messages is an approximation of how a reliable-over-UDP library treats
 fragments, so convergence times on a real network may differ.
 
-## The five messages
+## The six messages
 
 Every message starts with one byte that says which it is. Whole numbers take 4 bits for each 3 bits of value, so
 small ones are cheap. The decoders refuse a message that is truncated, has bytes left over or holds a value that
@@ -115,11 +116,12 @@ cannot be right.
 
 | Message | Direction, channel | Carries |
 |---|---|---|
-| `ClientHello` | player to server, reliable | The protocol version and the hash of the schema. |
+| `ClientHello` | player to server, reliable | The protocol version (2 now) and the hash of the schema. |
 | `ServerHello` | server to player, reliable | Accepted, or the reason (`VersionMismatch`, `SchemaMismatch`, `ServerFull`); if accepted, the player's connection id, the tick rate, how many compact ids it may use and how many ticks of history it keeps. |
 | `EventBatch` | server to player, reliable | A number (1, 2, 3, ...), the tick, and the visibility events of that tick. Sent only when there are events. |
 | `StateBuffer` | server to player, unreliable | The tick, how many event batches the server had sent when it wrote it, and the buffer from the replication engine, unchanged. Sent only when it holds a record. |
 | `Ack` | player to server, unreliable | The newest tick applied and a mask of the 32 before it. |
+| `Input` | player to server, unreliable | Up to 4 inputs, the newest and the 3 before it, each with a sequence number and up to 16 bytes the game defines. See [Player input](#player-input). |
 
 ## One tick on the server
 
@@ -127,7 +129,8 @@ cannot be right.
 
 1. **Read the transport.** New players are greeted (`ClientHello` checked against the version, the schema hash
    and the free slots), players that left are removed, and each ack queues for the replication engine the ticks
-   it confirms for the first time. When the reading ends, the queued confirmations are applied together, one player
+   it confirms for the first time. The new inputs of each player go to the game, in order (see
+   [Player input](#player-input)). When the reading ends, the queued confirmations are applied together, one player
    per worker, in the order they arrived for each player.
 2. **Relevancy.** The relevancy engine updates what each player sees.
 3. **Event batches.** For each player with events, one numbered `EventBatch` goes out on the reliable channel,
@@ -160,6 +163,7 @@ player connects; the `on_connected` callback is the place.
 | `min_resend_ticks`, `max_resend_ticks` | 2, 30 | The shortest and the longest wait, 1 to 255. |
 | `initial_resend_ticks` | 6 | The wait until the first round trip of a player has been measured. |
 | `type_weight[type]` | 1 for every type | How much a type counts when there is not room for everything, 1 to 255. |
+| `max_inputs_per_tick` | 8 | Most new inputs handed to the game for one player in one `Update`, 1 to 64. See [Player input](#player-input). |
 
 The pacing and the budget are described in [replicated state](replicated-state.md#pacing-and-the-budget). The server
 measures each player's round trip itself: the ticks between writing a buffer and the first ack that confirms it
@@ -170,8 +174,9 @@ The constructor throws `std::invalid_argument`, naming the field, for a value ou
 that players can see (a spatial range above zero, always relevant, or owner only) but that has no schema.
 
 A player who breaks the protocol on the reliable channel (a message that cannot be read, or one a player never
-sends) is disconnected and counted in `Stats().protocol_errors`. The same on the unreliable channel is only
-dropped and counted in `malformed_messages`. An ack before the hello is ignored and counted in `messages_ignored`.
+sends, an `Input` among them) is disconnected and counted in `Stats().protocol_errors`. The same on the unreliable
+channel is only dropped and counted in `malformed_messages`. An ack or an input before the hello is ignored and counted
+in `messages_ignored`.
 
 ## The player's side
 
@@ -181,6 +186,7 @@ client.Poll();                       // once per tick: the only thing that reads
 client.State();                      // Connecting, Handshaking, Connected, Rejected or Disconnected
 client.WordsOf(entity);              // the newest quantized state of a visible entity, or nullptr
 client.ForEachEntity([](EntityId, const uint32_t* words) { /* ... */ });
+client.SendInput(bytes);             // one input of the player: its sequence number, or 0 if nothing was sent
 client.Disconnect();
 ```
 
@@ -200,7 +206,39 @@ sends and confirms it. It does the following, and you do nothing:
   next one. The server remembers 64 ticks and confirms each tick once.
 
 `ClientReplica::Stats()` counts buffers applied, refused, held and dropped, protocol errors, acks sent, malformed
-and ignored messages.
+and ignored messages, and the inputs sent and refused.
+
+## Player input
+
+A client sends what its player wants to do with `SendInput(bytes)`. The core does not know what the bytes mean: the
+game defines them, at most 16 of them (`kMaxInputBytes`; an empty input is fine).
+
+```cpp
+const uint8_t keys[] = {127, 0};     // for example: full push along x, none along z
+const uint32_t sequence = client.SendInput(keys);
+```
+
+- **The answer** is the input's sequence number: 1 for the first, then 2, 3, ... (after 4,294,967,295 it starts again
+  at 1). It is 0, and nothing is sent, when the client is not `Connected` (before the connection is accepted, after
+  it ended, or after a refusal) and when the input is larger than 16 bytes; the second case is counted in
+  `Stats().inputs_refused`. It is safe to call in any state.
+- **Each input travels in four messages.** A message on the unreliable channel carries the new input and the up to 3 before
+  it, so a lost message is usually covered by the next one. Nothing tells the client whether the server got an input:
+  there is no confirmation in this version, and no prediction. The worst message, 4 inputs of 16 bytes, is at most 80
+  bytes. A burst of more than 3 lost messages loses the inputs that only those carried.
+- **The server** judges each input against what it already delivered for that player. A repeat is dropped
+  (`inputs_repeated`), an input older than the newest delivered that never arrived is dropped (`inputs_old`), and a new one is
+  handed to the game, in the order it was sent. The sequence numbers are compared as serial numbers, so they can wrap
+  around 2^32. This state belongs to the connection: a player that takes the place of one that left starts from zero.
+- **A limit.** `ServerConfig::max_inputs_per_tick` is the most new inputs handed to the game for one player in
+  one `Update`. The rest are dropped and counted in `inputs_dropped` without moving the window, so the message that
+  repeats them next delivers them, still in order. A player that floods the server does not slow the others down.
+- **The game** gets each input from `ReplicationServer::SetInputHandler`, which `ServerHost` connects to
+  `IGameLogic::OnPlayerInput(player, sequence, bytes)`. It is called while the transport is read, never after the
+  player's disconnect callback, and the bytes are only valid during the call. They come from a client: check their size
+  and their range before using them. Without a handler the server still judges and counts them (`inputs_delivered`).
+- `ServerStats` has `inputs_delivered`, `inputs_repeated`, `inputs_old` and `inputs_dropped`. The reasons for these
+  choices are in [record 0017](../adr/0017-player-input.md).
 
 A server hello that cannot work (a protocol version that is not the client's, more than 262,144 compact ids,
 a baseline age outside 1 to 255 ticks or a tick rate outside 1 to 1,000) is a protocol error and ends the
@@ -371,7 +409,7 @@ cmake --build --preset windows-msvc-server-release
 The example program, `tessera_example_server`, also needs ENet (`-DTESSERA_BUILD_ENET=ON`, or the `windows-msvc-enet`
 preset). The reasons for the design are in [record 0014](../adr/0014-the-server-as-a-library-plus-an-example.md).
 
-**What your game implements.** `IGameLogic` has six members. It is the first version of the interface, so it may
+**What your game implements.** `IGameLogic` has seven members. It is the first version of the interface, so it may
 change.
 
 | Member | When it is called |
@@ -380,6 +418,7 @@ change.
 | `OnStart(context)` | Once, before the first tick. Make your tables and your first entities. The context has the shard id, the tick rate, the replication server, the grid, the groups, the jobs, the logger and a `request_stop` function. |
 | `OnTick(dt_seconds)` | Once per tick, which is every `1 / tick_rate` seconds when the server keeps up. After a tick that took longer than that, the next one starts at once and the schedule starts over; there is no catch-up, so the gap can be longer. `dt_seconds` is always the nominal `1 / tick_rate`. Simulate, then call `context.replication.Refresh(table)` for each table. |
 | `OnPlayerConnected(player)`, `OnPlayerDisconnected(player)` | While the network phase reads the transport. A player who leaves before saying hello gets neither call. |
+| `OnPlayerInput(player, sequence, bytes)` | While the network phase reads the transport, once for each new input of a player, in the order the player sent them, and never after `OnPlayerDisconnected` for that player. The bytes come from the client: check them. The default does nothing. |
 | `OnShutdown()` | Once, after the last tick and after what was pending has been handed to the transport. |
 
 None of them may throw. If `OnTick` throws, the host logs it, still calls `OnShutdown`, and `Run` returns 1. The same

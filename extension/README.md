@@ -19,7 +19,7 @@ how to use it, and [record 0016](../docs/adr/0016-the-godot-extension-client-fir
 | Class | What it is | Main members |
 |---|---|---|
 | `TesseraSchema` (`Resource`) | The types of entity and their properties, as the server has them. | `add_type`, `is_valid`, `get_error`, `get_hash` |
-| `TesseraClient` (`RefCounted`) | A connection to a server. | `connect_to`, `disconnect_from_server`, `poll`, `get_state`, `get_rejection`, `get_last_error`, `get_entities`, `get_property`, `get_snapshot`, the `schema` property, and the signals `connected`, `disconnected`, `rejected`, `entity_appeared` and `entity_removed` |
+| `TesseraClient` (`RefCounted`) | A connection to a server. | `connect_to`, `disconnect_from_server`, `poll`, `send_input`, `get_connection_id`, `get_state`, `get_rejection`, `get_last_error`, `get_entities`, `get_property`, `get_snapshot`, the `schema` property, and the signals `connected`, `disconnected`, `rejected`, `entity_appeared` and `entity_removed` |
 
 The interface is the first version and can change.
 
@@ -52,7 +52,8 @@ in `build/<preset>/extension/stage/demo/`, ready to open in Godot.
 - `tessera_extension_exports` fails if the library exports anything except its entry point, so that its copy of ENet cannot
   clash with the one inside Godot.
 - `tessera_extension_godot` loads the library in a headless Godot, starts the example server, and checks that a script
-  connects, receives the entities and reads their values. It is registered only if you pass
+  connects, receives the entities and reads their values, and, against a second example server started with `--players`,
+  that `send_input` moves the player's entity and two connections do not move each other's. It is registered only if you pass
   `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable that runs without a window>`: no Godot is fetched by the build.
   It was run with Godot 4.7.2 on Windows, and on Linux in a container with a Godot 4.7.2 built from source (Debug
   library, built by GCC 13 and by Clang 18).

@@ -37,7 +37,7 @@ This project builds the missing pieces so Godot developers can make those games:
 - **Delta compression and quantization**: small packets, small bills.
 - **Multi-threaded replication**: spreads the work across CPU cores.
 - **A standalone dedicated server**: a lean program that does not need the Godot engine (a library plus an example, see [`server/`](server/README.md)).
-- **A Godot client**: a GDExtension to connect a Godot project to a server and read its entities (a first version, see [`extension/`](extension/README.md)).
+- **A Godot client**: a GDExtension to connect a Godot project to a server, read its entities and send the player's input (a first version, see [`extension/`](extension/README.md)).
 - **Prediction and reconciliation** for smooth movement under lag.
 - **Editor tools**: configure everything from the Godot editor, no networking PhD required.
 
@@ -116,7 +116,7 @@ numbers and what is left to improve are in [record 0009](docs/adr/0009-replicate
 
 **Networking** (`core/`): a transport interface that moves whole messages on a reliable and an unreliable
 channel, a simulated network in memory that loses, repeats and delays them, an optional transport over real
-sockets (ENet, see [record 0013](docs/adr/0013-enet-as-the-first-real-transport.md)), five messages, a
+sockets (ENet, see [record 0013](docs/adr/0013-enet-as-the-first-real-transport.md)), six messages, a
 `ReplicationServer` that runs the whole network phase of a tick, and a `ClientReplica` that applies what arrives
 and confirms it. Tests run the real server and real players over a bad network and check that every player ends
 up with exactly what the server has. See the [networking reference](docs/reference/networking.md).
