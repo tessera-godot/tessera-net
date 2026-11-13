@@ -7,7 +7,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace network_test {
@@ -61,6 +63,22 @@ struct FakeClient {
         Send(Channel::Unreliable, bytes);
     }
 
+    // One `Input` message with an entry for each sequence, in the order given, each holding one byte: the
+    // sequence's lowest 8 bits. The caller keeps the count between 1 and 4 and the order rising.
+    void SendInput(Channel channel, std::initializer_list<uint32_t> sequences) {
+        Input input;
+        for (const uint32_t sequence : sequences) {
+            InputEntry entry;
+            entry.sequence = sequence;
+            entry.size = 1;
+            entry.bytes[0] = static_cast<uint8_t>(sequence & 0xFF);
+            input.entries.push_back(entry);
+        }
+        std::vector<uint8_t> bytes;
+        Encode(input, bytes);
+        Send(channel, bytes);
+    }
+
     std::vector<ServerHello> Hellos() const {
         std::vector<ServerHello> found;
         for (const TransportEvent& event : inbox) {
@@ -109,6 +127,13 @@ struct ServerHarness {
     std::vector<std::unique_ptr<FakeClient>> clients;
     std::vector<ConnectionId> connected;
     std::vector<ConnectionId> disconnected;
+    struct DeliveredInput {
+        ConnectionId player;
+        uint32_t sequence;
+        std::vector<uint8_t> bytes;
+    };
+    std::vector<DeliveredInput> inputs;
+    std::vector<std::string> order; // "connected:N", "input:N:S" and "disconnected:N", as they happened
     std::function<void(ConnectionId)>
         on_connect_hook; // lets a test set observers while the player is accepted
     EntityTable<TestColumns> table{TableConfig{0, kMobType}};
@@ -122,11 +147,21 @@ struct ServerHarness {
         server.SetCallbacks(
             [this](ConnectionId id) {
                 connected.push_back(id);
+                order.push_back("connected:" + std::to_string(id));
                 if (on_connect_hook) {
                     on_connect_hook(id);
                 }
             },
-            [this](ConnectionId id) { disconnected.push_back(id); });
+            [this](ConnectionId id) {
+                disconnected.push_back(id);
+                order.push_back("disconnected:" + std::to_string(id));
+            });
+        server.SetInputHandler(
+            [this](ConnectionId player, uint32_t sequence, std::span<const uint8_t> bytes) {
+                inputs.push_back(
+                    DeliveredInput{player, sequence, std::vector<uint8_t>(bytes.begin(), bytes.end())});
+                order.push_back("input:" + std::to_string(player) + ":" + std::to_string(sequence));
+            });
     }
 
     FakeClient& AddClient() {
