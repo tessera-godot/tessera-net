@@ -1,17 +1,18 @@
 # Tessera Net
 
-High-performance, dedicated-server networking for Godot 4, built for large open worlds.
+Dedicated-server networking for Godot 4, made for large open worlds.
 
-Part of **Tessera**, a family of open-source tools for building large multiplayer games in Godot.
+Godot's built-in multiplayer sends every visible node to every client, and that stops scaling at a few thousand entities. Tessera Net is my attempt at the missing piece: a server that doesn't need the engine, sends each player only what is near them, and keeps the packets small, plus a Godot extension for the client side. It is part of **Tessera**, a family of open-source tools for large multiplayer games in Godot.
 
-> **Status: pre-alpha.** The engine-independent data core (entities, fixed-step tick loop, spatial grid,
-> job system), a relevancy engine (deciding what each player sees), replicated state (turning what
-> changed into small buffers for each player) and a server and a client that exchange them over a simulated
-> network, or over real sockets with the optional ENet transport, are implemented and tested. A dedicated server
-> (a library for your game's logic and a small example program) is there too, and so is a CI workflow that builds and
-> tests it. A first Godot client (a GDExtension and a small demo project) exists and has been loaded into Godot 4.7.2 on
-> Windows and, in a container, on Linux; the Godot plugin and the editor tools are not built yet. The server has been built and tested locally on Windows
-> and in a Linux container; the CI workflow runs the same builds and tests on Ubuntu and Windows. Nothing here is ready for production. Follow the [roadmap](docs/roadmap.md) for progress.
+> **It is alpha, and I'd rather be clear about where it stands.**
+>
+> What works today: a C++ core, the server as a library with a small example program, replication over real sockets (ENet), and a first Godot client (a GDExtension plus a demo project). The client has been loaded into Godot 4.7.2 and run end to end on Windows and, in a container, on Linux. CI builds and tests all of it on Ubuntu and Windows.
+>
+> What doesn't exist yet: the editor plugin, prediction and reconciliation, smoothing on the client, and anything you should run in production. Follow the [roadmap](docs/roadmap.md) for progress.
+
+**Want to see it move?** Build the extension and run the demo: [`examples/godot-client-demo`](examples/godot-client-demo/README.md).
+
+**The numbers, with their caveats.** On one machine, over localhost, with 8 bot clients and every entity moving at 20 Hz, the server used 4.9 to 7.0 times less CPU than Godot's built-in replication, and sent 2.6 to 5.0 times fewer bytes to each client (500 to 10,000 entities). Part of that gap comes from design choices, like positions quantized to 1 cm, and not only from efficiency. The [comparison](docs/benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario) has the table and the limits.
 
 ## Why this exists
 
@@ -20,12 +21,7 @@ which stops scaling at a few thousand entities. In our baseline measurement a si
 roughly 0.85 million entity updates per second at about 19 bytes each, and degraded sharply above
 2,000 entities with 8 clients. Open-world survival games need far more than that.
 
-We have since run the same scenario on a Tessera Net server over real sockets (8 clients, every entity moving,
-localhost, one machine, our server on one thread). It kept a fixed 20 Hz tick from 500 to 10,000 entities, with
-4.9 to 7.0 times less CPU than Godot's built-in replication and 2.6 to 5.0 times fewer bytes sent to each client;
-at 10,000 entities the Godot server was at the limit of one core. Part of that gap is design (positions
-quantized to 1 cm, no scene tree, no physics) and not only efficiency, and the machine had background load. The
-table, the ranges and the caveats are in the [comparison](docs/benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario).
+The same scenario, run against a Tessera Net server, is compared at the top of this page and in detail in the [comparison](docs/benchmarks.md#8-tessera-net-and-godots-built-in-replication-same-scenario).
 
 This project builds the missing pieces so Godot developers can make those games:
 

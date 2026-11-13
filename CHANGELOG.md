@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.2.0-alpha] - 2026-11-13
+
 ### Added
 - A first Godot client: the GDExtension `tessera_net` (in `extension/`) with `TesseraSchema`, which describes the types of
   entity and their properties in GDScript, and `TesseraClient`, which connects to a server over ENet, is read with
