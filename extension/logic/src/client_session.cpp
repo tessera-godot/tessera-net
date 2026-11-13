@@ -50,6 +50,8 @@ private:
     bool& flag_;
 };
 
+const char* const kRefusedInRule = "a prediction rule cannot call back into the client";
+
 } // namespace
 
 ClientSession::ClientSession(TransportFactory factory) : factory_(std::move(factory)) {
@@ -69,6 +71,7 @@ void ClientSession::Close() noexcept {
     // The replica refers to the transport and to the schema, so they go in this order.
     replica_.reset();
     prediction_.reset();
+    predicted_numbers_.clear();
     transport_.reset();
     schema_.reset();
     known_.clear();
@@ -77,6 +80,10 @@ void ClientSession::Close() noexcept {
 
 bool ClientSession::Connect(std::shared_ptr<const BuiltSchema> schema, const std::string& host, int port,
                             std::string& error) {
+    if (RuleRunning()) {
+        error = kRefusedInRule;
+        return false;
+    }
     Disconnect();
     if (!schema) {
         error = "a schema is needed to connect";
@@ -109,6 +116,9 @@ bool ClientSession::Connect(std::shared_ptr<const BuiltSchema> schema, const std
 }
 
 void ClientSession::Disconnect() noexcept {
+    if (RuleRunning()) {
+        return; // it would destroy the connection the rule is running on
+    }
     const bool had_connection = replica_ != nullptr;
     Close();
     if (had_connection) {
@@ -117,7 +127,7 @@ void ClientSession::Disconnect() noexcept {
 }
 
 void ClientSession::Poll(std::vector<SessionEvent>& out) {
-    if (!replica_ || polling_) {
+    if (!replica_ || polling_ || RuleRunning()) {
         return;
     }
     const FlagGuard guard(polling_);
@@ -164,6 +174,9 @@ void ClientSession::Poll(std::vector<SessionEvent>& out) {
 
 uint32_t ClientSession::SendInput(std::span<const uint8_t> bytes) noexcept {
     try {
+        if (RuleRunning()) {
+            return 0;
+        }
         return replica_ ? replica_->SendInput(bytes) : 0; // 0 as well when the client is not connected
     } catch (...) {
         return 0;
@@ -265,6 +278,7 @@ struct ClientSession::PredictionState {
     std::vector<Slot> slots;
     std::vector<NamedValue> named; // one for each slot, reused by every call of the rule
     std::string failure;
+    bool reported = false; // `TakeRuleFailure` has handed the failure over
 
     void Note(const std::string& reason) {
         if (failure.empty()) {
@@ -362,6 +376,10 @@ struct ClientSession::PredictionState {
 bool ClientSession::SetPrediction(uint64_t entity, const std::vector<std::string>& properties, ValueRule rule,
                                   const PredictionSettings& settings, std::string& error) {
     try {
+        if (RuleRunning()) {
+            error = kRefusedInRule;
+            return false;
+        }
         if (!replica_) {
             error = "there is no connection to predict on";
             return false;
@@ -418,6 +436,7 @@ bool ClientSession::SetPrediction(uint64_t entity, const std::vector<std::string
             return false;
         }
         prediction_ = std::move(state);
+        predicted_numbers_.assign(replica_->PredictedComponents(), 0.0); // so that reading does not allocate
         return true;
     } catch (const std::exception& exception) {
         error = std::string("could not set the prediction: ") + exception.what();
@@ -428,14 +447,22 @@ bool ClientSession::SetPrediction(uint64_t entity, const std::vector<std::string
 }
 
 void ClientSession::ClearPrediction() noexcept {
+    if (RuleRunning()) {
+        return;
+    }
     if (replica_) {
         replica_->ClearPrediction();
     }
     prediction_.reset();
+    predicted_numbers_.clear();
 }
 
 bool ClientSession::SetPredictionSettings(const PredictionSettings& settings, std::string& error) {
     try {
+        if (RuleRunning()) {
+            error = kRefusedInRule;
+            return false;
+        }
         if (!replica_) {
             error = "nothing is being predicted";
             return false;
@@ -448,7 +475,7 @@ bool ClientSession::SetPredictionSettings(const PredictionSettings& settings, st
 }
 
 void ClientSession::Advance(double seconds) noexcept {
-    if (replica_) {
+    if (replica_ && !RuleRunning()) {
         replica_->AdvancePrediction(seconds);
     }
 }
@@ -460,13 +487,28 @@ std::optional<Value> ClientSession::PredictedProperty(uint64_t entity, std::stri
             if (prediction_->named[i].name != name) {
                 continue;
             }
-            std::vector<double> numbers(replica_->PredictedComponents());
-            if (replica_->Predicted(numbers)) {
-                return prediction_->ValueOf(i, numbers);
+            if (predicted_numbers_.size() == replica_->PredictedComponents() &&
+                replica_->Predicted(predicted_numbers_)) {
+                return prediction_->ValueOf(i, predicted_numbers_);
             }
         }
     }
     return Property(entity, name);
+}
+
+bool ClientSession::RuleRunning() const noexcept {
+    return replica_ != nullptr && replica_->RuleRunning();
+}
+
+std::string ClientSession::TakeRuleFailure() {
+    if (replica_ && prediction_ && !prediction_->reported &&
+        replica_->Prediction() == net::PredictionStatus::Failed) {
+        prediction_->reported = true;
+        // The rule can also fail by leaving a number that is not finite, which has no text of its own.
+        return prediction_->failure.empty() ? std::string("the rule left a number that is not finite")
+                                            : prediction_->failure;
+    }
+    return {};
 }
 
 PredictionReport ClientSession::Prediction() const {

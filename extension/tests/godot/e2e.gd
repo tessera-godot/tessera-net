@@ -80,6 +80,7 @@ func run_all() -> void:
 	await check_predicted_value_settles_to_the_servers()
 	await check_a_wrong_rule_is_corrected()
 	await check_a_rule_that_fails_turns_prediction_off_without_crashing()
+	await check_a_rule_that_calls_back_into_the_client_is_refused()
 	await check_prediction_after_disconnect_is_discarded()
 	await check_two_clients_predict_independently()
 
@@ -1011,6 +1012,55 @@ func check_a_rule_that_fails_turns_prediction_off_without_crashing() -> void:
 		if await start_prediction(client, make_rule(), name):
 			expect(name, client.get_prediction_stats()["rule_failures"] == 0, "%s: the failure count was kept" % label)
 		client.disconnect_from_server()
+	finish(name, before)
+
+
+# A rule that calls back into the client it belongs to, which a rule must not do. Each call is refused with
+# a reason in get_last_error(), and the client and its prediction carry on.
+func make_calling_back_rule(client: TesseraClient, which: String, seen: Dictionary) -> Callable:
+	var base := make_rule()
+	return func(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
+		seen["calls"] += 1
+		match which:
+			"clear_prediction":
+				client.clear_prediction()
+			"send_input":
+				seen["sent"] = client.send_input(PackedByteArray([1, 2]))
+			"poll":
+				client.poll()
+			"disconnect_from_server":
+				client.disconnect_from_server()
+			"connect_to":
+				seen["result"] = client.connect_to("127.0.0.1", input_port)
+		if client.get_last_error() != "":
+			seen["error"] = client.get_last_error()
+		return base.call(state, input, dt)
+
+
+func check_a_rule_that_calls_back_into_the_client_is_refused() -> void:
+	var name := "a_rule_that_calls_back_into_the_client_is_refused"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	for which in ["clear_prediction", "send_input", "poll", "disconnect_from_server", "connect_to"]:
+		var seen := {"calls": 0, "sent": -1, "result": -1, "error": ""}
+		if not await start_prediction(client, make_calling_back_rule(client, which, seen), name):
+			break
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 0.4)
+		expect(name, seen["calls"] > 0, "%s: the rule did not run" % which)
+		expect(name, seen["error"] != "", "%s: no reason in get_last_error()" % which)
+		if which == "send_input":
+			expect(name, seen["sent"] == 0, "send_input from the rule gave %s, not 0" % str(seen["sent"]))
+		if which == "connect_to":
+			expect(name, seen["result"] != OK, "connect_to from the rule worked")
+		expect(name, client.is_predicting(), "%s: the prediction stopped: %s" % [which, str(client.get_prediction_stats())])
+		expect(name, client.get_prediction_stats()["rule_failures"] == 0, "%s: the rule failed" % which)
+		expect(name, client.get_state() == TesseraClient.State.CONNECTED, "%s: the client left the server" % which)
+		client.clear_prediction() # outside the rule it works
+		expect(name, client.get_prediction_stats()["state"] == "off", "%s: clear_prediction did nothing outside the rule" % which)
+	client.disconnect_from_server()
 	finish(name, before)
 
 

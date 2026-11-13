@@ -73,7 +73,8 @@ struct EventBatch {
 struct StateBufferHeader {
     uint64_t tick;
     uint64_t batches_sent; ///< How many `EventBatch` messages the server had sent when it wrote this buffer.
-    /// The newest input sequence of this connection that the state of this tick already reflects (0: none yet).
+    /// The newest input sequence of this connection that the state of this tick already reflects (0: none
+    /// yet).
     uint32_t last_input_sequence = 0;
 };
 

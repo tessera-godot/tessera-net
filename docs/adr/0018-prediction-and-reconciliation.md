@@ -80,6 +80,13 @@ is emptied and the overflow is counted, and the prediction starts again by itsel
 instead of staying off for good after a network outage. A rule that fails, by returning false, throwing or leaving a number
 that is not finite, ends the prediction until it is set again, and the game is told once; it never stops the client.
 
+**A rule must not call back into the client.** The rule runs in the middle of `send_input` and of `poll`, on the state
+those calls are working on. Sending an input from it would run the rule again without end, and disconnecting or changing the
+prediction would destroy what is running. So while a rule runs, those calls (`send_input`, `poll`, `connect_to`,
+`disconnect_from_server`, `set_prediction`, `clear_prediction` and the two settings) are refused: they do nothing, return
+their refusal (`0` for `send_input`, `ERR_BUSY` for the ones that return an error) and leave the reason in
+`get_last_error()`. Reading values (`get_property`, `get_predicted_property`) is fine.
+
 **What the game has to do.** The prediction counts one step for each input, so the game must send one input for every tick
 of the server, with zeros when nothing is pressed. A client that stops sending leaves the server holding the last axes (the
 example for up to half a second) while the predicted sphere has nothing to apply, and the two drift apart until the

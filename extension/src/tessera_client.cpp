@@ -90,7 +90,18 @@ TesseraClient::~TesseraClient() {
     }
 }
 
+bool TesseraClient::RefusedInRule() {
+    if (!session_.RuleRunning()) {
+        return false;
+    }
+    last_error_ = "a prediction rule cannot call back into the client";
+    return true;
+}
+
 int TesseraClient::connect_to(const String& host, int port) {
+    if (RefusedInRule()) {
+        return ERR_BUSY;
+    }
     last_error_ = String();
     std::string error;
     try {
@@ -105,7 +116,6 @@ int TesseraClient::connect_to(const String& host, int port) {
             last_error_ = ToGodot(error);
             return ERR_INVALID_PARAMETER;
         }
-        warned_ = false;
         if (!session_.Connect(built, std::string(host.utf8().get_data()), port, error)) {
             last_error_ = ToGodot(error);
             return ERR_INVALID_PARAMETER;
@@ -118,12 +128,14 @@ int TesseraClient::connect_to(const String& host, int port) {
 }
 
 void TesseraClient::disconnect_from_server() {
+    if (RefusedInRule()) {
+        return;
+    }
     session_.Disconnect();
-    warned_ = false;
 }
 
 void TesseraClient::poll() {
-    if (emitting_) {
+    if (emitting_ || RefusedInRule()) {
         return;
     }
     // A handler may drop the last reference to this client; hold one until the signals are out.
@@ -173,6 +185,9 @@ void TesseraClient::poll() {
 }
 
 int TesseraClient::set_prediction(int64_t entity, const PackedStringArray& properties, const Callable& rule) {
+    if (RefusedInRule()) {
+        return ERR_BUSY;
+    }
     last_error_ = String();
     try {
         if (!rule.is_valid()) {
@@ -247,7 +262,6 @@ int TesseraClient::set_prediction(int64_t entity, const PackedStringArray& prope
             last_error_ = ToGodot(error);
             return ERR_INVALID_PARAMETER;
         }
-        warned_ = false;
     } catch (const std::exception& exception) {
         last_error_ = ToGodot(std::string("could not set the prediction: ") + exception.what());
         return ERR_INVALID_PARAMETER;
@@ -256,8 +270,10 @@ int TesseraClient::set_prediction(int64_t entity, const PackedStringArray& prope
 }
 
 void TesseraClient::clear_prediction() {
+    if (RefusedInRule()) {
+        return;
+    }
     session_.ClearPrediction();
-    warned_ = false;
 }
 
 Variant TesseraClient::get_predicted_property(int64_t entity, const String& name) const {
@@ -308,6 +324,10 @@ Dictionary TesseraClient::get_prediction_stats() const {
 }
 
 void TesseraClient::set_smoothing_seconds(double seconds) {
+    if (RefusedInRule()) {
+        return;
+    }
+    last_error_ = String();
     ext::PredictionSettings settings;
     settings.smoothing_seconds = seconds;
     settings.snap_distance = snap_distance_;
@@ -330,6 +350,10 @@ double TesseraClient::get_smoothing_seconds() const {
 }
 
 void TesseraClient::set_snap_distance(double distance) {
+    if (RefusedInRule()) {
+        return;
+    }
+    last_error_ = String();
     ext::PredictionSettings settings;
     settings.smoothing_seconds = smoothing_seconds_;
     settings.snap_distance = distance;
@@ -350,23 +374,25 @@ double TesseraClient::get_snap_distance() const {
     return snap_distance_;
 }
 
-// The first time the rule fails, one warning says why; the prediction is already off.
+// The first time the rule fails, one warning says why; the prediction is already off. The session hands the
+// reason over only once for each failure.
 void TesseraClient::ReportRuleFailure() {
-    if (warned_) {
-        return;
-    }
     try {
-        const ext::PredictionReport report = session_.Prediction();
-        if (report.status == net::PredictionStatus::Failed) {
-            warned_ = true;
+        const std::string failure = session_.TakeRuleFailure();
+        if (!failure.empty()) {
             UtilityFunctions::push_warning("TesseraClient: the prediction was turned off: " +
-                                           ToGodot(report.failure));
+                                           ToGodot(failure));
         }
     } catch (const std::exception&) {
     }
 }
 
 int TesseraClient::send_input(const PackedByteArray& bytes) {
+    if (RefusedInRule()) {
+        return 0;
+    }
+    // The rule that runs inside this call is a script, which may drop the last reference to this client.
+    Ref<TesseraClient> keep_alive(this);
     try {
         const std::span<const uint8_t> input(bytes.ptr(), static_cast<size_t>(bytes.size()));
         const int sequence = static_cast<int>(session_.SendInput(input));

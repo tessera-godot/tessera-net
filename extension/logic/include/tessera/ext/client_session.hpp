@@ -101,10 +101,11 @@ public:
 
     /// Starts predicting the player's `entity`: `properties` are the names of what `rule` moves (positions,
     /// angles, integers and choices; flags and masks cannot be predicted). From then on `SendInput` applies
-    /// the rule at once and each state of the server corrects it, and `PredictedProperty` reads the result. It
-    /// begins with the first state that arrives after this call. Returns false, with the reason in `error`,
-    /// when there is no connection, the entity or a name is not valid, the rule is empty or the settings are
-    /// out of range. A rule that fails ends the prediction (see `Prediction`); the session goes on.
+    /// the rule at once and each state of the server corrects it, and `PredictedProperty` reads the result.
+    /// It begins with the first state that arrives after this call. Returns false, with the reason in
+    /// `error`, when there is no connection, the entity or a name is not valid, the rule is empty or the
+    /// settings are out of range. A rule that fails ends the prediction (see `Prediction`); the session goes
+    /// on. The rule must not call back into the session (see `RuleRunning`).
     bool SetPrediction(uint64_t entity, const std::vector<std::string>& properties, ValueRule rule,
                        const PredictionSettings& settings, std::string& error);
     /// Stops predicting. Harmless in any state; a disconnection does the same.
@@ -119,6 +120,14 @@ public:
     /// prediction is active and `name` is one of the predicted properties; otherwise the same as `Property`.
     std::optional<Value> PredictedProperty(uint64_t entity, std::string_view name) const;
     PredictionReport Prediction() const;
+    /// True while the movement rule runs. The rule must not call back into the session: while it runs,
+    /// `SendInput`, `Poll`, `Connect`, `Disconnect`, `SetPrediction`, `ClearPrediction`,
+    /// `SetPredictionSettings` and `Advance` refuse to act (`SendInput` returns 0, `Connect` and
+    /// `SetPrediction` return false with the reason in `error`).
+    bool RuleRunning() const noexcept;
+    /// Why the rule failed, the first time this is asked after it failed; empty before and afterwards. A
+    /// new `SetPrediction` that fails again gives a new answer.
+    std::string TakeRuleFailure();
 
     /// The entities that have a state, by increasing id.
     std::vector<uint64_t> Entities() const;
@@ -140,6 +149,7 @@ private:
     uint64_t generation_ = 0;
     bool polling_ = false;
     std::shared_ptr<PredictionState> prediction_;
+    mutable std::vector<double> predicted_numbers_; // what `PredictedProperty` reads into, sized when set
 };
 
 } // namespace tessera::ext

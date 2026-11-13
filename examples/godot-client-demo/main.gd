@@ -115,6 +115,8 @@ func _on_entity_appeared(id: int) -> void:
 # The movement rule of the example server, for one input and one step of dt seconds: the two bytes are the axes
 # along x and z (-127 to 127), the speed is at most PLAYER_SPEED and the player stays inside the world. This has
 # to stay the same as the rule on the server; where the two differ, the server wins and the sphere is corrected.
+# The two agree for the 2-byte inputs this script sends. A shorter input is ignored by the server, which keeps
+# the last axes, while this rule does not move at all; the demo never sends one.
 func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
 	if input.size() < 2:
 		return state

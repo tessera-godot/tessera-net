@@ -53,11 +53,14 @@ public:
     // (state: Dictionary, input: PackedByteArray, dt: float) and returns a Dictionary: `state` has the value
     // of each predicted property by name (a position is a Vector3, an angle a float, an integer an int), and
     // the result holds the values after one step of `dt` seconds with that input. A name left out keeps its
-    // value; a name that is not predicted is ignored; anything else (not a Dictionary, a value of the wrong
-    // type, an error in the script) makes the rule fail, which turns the prediction off with one warning. Call
-    // it with the id of the player's entity once it is known; it starts when the next state buffer arrives, so the
-    // game sends an input on every tick (zeros included) and the prediction begins within a round trip.
-    // Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error(). Safe in any state.
+    // value; a name that is not predicted is ignored. A rule that does not return a Dictionary, or gives a
+    // value of the wrong type, makes the rule fail, which turns the prediction off with one warning. Call it
+    // with the id of the player's entity once it is known; it starts when the next state buffer arrives, so
+    // the game sends an input on every tick (zeros included) and the prediction begins within a round trip.
+    // The rule must not call back into this client (send_input, poll, set_prediction, clear_prediction,
+    // connect_to, disconnect_from_server): while it runs those calls are refused, with the reason in
+    // get_last_error(). Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() (ERR_BUSY if
+    // called from inside the rule). Safe in any state.
     int set_prediction(int64_t entity, const PackedStringArray& properties, const Callable& rule);
     // Stops predicting. A disconnection does the same.
     void clear_prediction();
@@ -96,11 +99,12 @@ private:
     bool emitting_ = false;
     double smoothing_seconds_ = 0.1;
     double snap_distance_ = 2.0;
-    bool warned_ = false; // the failure of the rule has been reported
     bool has_last_poll_ = false;
     std::chrono::steady_clock::time_point last_poll_;
 
     void ReportRuleFailure();
+    // True, with the reason in last_error_, while the prediction rule runs: a rule must not call back.
+    bool RefusedInRule();
 };
 TESSERA_GODOT_CLASS_END
 

@@ -242,12 +242,14 @@ func _send_input(delta: float) -> void:
 
 To move your own sphere at once, give the client the movement rule of your game, as a function, and the entity to
 apply it to. The rule is the same one the server runs, written once more for the client (here, the rule of the example
-server). The demo's, word for word:
+server). The demo's rule agrees with the server's for the inputs of 2 bytes that the demo sends:
 
 ```gdscript
 # The movement rule of the example server, for one input and one step of dt seconds: the two bytes are the axes
 # along x and z (-127 to 127), the speed is at most PLAYER_SPEED and the player stays inside the world. This has
 # to stay the same as the rule on the server; where the two differ, the server wins and the sphere is corrected.
+# The two agree for the 2-byte inputs this script sends. A shorter input is ignored by the server, which keeps
+# the last axes, while this rule does not move at all; the demo never sends one.
 func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
 	if input.size() < 2:
 		return state
@@ -275,7 +277,7 @@ var position = client.get_predicted_property(id, "position")
 
 | Call | What it does |
 |---|---|
-| `set_prediction(entity, properties, rule)` | Starts predicting `entity` (the player's own) with `rule`, a `Callable(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary`. `properties` are the names of what the rule moves. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`. The prediction starts when the next state arrives from the server. Safe in any state, but it needs a connection. |
+| `set_prediction(entity, properties, rule)` | Starts predicting `entity` (the player's own) with `rule`, a `Callable(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary`. `properties` are the names of what the rule moves. Returns `OK`, or `ERR_INVALID_PARAMETER` (`ERR_BUSY` from inside the rule) with the reason in `get_last_error()`. The prediction starts when the next state arrives from the server. Safe in any state, but it needs a connection. |
 | `clear_prediction()` | Stops predicting. A disconnection does the same. |
 | `get_predicted_property(id, name)` | The value to show: the predicted and smoothed one for the predicted entity and its predicted properties while the prediction runs, and the same as `get_property` for anything else. |
 | `is_predicting()` | Whether the prediction runs. |
@@ -284,8 +286,12 @@ var position = client.get_predicted_property(id, "position")
 
 - **The rule** gets the predicted properties by name in `state` (a position is a `Vector3`, an angle a float, an integer an
   int) and returns a `Dictionary` with the values after one step. A name you leave out keeps its value. Returning
-  anything else than a `Dictionary`, a value of the wrong type, or an error in the script, turns the prediction off with
-  one warning, and `get_predicted_property` gives what the server says. The game goes on.
+  anything else than a `Dictionary`, or a value of the wrong type, turns the prediction off with one warning, and
+  `get_predicted_property` gives what the server says. The game goes on.
+- **The rule must not call back into the client.** It runs inside `send_input` and `poll`, so while it runs
+  `send_input`, `poll`, `connect_to`, `disconnect_from_server`, `set_prediction`, `clear_prediction` and the two settings
+  do nothing: `send_input` returns 0, the others return `ERR_BUSY` or nothing, and `get_last_error()` says why. Reading
+  values is fine.
 - **Send one input for every tick of the server, zeros included.** The client takes one step of the rule for each
   `send_input`, and the server takes one for each tick. The demo sends at 30 a second, even when no key is pressed. A
   client that stops sending leaves the server holding your last keys for up to half a second (in the example), and the

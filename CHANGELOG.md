@@ -15,10 +15,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   can be changed). `ServerStats::input_confirmations_sent` counts the buffers that only confirm an input.
 - In the Godot extension, `TesseraClient.set_prediction(entity, properties, rule)`, `clear_prediction()`,
   `get_predicted_property(id, name)`, `is_predicting()`, `get_prediction_stats()` and the properties
-  `smoothing_seconds` and `snap_distance`. A rule that fails turns the prediction off with one warning.
+  `smoothing_seconds` and `snap_distance`. A rule that fails turns the prediction off with one warning. A rule must not
+  call back into the client: while it runs, `send_input`, `poll`, `connect_to`, `disconnect_from_server`,
+  `set_prediction` and `clear_prediction` are refused, with the reason in `get_last_error()`.
 - In the demo project, the green sphere is predicted with the movement rule of the example server written in GDScript,
   and the label shows the size of the last correction. The other players' spheres are not smoothed.
-- Tests: the default build now has 588 tests (it had 539), with a test of the prediction against the example server on a
+- Tests: the default build now has 592 tests (it had 539), with a test of the prediction against the example server on a
   simulated network that loses, duplicates and delays messages; the server tests, the extension tests and the headless
   Godot test cover the prediction too.
 - Architecture decision record 0018, "Prediction and reconciliation" (Proposed).
@@ -45,7 +47,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   adds a field to the header of the `StateBuffer`, the newest input of the player that the state reflects. No other
   message changed.
 - The server sends a buffer with only the header to a player that is sending input while nothing about its entities
-  changes, so that the input is confirmed.
+  changes, so that the input is confirmed. While the bandwidth budget leaves entities out of a player's buffer, the
+  buffer keeps the input number it sent before, because its state is behind the inputs the server has read.
 
 ## [0.2.0-alpha] - 2026-11-13
 

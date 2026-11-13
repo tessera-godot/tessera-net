@@ -1245,3 +1245,117 @@ TESSERA_TEST(session_clear_prediction_and_disconnect_discard_it) {
     TESSERA_CHECK(!p.session.PredictedProperty(p.own, "position").has_value());
     p.session.Advance(1.0); // harmless
 }
+
+namespace {
+
+// A rule that calls back into the session it belongs to, which no rule may do. It only does so a few times,
+// so that a session that lets it recurse still ends.
+struct SessionCallbacks {
+    ClientSession* session = nullptr;
+    bool armed = false;
+    int calls = 0;
+    int depth = 0;
+    int deepest = 0;
+    bool running_inside = false;
+    uint32_t sent = 99;
+    bool set_prediction = true;
+    bool connect = true;
+    bool settings = true;
+    std::string set_error;
+    std::string connect_error;
+
+    ValueRule Rule(ValueRule base) {
+        return [this, base](std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt) {
+            ++depth;
+            deepest = std::max(deepest, depth);
+            if (armed && ++calls <= 3) {
+                running_inside = session->RuleRunning();
+                const uint8_t bytes[2] = {127, 0};
+                sent = session->SendInput(bytes);
+                std::vector<SessionEvent> out;
+                session->Poll(out);
+                session->Advance(1.0);
+                std::string error;
+                settings = session->SetPredictionSettings(PredictionSettings{0.5, 3.0}, error);
+                set_prediction =
+                    session->SetPrediction(1, {"position"}, ValueRule(base), PredictionSettings{}, set_error);
+                connect = session->Connect(PlayersSchema(), "127.0.0.1", 7777, connect_error);
+                session->ClearPrediction(); // would destroy the rule that is running
+                session->Disconnect();      // would destroy the connection it runs on
+            }
+            const bool result = base(state, input, dt);
+            --depth;
+            return result;
+        };
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(session_a_rule_that_calls_back_into_the_session_is_refused) {
+    SessionCallbacks back;
+    Predicting p(back.Rule(PlayerRule()));
+    TESSERA_CHECK(p.ok);
+    TESSERA_CHECK(!p.session.RuleRunning());
+    back.session = &p.session;
+    back.armed = true;
+    const uint64_t sent_before = p.session.Prediction().stats.reconciliations;
+    p.Tick(127, 0); // sends the input; the rule runs inside, and then inside a reconciliation as well
+    TESSERA_CHECK(back.calls >= 1 && back.deepest == 1);
+    TESSERA_CHECK(back.running_inside);
+    TESSERA_CHECK(back.sent == 0 && !back.set_prediction && !back.connect && !back.settings);
+    TESSERA_CHECK(!back.set_error.empty() && !back.connect_error.empty());
+    TESSERA_CHECK(p.session.State() == SessionState::Connected);
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Active);
+    TESSERA_CHECK(p.session.Prediction().stats.reconciliations >= sent_before);
+    TESSERA_CHECK(p.session.Prediction().stats.rule_failures == 0);
+    // Outside the rule everything works again, the session is the same one.
+    back.armed = false;
+    TESSERA_CHECK(p.session.SendInput(std::vector<uint8_t>{0, 0}) != 0);
+    p.session.ClearPrediction();
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Off);
+}
+
+TESSERA_TEST(session_the_failure_of_a_rule_is_taken_once) {
+    Predicting p(PlayerRule());
+    TESSERA_CHECK(p.ok);
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty()); // nothing failed
+    for (int i = 0; i < 5; ++i) {
+        p.Tick(99, 0); // the rule fails on these
+    }
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Failed);
+    const std::string first = p.session.TakeRuleFailure();
+    TESSERA_CHECK(!first.empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty()); // said once
+    p.Tick(99, 0);
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+    // A new prediction that fails again is a new failure.
+    std::string error;
+    TESSERA_CHECK(p.session.SetPrediction(p.own, {"position"}, PlayerRule(), {}, error));
+    for (int i = 0; i < 60 && p.session.Prediction().status != net::PredictionStatus::Active; ++i) {
+        p.Tick(0, 0);
+    }
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Active);
+    for (int i = 0; i < 5; ++i) {
+        p.Tick(99, 0);
+    }
+    TESSERA_CHECK(!p.session.TakeRuleFailure().empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+}
+
+TESSERA_TEST(session_a_rule_that_leaves_a_number_that_is_not_finite_still_has_a_failure_text) {
+    ValueRule base = PlayerRule();
+    ValueRule rule = [base](std::vector<NamedValue>& state, std::span<const uint8_t> input, double dt) {
+        if (input.size() >= 2 && input[0] == 99) {
+            state[0].value.vec[0] = std::nan(""); // right type, no number
+            return true;
+        }
+        return base(state, input, dt);
+    };
+    Predicting p(rule);
+    TESSERA_CHECK(p.ok);
+    p.Tick(99, 0);
+    TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Failed);
+    TESSERA_CHECK(!p.session.TakeRuleFailure().empty());
+    TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+}
