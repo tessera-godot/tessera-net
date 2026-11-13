@@ -520,6 +520,9 @@ TESSERA_TEST(a_full_history_pauses_jumps_and_resumes_at_the_next_reconcile) {
         TESSERA_CHECK(predictor.Pending() <= Predictor::kHistoryCapacity);
     }
     TESSERA_CHECK(predictor.Stats().history_overflows == 1 && seen->first_bytes.size() == calls);
+    // A state that is not newer than the last one seen does not start it again.
+    TESSERA_CHECK(!predictor.Reconcile(1, source.Set(40.0, 0.0, 0.0), 0, kDt));
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Paused);
     // The next state of the server starts it again, from that state.
     TESSERA_CHECK(predictor.Reconcile(2, source.Set(55.0, 0.0, 0.0), 1000, kDt));
     TESSERA_CHECK(predictor.Status() == PredictionStatus::Active && predictor.Pending() == 0);

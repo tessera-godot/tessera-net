@@ -208,7 +208,10 @@ bool Predictor::Predict(uint32_t sequence, std::span<const uint8_t> input, doubl
         // prediction is dropped, and what is shown jumps back to the server's state; it resumes with the next
         // state that arrives.
         ++stats_.history_overflows;
+        const uint64_t keep_tick = last_tick_; // a state older than the newest one seen must not resume it
         ClearState();
+        any_tick_ = true;
+        last_tick_ = keep_tick;
         status_ = PredictionStatus::Paused;
         return false;
     }
