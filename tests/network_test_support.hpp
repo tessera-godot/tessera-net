@@ -99,6 +99,18 @@ struct ClientHarness {
         return found;
     }
 
+    // The `Input` messages the client has sent, decoded.
+    std::vector<Input> Inputs() const {
+        std::vector<Input> found;
+        for (const TransportEvent& event : from_client) {
+            Input input;
+            if (event.kind == TransportEvent::Kind::Message && Decode(event.data, &input)) {
+                found.push_back(std::move(input));
+            }
+        }
+        return found;
+    }
+
     size_t MessagesFromClient() const {
         size_t count = 0;
         for (const TransportEvent& event : from_client) {
