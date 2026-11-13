@@ -56,9 +56,11 @@ description of the entities and the one in `main.gd` differ, the label says the 
 
 ## Controls
 
-W, A, S and D move your sphere, the green one. The other players' spheres are orange. The demo sends the keys 30 times
-a second; the server moves your entity at up to 8 meters per second and stops it half a second after the input stops.
-There is no prediction yet: the sphere moves when the server's answer arrives, one round trip after you press a key.
+W, A, S and D move your sphere, the green one. The other players' spheres are orange. The white ones are the 100
+entities the server keeps walking on their own; they have no owner, so nobody controls them. The demo sends the keys 30
+times a second; the server moves your entity at up to 8 meters per second and stops it half a second after the input
+stops. There is no prediction yet: the sphere moves when the server's answer arrives, one round trip after you press a
+key.
 
 ## What has been checked
 

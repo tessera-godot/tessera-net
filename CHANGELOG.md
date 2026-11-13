@@ -22,7 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Tests: the default build now has 539 tests (it had 495), with a test of the input against a simulated network that loses
   30 percent of what the client sends; the server tests, the extension tests and the headless Godot test cover the
   example's players and the two new calls.
-- Architecture decision record 0017, "Player input" (Proposed).
+- Architecture decision record 0017, "Player input" (Accepted).
 
 ### Changed
 - **The protocol version is now 2.** Clients and servers of 0.2.0-alpha no longer connect to the new ones: the server
