@@ -319,7 +319,8 @@ TESSERA_TEST(the_entity_leaving_discards_the_prediction_and_it_resumes_when_it_r
     s.source.Show(s.enter);
     s.h.SendBatch(++s.batches, ++s.tick, s.enter);
     s.source.MoveX(s.entity, 40.0f);
-    s.h.SendStateBuffer(++s.tick, s.batches, s.source.Write(s.tick), 0);
+    ++s.tick;
+    s.h.SendStateBuffer(s.tick, s.batches, s.source.Write(s.tick), 0);
     s.h.Step();
     TESSERA_CHECK(s.h.client.Prediction() == PredictionStatus::Active);
     TESSERA_CHECK(s.h.client.Predicted(out) && Near(out[0], 40.0));
