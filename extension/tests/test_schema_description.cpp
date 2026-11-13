@@ -320,3 +320,17 @@ TESSERA_TEST(schema_built_twice_has_the_same_hash_and_independent_storage) {
     const BuildResult third = BuildSchema(reversed);
     TESSERA_CHECK(third.schema != nullptr && third.schema->Hash() == first.schema->Hash());
 }
+
+TESSERA_TEST(schema_players_description_matches_the_example_server_hash) {
+    tessera::server::example::ExampleGame game(1, false, true);
+    const uint64_t server_hash = game.DescribeWorld().schema->Hash();
+    const TypeDescription types[] = {
+        Type(1, {Position("position", 0.01, 2048.0)}),
+        Type(2, {Position("position", 0.01, 2048.0), Integer("owner", 0, 65535, false)})};
+    const BuildResult result = BuildSchema(std::span<const TypeDescription>(types, 2));
+    TESSERA_CHECK(result.schema != nullptr && result.error.empty());
+    if (result.schema) {
+        TESSERA_CHECK(result.schema->Hash() == server_hash);
+        TESSERA_CHECK(result.schema->Hash() != HashOf({Position("position")}));
+    }
+}

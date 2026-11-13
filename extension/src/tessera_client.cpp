@@ -3,14 +3,14 @@
 
 #include "tessera/net/transport/enet_transport.hpp"
 
-#include <godot_cpp/classes/global_constants.hpp>
-#include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/core/binder_common.hpp>
-#include <godot_cpp/variant/vector3.hpp>
-
 #include <cstdint>
 #include <exception>
+#include <godot_cpp/classes/global_constants.hpp>
+#include <godot_cpp/core/binder_common.hpp>
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 #include <memory>
+#include <span>
 
 namespace godot {
 
@@ -155,6 +155,19 @@ void TesseraClient::poll() {
     emitting_ = false;
 }
 
+int TesseraClient::send_input(const PackedByteArray& bytes) {
+    try {
+        const std::span<const uint8_t> input(bytes.ptr(), static_cast<size_t>(bytes.size()));
+        return static_cast<int>(session_.SendInput(input));
+    } catch (...) {
+        return 0;
+    }
+}
+
+int TesseraClient::get_connection_id() const {
+    return static_cast<int>(session_.ConnectionId());
+}
+
 int TesseraClient::get_state() const {
     return static_cast<int>(session_.State());
 }
@@ -218,6 +231,8 @@ void TesseraClient::_bind_methods() {
     ClassDB::bind_method(D_METHOD("connect_to", "host", "port"), &TesseraClient::connect_to);
     ClassDB::bind_method(D_METHOD("disconnect_from_server"), &TesseraClient::disconnect_from_server);
     ClassDB::bind_method(D_METHOD("poll"), &TesseraClient::poll);
+    ClassDB::bind_method(D_METHOD("send_input", "bytes"), &TesseraClient::send_input);
+    ClassDB::bind_method(D_METHOD("get_connection_id"), &TesseraClient::get_connection_id);
     ClassDB::bind_method(D_METHOD("get_state"), &TesseraClient::get_state);
     ClassDB::bind_method(D_METHOD("get_rejection"), &TesseraClient::get_rejection);
     ClassDB::bind_method(D_METHOD("get_last_error"), &TesseraClient::get_last_error);

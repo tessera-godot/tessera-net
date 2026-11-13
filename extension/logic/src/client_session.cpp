@@ -160,6 +160,21 @@ void ClientSession::Poll(std::vector<SessionEvent>& out) {
     previous_ = state;
 }
 
+uint32_t ClientSession::SendInput(std::span<const uint8_t> bytes) noexcept {
+    try {
+        return replica_ ? replica_->SendInput(bytes) : 0; // 0 as well when the client is not connected
+    } catch (...) {
+        return 0;
+    }
+}
+
+int64_t ClientSession::ConnectionId() const noexcept {
+    if (!replica_ || replica_->State() != net::ClientState::Connected) {
+        return -1;
+    }
+    return static_cast<int64_t>(replica_->ConnectionId());
+}
+
 SessionState ClientSession::State() const noexcept {
     return replica_ ? ToSessionState(replica_->State()) : SessionState::Disconnected;
 }
