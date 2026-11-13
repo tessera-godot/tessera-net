@@ -70,7 +70,9 @@ struct ServerStats {
     uint64_t inputs_delivered = 0; ///< Inputs handed to the game.
     uint64_t inputs_repeated = 0;  ///< Inputs that had already been delivered (the repeats a client sends).
     uint64_t inputs_old = 0;     ///< Inputs older than the newest delivered, and never delivered themselves.
-    uint64_t inputs_dropped = 0; ///< New inputs dropped because a player sent more than the limit in a tick.
+    /// Drop events: a new input over the per-tick limit. The same input counts again each time a later message
+    /// repeats it and it is dropped again.
+    uint64_t inputs_dropped = 0;
 };
 
 /// Called for each new input of a player, in the order the player sent them and never twice. The bytes are
@@ -140,7 +142,7 @@ private:
         InputWindow inputs;           // which inputs of this player were delivered
         uint64_t input_tick = 0;      // the tick `inputs_this_tick` counts for
         bool input_tick_set = false;
-        uint32_t inputs_this_tick = 0; // new inputs delivered or dropped for this player in `input_tick`
+        uint32_t inputs_this_tick = 0; // new inputs delivered for this player in `input_tick`
     };
 
     static RelevancyConfig PrepareRelevancy(RelevancyConfig relevancy, const ServerConfig& config,

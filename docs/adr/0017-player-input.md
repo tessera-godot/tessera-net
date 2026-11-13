@@ -35,9 +35,12 @@ what it sends next is older than where it jumped, and nobody else's input depend
 
 **A limit per connection and per tick.** A client can flood the server, so `ServerConfig::max_inputs_per_tick` (8 by
 default, 1 to 64) is the most new inputs handed to the game for one connection in one `Update`. The rest are dropped and
-counted without moving the window, so the next message that repeats them delivers them, still in order. 8 is enough
-for a client sending 240 inputs per second to a server running 30 ticks per second. `ServerStats` counts the inputs
-delivered, repeated, late and dropped for being over the limit.
+counted without moving the window, so the next message that repeats them delivers them, still in order, as long as they
+are within the 3 inputs a message repeats; older ones are lost. Every message is still decoded, so the limit caps what
+reaches the game, not the work of reading messages. 8 per tick is exactly 240 inputs per second at 30 ticks per second,
+which leaves no margin for jitter: a burst after a delay can go over it. `ServerStats` counts the inputs delivered,
+repeated, late and dropped for being over the limit; the last counts drop events, so an input dropped again when a
+later message repeats it counts again.
 
 **The game decides what is valid.** The server hands each new input to the game through
 `IGameLogic::OnPlayerInput(player, sequence, bytes)`, called while the network phase reads the transport, in order and

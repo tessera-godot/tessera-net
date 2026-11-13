@@ -231,8 +231,11 @@ const uint32_t sequence = client.SendInput(keys);
   handed to the game, in the order it was sent. The sequence numbers are compared as serial numbers, so they can wrap
   around 2^32. This state belongs to the connection: a player that takes the place of one that left starts from zero.
 - **A limit.** `ServerConfig::max_inputs_per_tick` is the most new inputs handed to the game for one player in
-  one `Update`. The rest are dropped and counted in `inputs_dropped` without moving the window, so the message that
-  repeats them next delivers them, still in order. A player that floods the server does not slow the others down.
+  one `Update`. The rest are dropped and counted in `inputs_dropped` without moving the window, so the next message
+  that repeats them delivers them, still in order, as long as they are within the 3 inputs a message repeats; older
+  ones are lost. Every message is still decoded, so the limit only caps what reaches the game, not the work of reading
+  the messages. `inputs_dropped` counts drop events: an input dropped again when a later message repeats it counts
+  again.
 - **The game** gets each input from `ReplicationServer::SetInputHandler`, which `ServerHost` connects to
   `IGameLogic::OnPlayerInput(player, sequence, bytes)`. It is called while the transport is read, never after the
   player's disconnect callback, and the bytes are only valid during the call. They come from a client: check their size

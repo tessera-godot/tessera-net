@@ -31,8 +31,7 @@ inline constexpr uint32_t kMaxInputBytes = 16;
 //     and the buffer written by the replication engine, unchanged.
 // Ack (client to server, unreliable): the newest tick applied and a mask of the 32 before it.
 // Input (client to server, unreliable): up to 4 inputs, the newest and the 3 before it, each with its
-// sequence
-//     number and a block of bytes the game defines.
+//     sequence number and a block of bytes the game defines.
 enum class MessageKind : uint8_t {
     ClientHello = 1,
     ServerHello = 2,

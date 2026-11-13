@@ -619,8 +619,8 @@ func position_of(client: TesseraClient, entity: int) -> Vector3:
 	return position if position is Vector3 else Vector3(INF, INF, INF)
 
 
-# Sends the same input once every 8 ms for `seconds`, reading the clients meanwhile. Returns the number of
-# frames and checks that the sequence numbers counted 1, 2, 3, ... without a gap.
+# Sends the same input once every 8 ms for `seconds`, reading the clients meanwhile, and checks that the
+# sequence numbers counted 1, 2, 3, ... without a gap.
 func drive(clients: Array, inputs: Array, seconds: float, check: String) -> void:
 	var last := []
 	for _client in clients:
@@ -759,7 +759,9 @@ func check_out_of_range_and_short_input_is_cut_and_ignored() -> void:
 		fail(name, "could not join the player server")
 		return
 	var own := find_own_entity(client)
-	# The byte 128 is -128 to the server: not an axis value. It is cut, so the player walks along -x, no faster.
+	# The byte 128 is -128 to the server. Whatever the server does with it, the player must walk along -x and
+	# no faster than the speed limit. (That -128 itself is clipped is pinned by the C++ test
+	# an_axis_outside_minus_127_to_127_is_clipped; the speed cap here would hold either way.)
 	var start := position_of(client, own)
 	var started := Time.get_ticks_msec()
 	await drive([client], [PackedByteArray([128, 0])], 1.0, name)

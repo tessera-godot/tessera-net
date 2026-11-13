@@ -284,8 +284,8 @@ private:
         context_->grid.ApplyMoves(player_moves_);
         for (const net::ConnectionId id : moved_players_) {
             const Player& player = players_by_id_.at(id);
-            Observe(id, player.x,
-                    player.z); // cheap: the engine only looks again after the observer moved 4 m
+            // Cheap: the engine only looks again after the observer moved 4 m.
+            Observe(id, player.x, player.z);
         }
     }
 

@@ -70,8 +70,8 @@ uint32_t ClientReplica::SendInput(std::span<const uint8_t> bytes) {
     const uint32_t sequence = next_input_sequence_;
     next_input_sequence_ = NextInputSequence(sequence);
     if (recent_input_count_ == recent_inputs_.size()) {
-        std::copy(recent_inputs_.begin() + 1, recent_inputs_.end(),
-                  recent_inputs_.begin()); // the oldest leaves
+        // The oldest leaves.
+        std::copy(recent_inputs_.begin() + 1, recent_inputs_.end(), recent_inputs_.begin());
         --recent_input_count_;
     }
     InputEntry& entry = recent_inputs_[recent_input_count_++];

@@ -62,7 +62,7 @@ There is no prediction yet: the sphere moves when the server's answer arrives, o
 
 ## What has been checked
 
-Run in a headless Godot (no window), the demo project loads, connects to the example server and receives its 100 entities
-without a script error; in the same kind of run, a client moves its own entity with the same input bytes and sees the
+Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
+error, with the connect and disconnect lines in its output; in the same kind of run, a client moves its own entity with the same input bytes and sees the
 position the server works out. Nobody has looked at it with a window yet, so how it looks on screen, and how the keys
 feel, are not confirmed.

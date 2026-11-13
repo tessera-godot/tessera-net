@@ -19,7 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   removes it when the player leaves. Without `--players` nothing changes, the schema hash included.
 - In the demo project, the player's own sphere (green; the other players' are orange) moves with W, A, S and D. There is
   no prediction yet: the sphere moves one round trip after the key press.
-- Tests: the default build now has 537 tests (it had 495), with a test of the input against a simulated network that loses
+- Tests: the default build now has 539 tests (it had 495), with a test of the input against a simulated network that loses
   30 percent of what the client sends; the server tests, the extension tests and the headless Godot test cover the
   example's players and the two new calls.
 - Architecture decision record 0017, "Player input" (Proposed).
