@@ -23,6 +23,19 @@ uint32_t ComponentsOf(PropertyKind kind) noexcept {
     return kind == PropertyKind::Position ? 3u : 1u;
 }
 
+bool ValidSettings(double smoothing_seconds, double snap_distance, std::string* error) {
+    if (!std::isfinite(smoothing_seconds) || smoothing_seconds < 0.0 ||
+        smoothing_seconds > kMaxSmoothingSeconds) {
+        Describe(error, "the smoothing time must be from 0 to 5 seconds");
+        return false;
+    }
+    if (!std::isfinite(snap_distance) || snap_distance <= 0.0) {
+        Describe(error, "the snap distance must be a number above 0");
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 Predictor::Predictor(const ReplicationSchema& schema) : schema_(schema) {
@@ -46,13 +59,7 @@ bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
         Describe(error, "the prediction needs a rule");
         return false;
     }
-    if (!std::isfinite(config.smoothing_seconds) || config.smoothing_seconds < 0.0 ||
-        config.smoothing_seconds > kMaxSmoothingSeconds) {
-        Describe(error, "the smoothing time must be from 0 to 5 seconds");
-        return false;
-    }
-    if (!std::isfinite(config.snap_distance) || config.snap_distance <= 0.0) {
-        Describe(error, "the snap distance must be a number above 0");
+    if (!ValidSettings(config.smoothing_seconds, config.snap_distance, error)) {
         return false;
     }
     std::vector<Slot> slots;
@@ -88,6 +95,19 @@ bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
     shown_.assign(components_, 0.0);
     ClearState();
     status_ = PredictionStatus::Waiting;
+    return true;
+}
+
+bool Predictor::SetSettings(double smoothing_seconds, double snap_distance, std::string* error) {
+    if (status_ == PredictionStatus::Off) {
+        Describe(error, "nothing is being predicted");
+        return false;
+    }
+    if (!ValidSettings(smoothing_seconds, snap_distance, error)) {
+        return false;
+    }
+    config_.smoothing_seconds = smoothing_seconds;
+    config_.snap_distance = snap_distance;
     return true;
 }
 

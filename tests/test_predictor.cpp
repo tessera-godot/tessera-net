@@ -646,3 +646,23 @@ TESSERA_TEST(a_rule_that_leaves_a_number_that_is_not_finite_stops_the_prediction
     TESSERA_CHECK(!predictor.Reconcile(2, source.Set(1.0, 0.0, 0.0), 0, kDt));
     TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed);
 }
+
+TESSERA_TEST(the_settings_can_change_without_restarting_the_prediction) {
+    const ReplicationSchema schema = MakeTestSchema();
+    Source source(schema);
+    Predictor predictor(schema);
+    TESSERA_CHECK(!predictor.SetSettings(0.2, 1.0, nullptr)); // nothing is set yet
+    TESSERA_CHECK(predictor.Configure(Config(MoveXByInput()), nullptr));
+    TESSERA_CHECK(predictor.Reconcile(1, source.Set(10.0, 0.0, 0.0), 0, kDt));
+    TESSERA_CHECK(predictor.Predict(1, Byte(3), kDt));
+    std::string error;
+    TESSERA_CHECK(!predictor.SetSettings(-1.0, 1.0, &error) && !error.empty());
+    TESSERA_CHECK(!predictor.SetSettings(0.2, 0.0, nullptr));
+    TESSERA_CHECK(predictor.Config().smoothing_seconds == 0.0 && predictor.Config().snap_distance == 2.0);
+    TESSERA_CHECK(predictor.SetSettings(0.2, 1.0, nullptr));
+    TESSERA_CHECK(predictor.Config().smoothing_seconds == 0.2 && predictor.Config().snap_distance == 1.0);
+    // The state and the history are as they were.
+    TESSERA_CHECK(predictor.Status() == PredictionStatus::Active && predictor.Pending() == 1);
+    double out[3] = {};
+    TESSERA_CHECK(predictor.Displayed(out) && Near(out[0], 13.0, kStep));
+}

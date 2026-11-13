@@ -67,6 +67,11 @@ public:
     /// given, for a configuration that cannot work. The prediction then waits for the first state.
     bool Configure(const PredictionConfig& config, std::string* error);
 
+    /// Changes how a correction is shown, keeping everything else (the state, the history, a slide in
+    /// progress). The same ranges as in `PredictionConfig`; returns false, changing nothing, outside them or
+    /// when nothing is configured.
+    bool SetSettings(double smoothing_seconds, double snap_distance, std::string* error);
+
     /// Forgets the configuration and everything predicted.
     void Clear() noexcept;
 

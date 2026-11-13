@@ -97,6 +97,11 @@ bool ClientReplica::SetPrediction(const PredictionConfig& config, std::string* e
     return predictor_.Configure(config, error);
 }
 
+bool ClientReplica::SetPredictionSettings(double smoothing_seconds, double snap_distance,
+                                          std::string* error) {
+    return predictor_.SetSettings(smoothing_seconds, snap_distance, error);
+}
+
 void ClientReplica::ClearPrediction() noexcept {
     predictor_.Clear();
 }

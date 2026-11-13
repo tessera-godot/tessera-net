@@ -90,6 +90,9 @@ public:
     /// nothing and saying why in `error` when given, for a configuration that cannot work. Safe to call in
     /// any state; the prediction begins when the next state buffer is applied.
     bool SetPrediction(const PredictionConfig& config, std::string* error = nullptr);
+    /// Changes the smoothing time and the snap distance of the prediction that is set, without restarting
+    /// it. False, changing nothing, outside the ranges of `PredictionConfig` or with no prediction set.
+    bool SetPredictionSettings(double smoothing_seconds, double snap_distance, std::string* error = nullptr);
     /// Stops predicting and forgets the configuration.
     void ClearPrediction() noexcept;
     /// Lets the correction of the prediction slide forward by `seconds`; call it with the time that passed.
