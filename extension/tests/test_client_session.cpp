@@ -1504,18 +1504,124 @@ TESSERA_TEST(session_interpolated_position_lags_the_latest_and_lies_between_two_
     TESSERA_CHECK(report.lag_ticks > 0.0 && report.lag_ticks <= 2.0 + 1e-9);
 }
 
-TESSERA_TEST(session_interpolated_value_of_a_property_that_is_not_blended_is_the_held_state) {
-    Pair p;
-    TESSERA_CHECK(p.ok);
-    std::string error;
-    TESSERA_CHECK(p.b.SetInterpolation(2, 2.5, error));
-    for (int i = 0; i < 30; ++i) {
-        p.Tick(127, 0);
+namespace {
+
+// One entity that stands still and has a number that the test changes: the held state of an integer
+// shows only if it changes.
+class HealthGame final : public server::IGameLogic {
+public:
+    HealthGame() {
+        schema_.AddType(1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
+                                                              TESSERA_COLUMN(Columns, y),
+                                                              TESSERA_COLUMN(Columns, z), 0.01f, 2048.0f),
+                            net::PropertyDescriptor::Integer(TESSERA_COLUMN(Columns, health), false, 0, 65535)});
     }
-    const auto owner = p.b.InterpolatedProperty(p.a_entity, "owner");
-    const auto plain = p.b.Property(p.a_entity, "owner");
-    TESSERA_CHECK(owner && plain && owner->kind == Value::Kind::Int && plain->kind == Value::Kind::Int);
-    TESSERA_CHECK(owner && plain && owner->integer == plain->integer && owner->integer == p.a.ConnectionId());
+
+    server::WorldSetup DescribeWorld() override {
+        server::WorldSetup setup;
+        setup.schema = &schema_;
+        setup.relevancy.types[1] = net::TypeRelevancy{net::RelevancyMode::AlwaysRelevant, 0.0f, 0.0f};
+        setup.replication.rate_kbps = 0;
+        setup.replication.max_buffer_bytes = 65535;
+        return setup;
+    }
+
+    void OnStart(server::ServerContext& context) override {
+        context_ = &context;
+        table_ = std::make_unique<net::EntityTable<Columns>>(net::TableConfig{context.shard_id, 1});
+        id_ = table_->Create();
+        const auto where = table_->Find(id_);
+        Columns& columns = table_->Columns(where->page);
+        columns.x[where->slot] = 10.0f;
+        columns.y[where->slot] = 0.0f;
+        columns.z[where->slot] = 10.0f;
+        columns.health[where->slot] = 100;
+        table_->MarkDirty(id_);
+        context.grid.Insert(id_, 10.0f, 0.0f, 10.0f);
+        context.replication.Relevancy().OnEntityCreated(id_);
+    }
+
+    void OnTick(double) override {
+        context_->replication.Refresh(*table_);
+    }
+
+    void SetHealth(uint16_t health) {
+        const auto where = table_->Find(id_);
+        table_->Columns(where->page).health[where->slot] = health;
+        table_->MarkDirty(id_);
+    }
+
+    static std::shared_ptr<const BuiltSchema> ClientSide() {
+        PropertyDescription position;
+        position.name = "position";
+        position.kind = "position";
+        position.step = 0.01;
+        position.range = 2048.0;
+        PropertyDescription health;
+        health.name = "health";
+        health.kind = "integer";
+        health.min_value = 0;
+        health.max_value = 65535;
+        health.is_signed = false;
+        const TypeDescription types[] = {{1, {position, health}}};
+        BuildResult result = BuildSchema(std::span<const TypeDescription>(types, 1));
+        return std::shared_ptr<const BuiltSchema>(std::move(result.schema));
+    }
+
+private:
+    struct Columns {
+        float x[net::kPageSlots];
+        float y[net::kPageSlots];
+        float z[net::kPageSlots];
+        uint16_t health[net::kPageSlots];
+    };
+
+    net::ReplicationSchema schema_;
+    server::ServerContext* context_ = nullptr;
+    std::unique_ptr<net::EntityTable<Columns>> table_;
+    net::EntityId id_ = net::EntityId::Null();
+};
+
+int64_t Health(const std::optional<Value>& value) {
+    return value && value->kind == Value::Kind::Int ? value->integer : -1;
+}
+
+} // namespace
+
+TESSERA_TEST(session_interpolated_value_of_a_property_that_is_not_blended_is_the_held_state) {
+    HealthGame game;
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.SetInterpolation(2, 2.5, error));
+    TESSERA_CHECK(session.Connect(HealthGame::ClientSide(), "127.0.0.1", 7777, error));
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(world.Converge(session, events, 1));
+    TESSERA_CHECK(!session.Entities().empty());
+    const uint64_t entity = session.Entities().empty() ? 0 : session.Entities().front();
+    for (int i = 0; i < 30; ++i) {
+        world.Step(&session, &events);
+        session.Advance(0.01);
+    }
+    TESSERA_CHECK(Health(session.Property(entity, "health")) == 100);
+    TESSERA_CHECK(Health(session.InterpolatedProperty(entity, "health")) == 100);
+    // The server changes it: what was received is the new value, what is shown is still the old one until the
+    // shown time (a little behind the newest) gets to the state that holds it.
+    game.SetHealth(40);
+    bool lagged = false;
+    bool reached = false;
+    for (int i = 0; i < 30 && !reached; ++i) {
+        world.Step(&session, &events);
+        const int64_t received = Health(session.Property(entity, "health"));
+        const int64_t shown = Health(session.InterpolatedProperty(entity, "health"));
+        TESSERA_CHECK(shown == 100 || shown == 40);
+        lagged = lagged || (received == 40 && shown == 100);
+        reached = shown == 40;
+        session.Advance(0.01);
+    }
+    TESSERA_CHECK(lagged);
+    TESSERA_CHECK(reached);
+    TESSERA_CHECK(Health(session.InterpolatedProperty(entity, "health")) == 40);
 }
 
 TESSERA_TEST(session_interpolated_value_for_the_predicted_entity_is_the_predicted_one) {
@@ -1653,8 +1759,6 @@ TESSERA_TEST(session_two_sessions_interpolate_independently) {
     }
     TESSERA_CHECK(p.a.Interpolation().delay_ticks == 2 && p.b.Interpolation().delay_ticks == 6);
     // Each shows the other a different time in the past.
-    // (A clock that is ahead of its target slows down only when it is more than 2 ticks ahead, so the shown
-    // time may sit up to 3 ticks closer to the newest than the delay says: here 1 tick.)
     const double a_behind =
         X(p.a.Property(p.b_entity, "position")) - X(p.a.InterpolatedProperty(p.b_entity, "position"));
     const double b_behind =
