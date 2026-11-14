@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Connects to a Tessera server and draws a sphere for every entity it replicates. With the server started with
 # --players, each connected player has a sphere too, and WASD moves yours: the green sphere moves at once, on the
-# client's own guess of where the server will put it, and the server's answer corrects the guess.
+# client's own guess of where the server will put it, and the server's answer corrects the guess. The other
+# spheres are shown a few ticks in the past, smoothed between the two states of the server around that time.
 extends Node3D
 
 const DEFAULT_HOST := "127.0.0.1"
@@ -12,6 +13,11 @@ const AXIS_MAX := 127
 # The movement rule of the server, which the client needs to move the sphere before the answer comes.
 const PLAYER_SPEED := 8.0
 const WORLD_SIDE := 200.0
+# The server runs at 30 ticks a second. The other spheres are shown this many ticks behind the newest state, so
+# that there are two states to move between: 2 ticks is about 66 ms.
+const TICK_RATE := 30.0
+const INTERPOLATION_DELAY_TICKS := 2
+const INTERPOLATION_SNAP_DISTANCE := 2.5
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
 
@@ -33,6 +39,10 @@ func _ready() -> void:
 		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
 	])
 	client.schema = schema
+
+	# Before connecting is fine: the setting stays through a reconnection.
+	if client.set_interpolation(INTERPOLATION_DELAY_TICKS, INTERPOLATION_SNAP_DISTANCE) != OK:
+		push_warning("No interpolation: " + client.get_last_error())
 
 	client.entity_appeared.connect(_on_entity_appeared)
 	client.entity_removed.connect(_on_entity_removed)
@@ -56,14 +66,15 @@ func _process(delta: float) -> void:
 	client.poll()
 	_send_input(delta)
 	for id in spheres:
-		# Your own sphere shows the prediction; the others show what the server last said, not smoothed.
-		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_property(id, "position")
+		# Your own sphere shows the prediction; the others show the interpolated value, a little in the past.
+		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_interpolated_property(id, "position")
 		if position != null:
 			spheres[id].position = position
 	var stats := client.get_prediction_stats()
-	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\nWASD moves the green sphere at once; the others are not smoothed" % [
+	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
 		_state_name(), spheres.size(), client.get_rejection(),
-		"on" if client.is_predicting() else "off", stats["last_error"]]
+		"on" if client.is_predicting() else "off", stats["last_error"],
+		INTERPOLATION_DELAY_TICKS, _delay_ms(), _delay_ms()]
 
 
 # Sends the keys as two bytes, the axis along x and the axis along z, 30 times a second while connected, zeros
@@ -140,6 +151,11 @@ func _on_entity_removed(id: int) -> void:
 	if spheres.has(id):
 		spheres[id].queue_free()
 		spheres.erase(id)
+
+
+# How far in the past the other spheres are, in whole milliseconds (2 ticks at 30 a second is 66).
+func _delay_ms() -> int:
+	return floori(INTERPOLATION_DELAY_TICKS * 1000.0 / TICK_RATE)
 
 
 func _state_name() -> String:
