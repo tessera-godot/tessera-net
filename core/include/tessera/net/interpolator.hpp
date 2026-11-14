@@ -49,7 +49,7 @@ public:
     /// States kept per entity beyond the delay: 4 for how far the shown time may lag behind its target before
     /// it jumps, one for the state at or before the shown time, and one spare.
     static constexpr uint32_t kHistorySlack = 6;
-    static constexpr double kBandTicks = 2.0;    ///< The widest the band around the target gets (large delays).
+    static constexpr double kBandTicks = 2.0;    ///< The widest the band around the target gets.
     static constexpr double kMinBandTicks = 0.25; ///< The narrowest it gets (small delays).
     static constexpr double kRateAdjust = 0.1;  ///< How much faster or slower it runs outside the band.
     static constexpr double kResyncTicks = 4.0; ///< Lagging further than this, it jumps to the target.

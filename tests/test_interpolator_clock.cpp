@@ -220,7 +220,8 @@ TESSERA_TEST(after_a_stall_the_lag_converges_back_to_the_delay) {
                     }
                     c.interpolator.Advance(1.0);
                     TESSERA_CHECK(c.interpolator.DisplayTick() >= previous);
-                    TESSERA_CHECK(c.interpolator.DisplayTick() <= static_cast<double>(c.interpolator.LatestTick()));
+                    TESSERA_CHECK(c.interpolator.DisplayTick() <=
+                                  static_cast<double>(c.interpolator.LatestTick()));
                     previous = c.interpolator.DisplayTick();
                 }
             }

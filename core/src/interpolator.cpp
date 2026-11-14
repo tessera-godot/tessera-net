@@ -242,7 +242,7 @@ double Interpolator::Target() const noexcept {
 }
 
 // The band grows with the delay (a quarter of it, between a quarter of a tick and kBandTicks), so that the
-// shown time comes back to within a fraction of the delay after a stall instead of staying a fixed 2 ticks off.
+// shown time comes back to within a fraction of the delay after a stall, not a fixed 2 ticks off.
 double Interpolator::BandTicks() const noexcept {
     return std::min(kBandTicks, std::max(kMinBandTicks, static_cast<double>(config_.delay_ticks) / 4.0));
 }

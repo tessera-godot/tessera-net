@@ -1514,7 +1514,8 @@ public:
         schema_.AddType(1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
                                                               TESSERA_COLUMN(Columns, y),
                                                               TESSERA_COLUMN(Columns, z), 0.01f, 2048.0f),
-                            net::PropertyDescriptor::Integer(TESSERA_COLUMN(Columns, health), false, 0, 65535)});
+                            net::PropertyDescriptor::Integer(TESSERA_COLUMN(Columns, health), false, 0,
+                                                                                 65535)});
     }
 
     server::WorldSetup DescribeWorld() override {
