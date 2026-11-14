@@ -88,7 +88,8 @@ public:
     // moves to the new one at its tick. Set it before connecting or later; it stays through a reconnection.
     // Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() for a delay outside 0 to 30 or
     // a snap_distance that is not above 0. With no arguments it sets the defaults, 2 ticks and 2.5.
-    // The time moves with poll(), by the time that passed since the last call (at most a quarter of a second).
+    // The time moves with poll(), by the time that passed since the last call (at most a quarter of a
+    // second).
     // None of these calls is refused inside a prediction rule: they do not call back into the game.
     int set_interpolation(int delay_ticks, double snap_distance);
     // Stops interpolating and forgets the settings. Harmless in any state.

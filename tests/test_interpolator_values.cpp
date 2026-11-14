@@ -70,11 +70,6 @@ struct Shown {
     }
 };
 
-double AngleOf(const ReplicationSchema& schema, const uint32_t* words) {
-    const PropertyDescriptor& property = schema.Find(kMobType)->properties[kAngle];
-    return DequantizeAngle(property, words + property.word_offset);
-}
-
 // The angle of the grid of the test type (10 bits), `steps` steps round from 0.
 float YawSteps(int steps) {
     return static_cast<float>(steps * kTwoPi / 1024.0);
