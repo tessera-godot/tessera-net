@@ -6,6 +6,7 @@ the programs that produce them.
 | Folder | What it measures | Needs |
 |---|---|---|
 | `bench_acceptance.cpp`, `bench_relevancy.cpp`, `bench_replication.cpp`, `bench_network.cpp` | The data core, the relevancy engine, replicated state and the whole network path against their limits | CMake and a C++20 compiler |
+| `bench_interpolation.cpp` | What interpolation costs on the client with 1,000 and 10,000 visible entities: time to take in a tick of states, to read every position and to advance the clock, and memory for each entity | CMake and a C++20 compiler |
 | [`ecs-comparison/`](ecs-comparison/) | The entity table against a general-purpose ECS (EnTT) | CMake, C++20; downloads EnTT on first configure |
 | [`godot-nodes/`](godot-nodes/) | One million Godot nodes against the entity table | Godot 4.5 or newer, godot-cpp, SCons |
 | [`godot-replication/`](godot-replication/) | Godot's built-in replication as entities grow | Godot 4.x, Python with `psutil` |

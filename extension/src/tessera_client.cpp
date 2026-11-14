@@ -141,8 +141,9 @@ void TesseraClient::poll() {
     // A handler may drop the last reference to this client; hold one until the signals are out.
     Ref<TesseraClient> keep_alive(this);
     try {
-        // A correction of the prediction slides over real time: the time since the last poll, but not more
-        // than a quarter of a second, so that a frame that took long does not make it jump.
+        // A correction of the prediction, and the time shown by the interpolation, move over real time: the
+        // time since the last poll, but not more than a quarter of a second, so that a frame that took long
+        // does not make them jump.
         const auto now = std::chrono::steady_clock::now();
         if (has_last_poll_) {
             const double seconds = std::chrono::duration<double>(now - last_poll_).count();
@@ -374,6 +375,60 @@ double TesseraClient::get_snap_distance() const {
     return snap_distance_;
 }
 
+int TesseraClient::set_interpolation(int delay_ticks, double snap_distance) {
+    last_error_ = String();
+    std::string error;
+    try {
+        // A negative delay becomes a number far above the limit, which the session refuses.
+        const uint32_t delay = delay_ticks < 0 ? 0xFFFFFFFFu : static_cast<uint32_t>(delay_ticks);
+        if (!session_.SetInterpolation(delay, snap_distance, error)) {
+            last_error_ = ToGodot(error);
+            return ERR_INVALID_PARAMETER;
+        }
+    } catch (const std::exception& exception) {
+        last_error_ = ToGodot(std::string("could not set the interpolation: ") + exception.what());
+        return ERR_INVALID_PARAMETER;
+    }
+    return OK;
+}
+
+void TesseraClient::clear_interpolation() {
+    session_.ClearInterpolation();
+}
+
+Variant TesseraClient::get_interpolated_property(int64_t entity, const String& name) const {
+    try {
+        const auto value = session_.InterpolatedProperty(static_cast<uint64_t>(entity),
+                                                         std::string(name.utf8().get_data()));
+        return value ? ToVariant(*value) : Variant();
+    } catch (const std::exception&) {
+        return Variant();
+    }
+}
+
+bool TesseraClient::is_interpolating() const {
+    return session_.Interpolation().running;
+}
+
+Dictionary TesseraClient::get_interpolation_stats() const {
+    Dictionary result;
+    try {
+        const ext::InterpolationReport report = session_.Interpolation();
+        result["state"] = String(!report.configured ? "off" : (report.running ? "running" : "waiting"));
+        result["delay_ticks"] = static_cast<int64_t>(report.delay_ticks);
+        result["snap_distance"] = report.snap_distance;
+        result["states"] = static_cast<int64_t>(report.stats.states);
+        result["states_ignored"] = static_cast<int64_t>(report.stats.states_ignored);
+        result["gap_holds"] = static_cast<int64_t>(report.stats.gap_holds);
+        result["snaps"] = static_cast<int64_t>(report.stats.snaps);
+        result["stalls"] = static_cast<int64_t>(report.stats.stalls);
+        result["resyncs"] = static_cast<int64_t>(report.stats.resyncs);
+        result["lag_ticks"] = report.lag_ticks;
+    } catch (const std::exception&) {
+    }
+    return result;
+}
+
 // The first time the rule fails, one warning says why; the prediction is already off. The session hands the
 // reason over only once for each failure.
 void TesseraClient::ReportRuleFailure() {
@@ -482,6 +537,13 @@ void TesseraClient::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_smoothing_seconds"), &TesseraClient::get_smoothing_seconds);
     ClassDB::bind_method(D_METHOD("set_snap_distance", "distance"), &TesseraClient::set_snap_distance);
     ClassDB::bind_method(D_METHOD("get_snap_distance"), &TesseraClient::get_snap_distance);
+    ClassDB::bind_method(D_METHOD("set_interpolation", "delay_ticks", "snap_distance"),
+                         &TesseraClient::set_interpolation, DEFVAL(2), DEFVAL(2.5));
+    ClassDB::bind_method(D_METHOD("clear_interpolation"), &TesseraClient::clear_interpolation);
+    ClassDB::bind_method(D_METHOD("get_interpolated_property", "id", "name"),
+                         &TesseraClient::get_interpolated_property);
+    ClassDB::bind_method(D_METHOD("is_interpolating"), &TesseraClient::is_interpolating);
+    ClassDB::bind_method(D_METHOD("get_interpolation_stats"), &TesseraClient::get_interpolation_stats);
     ClassDB::bind_method(D_METHOD("get_connection_id"), &TesseraClient::get_connection_id);
     ClassDB::bind_method(D_METHOD("get_state"), &TesseraClient::get_state);
     ClassDB::bind_method(D_METHOD("get_rejection"), &TesseraClient::get_rejection);

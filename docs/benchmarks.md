@@ -596,6 +596,30 @@ bandwidth per client divided by the entities that client sees (the figure in the
 of the world. The first CPU column is unreliable at 2,000 entities, for the reason given above. The processor load before these runs was 4.2% to 16.2%, and the short test took 86.2 and 51.4 ns around the
 2,000-entity runs and 53.4 and 51.2 around the 10,000 ones.
 
+## 9. Interpolation on the client
+
+What it costs the client to show the other entities smoothed (see [record 0019](adr/0019-interpolation-of-the-other-entities.md)).
+Source: [`bench/bench_interpolation.cpp`](../bench/bench_interpolation.cpp). It measures the interpolator alone, in memory,
+with no network: the entities have 5 words each (a position and a 64-bit number, like the player of the example server), a
+delay of 2 ticks, and every entity moves in every tick. Each row is the median of 60 ticks (the clock, of 41 rounds of
+100,000 calls); the range is the smallest and the largest of three runs in a Release build on the machine above, with
+nothing else heavy running.
+
+| | 1,000 entities | 10,000 entities | Limit for 10,000 (a tenth of it for 1,000) |
+|---|---|---|---|
+| Take in one tick of states | 26.3 to 26.6 us (26 ns a state) | 269 to 285 us (27 to 29 ns a state) | 1,000 us |
+| Read every position | 11.1 to 11.2 us (11 ns each) | 113 to 120 us (11 to 12 ns each) | 500 us |
+| Advance the clock | 3.3 to 3.5 ns | 3.4 to 3.5 ns | 10,000 ns |
+| Memory for each entity | 270 B | 256 B | 384 B |
+
+The program exits with an error if a limit is passed; the measurements are three to four times under them.
+Advancing the clock does not depend on the number of entities. In a Linux container on the same machine, one run each
+of GCC 13 and Clang 18 took 42 to 48 ns for each state taken in, 16 to 18 ns for each position read and 4 to 6 ns for
+each advance of the clock, at both sizes, under the same limits. Memory is what `ClientReplica::InterpolationMemoryBytes()`
+reports and grows with the number of states kept, the delay plus 6: an entity of 3 words takes 190 to 205 bytes, and with
+the longest delay (30 ticks) an entity of 5 words takes 1.1 KB. For comparison, the receiver the client already has,
+which keeps up to 33 states of 136 bytes for each entity that changes in every tick, measured at 5.9 KB for each entity.
+
 ## Reproduce
 
 Windows, from the repository root (details and prerequisites for each benchmark are in
@@ -623,6 +647,11 @@ cmake --build --preset windows-msvc-profile-release --target tessera_net_bench
 # compare two builds of the network benchmark on a machine that is busy with other work: it runs them
 # alternately and prints the median and the range of each, and the difference (see the script's header)
 ./tools/bench_compare.ps1 -Baseline <the older tessera_net_bench.exe> -Candidate <the newer one>
+
+# interpolation on the client (section 9): a few seconds
+cmake --preset windows-msvc-profile
+cmake --build --preset windows-msvc-profile-release --target tessera_net_bench_interpolation
+./build/windows-msvc-profile/bench/Release/tessera_net_bench_interpolation.exe
 
 # entity table vs EnTT (section 3); downloads EnTT the first time
 cmake --preset windows-msvc -DTESSERA_BUILD_ECS_COMPARISON=ON

@@ -196,6 +196,7 @@ client.State();                      // Connecting, Handshaking, Connected, Reje
 client.WordsOf(entity);              // the newest quantized state of a visible entity, or nullptr
 client.ForEachEntity([](EntityId, const uint32_t* words) { /* ... */ });
 client.SendInput(bytes);             // one input of the player: its sequence number, or 0 if nothing was sent
+client.SetInterpolation(config);       // show the other entities a little in the past, smoothed (see below)
 client.Disconnect();
 ```
 
@@ -304,6 +305,8 @@ if (client.Predicted(shown)) { /* draw the player at shown */ }
   0.6 m at the 95th percentile and 1.1 m at worst, covered by the slide. It comes from the server applying one step for
   each tick with the axes of the last input it has. The way to remove it is for the game to tell the core which input it
   applied, and that is not built yet.
+- **The other entities** are not predicted. They can be shown smoothed, a few ticks in the past (see the next section), which
+  leaves them a little behind the entity that is predicted.
 - `ClientReplica` has `SetPrediction`, `SetPredictionSettings`, `ClearPrediction`, `AdvancePrediction`, `Prediction`,
   `PredictionInfo` (reconciliations, snaps, rule failures, history overflows, last error), `PredictionPending`,
   `PredictedComponents`, `Predicted` and `TickRate`.
@@ -311,6 +314,55 @@ if (client.Predicted(shown)) { /* draw the player at shown */ }
 A server hello that cannot work (a protocol version that is not the client's, more than 262,144 compact ids,
 a baseline age outside 1 to 255 ticks or a tick rate outside 1 to 1,000) is a protocol error and ends the
 connection. When the server says no, the client ends in `Rejected`, with the reason in `Rejection()`.
+
+## Interpolation of the other entities
+
+The client can show the entities it does not control a little in the past, moving each one along the line between the
+two states it received on either side of that moment. The reasons for the choices are in
+[record 0019](../adr/0019-interpolation-of-the-other-entities.md). Nothing in the protocol changed.
+
+```cpp
+tessera::net::InterpolationConfig config;   // the defaults: 2 ticks, 2.5 world units, 8 ticks
+config.delay_ticks = 2;                     // how far behind the newest state (0 to 30)
+client.SetInterpolation(config);            // false, with the reason, for a value out of range
+// every frame: client.Poll(); client.AdvanceInterpolation(seconds_since_last_frame);
+double shown[3];
+if (client.DisplayedValue(entity, /*property index*/ 0, shown)) { /* draw the entity at shown */ }
+const uint32_t* words = client.DisplayedWords(entity);   // the state in force at the time shown
+```
+
+- **What it does.** The time shown is a number of ticks, aimed at the newest tick applied minus `delay_ticks`. A
+  position is blended linearly in `double`, on the values the words stand for; an angle goes the short way round
+  (`DisplayedValue` gives 3 numbers for a position, 1 for an angle and `false` for any other kind of property); an
+  integer, an enum and a set of flags change all at once, at the tick of the state that brings them (read them from
+  `DisplayedWords`). Nothing is extrapolated: after the newest state an entity stays where it is.
+- **How it is fed.** `ReceiverState::Apply` tells an `IRecordObserver` about each record it stores, late states
+  included, and `ClientReplica` passes the interpolator as the observer only while interpolation is on. The clock starts
+  with the first state buffer applied and sees every buffer applied whole, one that has no record of the entity included.
+  Entities that become visible, leave or change compact id are told to the interpolator in the same call that tells the
+  receiver. `SetInterpolation` works in any state; connected, it starts from the newest state of each visible entity. The
+  configuration stays through a disconnect and a reconnection, the states do not.
+- **The history.** Each visible entity keeps its newest `delay_ticks + 6` states in order of tick, in a pool for each type
+  that is taken when the entity becomes visible, so nothing is allocated when a state arrives or a value is read. A state
+  out of order is put in place, a repeat is ignored (`states_ignored`), and when the history is full the oldest leaves.
+- **The clock.** `AdvanceInterpolation(seconds)` moves the time shown by `seconds` times the tick rate. Within 2 ticks of its
+  aim it runs at the speed of time, a tenth slower further ahead and a tenth faster further behind; more than 4 ticks
+  behind, it jumps to the aim (`resyncs`); it never passes the newest tick (`stalls` counts the times it had to wait).
+  Negative or not finite time does nothing. The core reads no clock.
+- **A long gap or a jump is held.** Two neighbouring states more than `max_gap_ticks` (8) ticks apart (`gap_holds`), or
+  more than `snap_distance` (2.5 world units, all the positions of the type added) apart (`snaps`), are not blended: the
+  entity stays at the older one and goes to the newer when the time shown reaches the newer. Keep `snap_distance` above
+  the speed of your fastest entity times `max_gap_ticks` over the tick rate.
+- **The entity that is predicted** is not interpolated by the extension: it asks the prediction (see the guide).
+- **What it costs.** With 10,000 visible entities of 5 words and a delay of 2 ticks, in a build with optimization:
+  taking in a tick of states 0.27 to 0.29 ms, reading every position 0.11 to 0.12 ms, advancing the clock a few
+  nanoseconds, and 256 bytes of memory for each entity (`InterpolationMemoryBytes()`), against about 5.9 KB that the
+  receiver already keeps for an entity that changes every tick. It costs nothing while it is off. See
+  [benchmarks](../benchmarks.md).
+- `ClientReplica` has `SetInterpolation`, `ClearInterpolation`, `AdvanceInterpolation`, `InterpolationSet`,
+  `Interpolating`, `InterpolationSettings`, `InterpolationInfo` (states, states ignored, gap holds, snaps, stalls,
+  resyncs), `DisplayedTick`, `InterpolationLag`, `InterpolationMemoryBytes`, `InterpolationEntities`,
+  `InterpolationStateCount`, `InterpolationStateTick`, `DisplayedWords`, `DisplayedValue` and `StateTickOf`.
 
 ## What it costs
 
@@ -679,7 +731,7 @@ with GCC 13 and Clang 18, in Release and Debug. The repository also has a CI wor
 
 ## Coming next
 
-Smoothing of the other players, the game telling the core which input it applied, and priority by distance.
+The game telling the core which input it applied, priority by distance, compensation of lag on the server and a gap limit that each game can set.
 
 ## Example
 

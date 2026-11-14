@@ -58,6 +58,15 @@ struct PredictionReport {
     std::string failure; ///< Why the rule failed, when `status` is `Failed`.
 };
 
+struct InterpolationReport {
+    bool configured = false;      ///< `SetInterpolation` was called (and not undone).
+    bool running = false;         ///< Connected, and a state buffer has arrived since.
+    uint32_t delay_ticks = 0;
+    double snap_distance = 0.0;
+    net::InterpolationStats stats;
+    double lag_ticks = 0.0;       ///< The newest tick applied minus the tick being shown.
+};
+
 /// Opens the transport for a connection to `host:port`. May throw; the session turns that into an error.
 using TransportFactory = std::function<std::unique_ptr<net::ITransport>(const std::string& host, uint16_t port)>;
 
@@ -113,8 +122,8 @@ public:
     /// Changes the settings of the prediction that is set (and the ones a later `SetPrediction` would use are
     /// not touched). Returns false, with the reason in `error`, outside the ranges or with nothing set.
     bool SetPredictionSettings(const PredictionSettings& settings, std::string& error);
-    /// Lets the correction slide forward by `seconds` (call it with the time that passed). Negative or not
-    /// finite time does nothing.
+    /// Lets the correction of the prediction slide, and the time shown by the interpolation advance, by
+    /// `seconds` (call it with the time that passed). Negative or not finite time does nothing.
     void Advance(double seconds) noexcept;
     /// The value to show for a property: the predicted one if `entity` is the predicted entity, the
     /// prediction is active and `name` is one of the predicted properties; otherwise the same as `Property`.
@@ -128,6 +137,23 @@ public:
     /// Why the rule failed, the first time this is asked after it failed; empty before and afterwards. A
     /// new `SetPrediction` that fails again gives a new answer.
     std::string TakeRuleFailure();
+
+    /// Shows the entities that are not predicted a little in the past, smoothed between two states of the
+    /// server (see `net::Interpolator`): `delay_ticks` (0 to 30) is how far behind the newest state, and
+    /// `snap_distance` (above 0, in world units) how far apart two states may be and still be blended. It
+    /// works with or without a connection, and the settings stay through a disconnect and a new `Connect`.
+    /// Returns false, with the reason in `error`, for a value out of range. The clock advances with
+    /// `Advance`.
+    bool SetInterpolation(uint32_t delay_ticks, double snap_distance, std::string& error);
+    /// Stops interpolating and forgets the settings. Harmless in any state.
+    void ClearInterpolation() noexcept;
+    /// The value to show for a property of an entity that moves by itself. For the predicted entity (a
+    /// prediction is set, in any state but off) it is what `PredictedProperty` gives, never an interpolated
+    /// value. Otherwise, with interpolation running, a position or an angle is blended between the two
+    /// states around the time being shown and anything else is the state in force at that time; in every
+    /// other case it is the same as `Property`.
+    std::optional<Value> InterpolatedProperty(uint64_t entity, std::string_view name) const;
+    InterpolationReport Interpolation() const;
 
     /// The entities that have a state, by increasing id.
     std::vector<uint64_t> Entities() const;
@@ -150,6 +176,8 @@ private:
     bool polling_ = false;
     std::shared_ptr<PredictionState> prediction_;
     mutable std::vector<double> predicted_numbers_; // what `PredictedProperty` reads into, sized when set
+    bool interpolation_set_ = false; // the settings below are in force, whatever the connection
+    net::InterpolationConfig interpolation_;
 };
 
 } // namespace tessera::ext

@@ -20,7 +20,7 @@ import threading
 import time
 
 IMPORT_LIMIT = 60.0  # seconds
-RUN_LIMIT = 60.0
+RUN_LIMIT = 90.0
 SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
 WINDOWS = os.name == "nt"

@@ -30,7 +30,8 @@ void ReceiverState::OnLeave(uint32_t compact_id) {
     }
 }
 
-DecodeStatus ReceiverState::Apply(std::span<const uint8_t> buffer, uint64_t tick, size_t* applied) {
+DecodeStatus ReceiverState::Apply(std::span<const uint8_t> buffer, uint64_t tick, size_t* applied,
+                                  IRecordObserver* observer) {
     if (tick > events_tick_) {
         if (applied != nullptr) {
             *applied = 0;
@@ -98,6 +99,9 @@ DecodeStatus ReceiverState::Apply(std::span<const uint8_t> buffer, uint64_t tick
             *position = fresh;
         } else {
             slot.history.insert(position, fresh);
+        }
+        if (observer != nullptr) {
+            observer->OnRecord(static_cast<uint32_t>(id), tick, fresh.words.data());
         }
         const uint64_t newest = slot.history.back().tick;
         while (!slot.history.empty() && slot.history.front().tick + history_ticks_ < newest) {

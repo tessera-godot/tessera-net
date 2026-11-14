@@ -13,3 +13,13 @@ if(MSVC)
 else()
     target_compile_options(tessera_net_bench PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+# What interpolation costs on the client with 1,000 and 10,000 visible entities.
+add_executable(tessera_net_bench_interpolation bench_interpolation.cpp)
+target_link_libraries(tessera_net_bench_interpolation PRIVATE tessera_net_core)
+target_include_directories(tessera_net_bench_interpolation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(MSVC)
+    target_compile_options(tessera_net_bench_interpolation PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(tessera_net_bench_interpolation PRIVATE -Wall -Wextra -Wpedantic)
+endif()

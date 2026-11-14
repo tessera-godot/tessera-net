@@ -101,6 +101,11 @@ const AXIS_MAX := 127
 # The movement rule of the server, which the client needs to move the sphere before the answer comes.
 const PLAYER_SPEED := 8.0
 const WORLD_SIDE := 200.0
+# The server runs at 30 ticks a second. The other spheres are shown this many ticks behind the newest state, so
+# that there are two states to move between: 2 ticks is about 66 ms.
+const TICK_RATE := 30.0
+const INTERPOLATION_DELAY_TICKS := 2
+const INTERPOLATION_SNAP_DISTANCE := 2.5
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
 
@@ -122,6 +127,10 @@ func _ready() -> void:
 		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
 	])
 	client.schema = schema
+
+	# Before connecting is fine: the setting stays through a reconnection.
+	if client.set_interpolation(INTERPOLATION_DELAY_TICKS, INTERPOLATION_SNAP_DISTANCE) != OK:
+		push_warning("No interpolation: " + client.get_last_error())
 
 	client.entity_appeared.connect(_on_entity_appeared)
 	client.entity_removed.connect(_on_entity_removed)
@@ -145,14 +154,15 @@ func _process(delta: float) -> void:
 	client.poll()
 	_send_input(delta)
 	for id in spheres:
-		# Your own sphere shows the prediction; the others show what the server last said, not smoothed.
-		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_property(id, "position")
+		# Your own sphere shows the prediction; the others show the interpolated value, a little in the past.
+		var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_interpolated_property(id, "position")
 		if position != null:
 			spheres[id].position = position
 	var stats := client.get_prediction_stats()
-	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\nWASD moves the green sphere at once; the others are not smoothed" % [
+	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
 		_state_name(), spheres.size(), client.get_rejection(),
-		"on" if client.is_predicting() else "off", stats["last_error"]]
+		"on" if client.is_predicting() else "off", stats["last_error"],
+		INTERPOLATION_DELAY_TICKS, _delay_ms(), _delay_ms()]
 ```
 
 This is the start of the [demo script](../../examples/godot-client-demo/main.gd), word for word. The rest of the file sends
@@ -173,6 +183,7 @@ already connecting.
 | `send_input(bytes)` | Sends one input of the player and returns its sequence number, or 0 if nothing was sent. See [Send input](#send-input). |
 | `get_connection_id()` | The id the server gave this client, or -1 while the state is not `CONNECTED`. |
 | `set_prediction(...)`, `clear_prediction()`, `get_predicted_property(...)`, `is_predicting()`, `get_prediction_stats()` | Predict the player's own entity. See [Predict your player](#predict-your-player). |
+| `set_interpolation(...)`, `clear_interpolation()`, `get_interpolated_property(...)`, `is_interpolating()`, `get_interpolation_stats()` | Show the other entities a little in the past, smoothed. See [Smooth the other entities](#smooth-the-other-entities). |
 | `get_state()` | One of `TesseraClient.State.CONNECTING`, `HANDSHAKING`, `CONNECTED`, `REJECTED`, `DISCONNECTED`. A new client is `DISCONNECTED`. |
 | `get_rejection()` | Why the server said no. Empty unless the state is `REJECTED`. |
 | `get_last_error()` | The reason the last `connect_to` failed, or the last `poll()` hit a problem it could not report any other way. |
@@ -302,7 +313,53 @@ var position = client.get_predicted_property(id, "position")
   the quantization of the schema (1 centimeter in the example). In a very bad network (heavy loss, duplication and jitter
   together) the corrected error can reach about 0.6 m at the 95th percentile and 1.1 m at worst, covered by the slide. The
   way to remove it is for the game to tell the server's core which input it applied, which is not built yet.
-- **Other players' spheres** are not smoothed: they move in the steps of the server's updates.
+- **The other spheres** are smoothed with the interpolation of the next section.
+
+## Smooth the other entities
+
+The server sends the state of an entity at most 30 times a second, so drawn as it arrives, any entity that is not yours
+moves in steps. Interpolation shows each of them a few ticks in the past, and moves it along the line between the two
+states the client received on either side of that moment. The demo turns it on once, before it connects, and reads the
+spheres of the others with `get_interpolated_property`:
+
+```gdscript
+if client.set_interpolation(INTERPOLATION_DELAY_TICKS, INTERPOLATION_SNAP_DISTANCE) != OK:
+	push_warning("No interpolation: " + client.get_last_error())
+...
+var position = client.get_predicted_property(id, "position") if id == own_entity else client.get_interpolated_property(id, "position")
+```
+
+| Call | What it does |
+|---|---|
+| `set_interpolation(delay_ticks = 2, snap_distance = 2.5)` | Turns interpolation on. `delay_ticks` (0 to 30) is how far behind the newest state the entities are shown; the server runs at 30 ticks a second in the example, so 2 is about 66 ms. `snap_distance` (above 0, in world units) is how far apart two states may be and still be blended. Returns `OK`, or `ERR_INVALID_PARAMETER` with the reason in `get_last_error()`. Works before and after connecting, and stays through a reconnection. |
+| `clear_interpolation()` | Turns it off and forgets the settings. |
+| `get_interpolated_property(id, name)` | The value to show, with no calls to the game. For the entity you predict, the same as `get_predicted_property` (the last state of the server when the prediction is not running). Otherwise, with interpolation running: a position or an angle blended between two states, and anything else (an integer, a flag, a mask, a choice) the value in force at the time shown. In every other case, the same as `get_property`. |
+| `is_interpolating()` | True once interpolation is set and a state has arrived since the connection. |
+| `get_interpolation_stats()` | A dictionary: `state` (`"off"`, `"waiting"` or `"running"`), `delay_ticks`, `snap_distance`, `states` kept, `states_ignored`, `gap_holds`, `snaps`, `stalls` and `resyncs`, and `lag_ticks`, how many ticks behind the newest one the time shown is. |
+
+- **The time moves with `poll()`,** by the time that passed since the last call (at most a quarter of a second, so a frame
+  that took long does not make it jump). Call `poll()` every frame.
+- **The price is the delay.** The other entities are shown about 66 ms in the past with the default of 2 ticks, and your
+  own sphere, which is predicted, is in the present, so what you chase or touch is a little behind where it really is.
+  A larger delay gives more room to ride out a late state and costs more lag. The clock aims at the delay behind the
+  newest state and comes back to it after a stall, within a band of a quarter of the delay (at least a quarter of a
+  tick, at most 2 ticks).
+- **There is no extrapolation.** If a state arrives later than the delay, the entity waits where it is until it comes; it
+  does not guess where it is going.
+- **A teleport, or a long silence, is not slid through.** Two neighbouring states more than `snap_distance` apart, or
+  more than 8 ticks apart, are not blended: the entity stays at the older and goes to the newer at the tick of the newer.
+  An entity that stood still, and then moved, does not walk the whole silence. Choose `snap_distance` above how far your
+  fastest entity goes in 8 ticks: speed times 8 divided by the tick rate (a player at 8 m/s moves 2.13 m, under the 2.5
+  default). The gap of 8 ticks is not a setting of the extension.
+- **An angle goes the short way round,** and an integer, a choice and a set of flags change all at once, at the tick of the
+  state that brings them, so they lag `get_property` by the delay too (a health value changes about 66 ms later at 30 Hz). A position is blended on the values the schema stands for, not on its steps of 1 centimeter.
+- **`get_property` still gives the last value received,** and `get_interpolated_property` gives the same until you call
+  `set_interpolation`.
+- **The calls are safe inside a prediction rule:** unlike `send_input` and the others, they do not call back into the game,
+  so they are not refused.
+- **What it costs.** In a build with optimization, taking in a tick of states for 10,000 visible entities took under 0.3
+  ms and reading every position about 0.12 ms on the machine where it was measured; each entity holds about 260 bytes
+  while interpolation is on. It costs nothing while it is off.
 
 ## When something goes wrong
 
@@ -322,10 +379,11 @@ var position = client.get_predicted_property(id, "position")
 
 ## What the client does not do
 
-The client sends input (see [Send input](#send-input)) and can predict the player's own entity (see
-[Predict your player](#predict-your-player)), but there is no smoothing of the other entities between updates (an entity
-jumps from one received position to the next), no code generation and no shared schema file with the server (you write the description twice), and the
-server is not a Godot node. There is no editor plugin yet.
+The client sends input (see [Send input](#send-input)), can predict the player's own entity (see
+[Predict your player](#predict-your-player)) and can show the other entities smoothed, a little in the past (see
+[Smooth the other entities](#smooth-the-other-entities)). It does not extrapolate, does not compensate for the delay of
+the other entities when you aim at them, has no code generation and no shared schema file with the server (you write the
+description twice), and the server is not a Godot node. There is no editor plugin yet.
 
 ## Limits to know about
 

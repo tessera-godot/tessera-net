@@ -2,7 +2,7 @@
 
 A small Godot project that connects to the example server, describes its entities with a `TesseraSchema`, and draws one
 sphere for each entity it is told about. When the server has players, it also sends the keys you press, so that you move
-your own sphere. Its script is [`main.gd`](main.gd), and the guide
+your own sphere, and shows the other spheres a little in the past, smoothed. Its script is [`main.gd`](main.gd), and the guide
 [Using the client in Godot](../../docs/guides/using-the-client-in-godot.md) explains each part.
 
 ## Run it
@@ -66,14 +66,26 @@ Your sphere is predicted. `main.gd` has the movement rule of the example server 
 the server's state arrives, the client drops the inputs the server has already used, starts again from the server's
 position and applies the rest. If the two disagree, the difference fades over about 100 milliseconds, or the sphere
 jumps if it is more than 2 meters. The label shows whether the prediction is running and the size of the last
-correction. The other players' spheres are not smoothed: they move in the steps the server's updates give them. The
-prediction needs one input for every tick of the server, zeros included, so the demo keeps sending them while no key is
-pressed.
+correction. The prediction needs one input for every tick of the server, zeros included, so the demo keeps sending them
+while no key is pressed.
+
+The other spheres, the orange ones and the white ones, are interpolated. The server sends an entity's state at most 30
+times a second, and drawn as it arrives an entity moves in steps. `main.gd` calls `client.set_interpolation` once, with
+a delay of 2 ticks, and reads each of these spheres with `get_interpolated_property`: the client shows the entity at a
+moment 2 ticks before the newest state it has, and moves it along the line between the two states it received on either
+side of that moment. The price is that these spheres are shown about 66 milliseconds in the past (2 ticks at 30 ticks a
+second), and your own sphere, which is predicted, is in the present, so the two are a little out of step. There is no
+extrapolation: if a state is late, the sphere waits where it is until the state arrives, it does not guess ahead. Two
+states more than 2.5 meters apart, or more than 8 ticks apart, are not blended: the sphere stays where it was and moves
+on at the tick of the new state, so a sphere that was still and starts to move does not slide through the time it
+stood. To change the delay, edit `INTERPOLATION_DELAY_TICKS` in `main.gd` (0 to 30); the label shows it.
 
 ## What has been checked
 
 Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
 error, with the connect and disconnect lines in its output. In that kind of run no key is pressed, so the correction
 shown in the label stays at zero, and the sphere has not been moved with the keys. A client in a headless Godot, with
-the same rule, moves its predicted value before the server answers and ends where the server puts the entity. Nobody
-has looked at the demo with a window yet, so how it looks on screen, and how the keys feel, are not confirmed.
+the same rule, moves its predicted value before the server answers and ends where the server puts the entity, and a
+client that watches another player has an interpolated value that stays between the values received, lags behind the
+last one and ends on it when the player stops. Nobody has looked at the demo with a window yet, so how it looks on
+screen, how smooth the interpolated spheres are, and how the keys feel, are not confirmed.

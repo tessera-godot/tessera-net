@@ -9,7 +9,7 @@ extends SceneTree
 const EXAMPLE_SCHEMA_HASH := 1615724867110258213
 const WORLD_SIDE := 200.0
 const STEP := 0.01
-const LIMIT_MS := 40000
+const LIMIT_MS := 70000
 # What the example server does with its entities (server/example/example_game.hpp): 100 of them, each starting at
 # InitialPosition(index) and walking at its own speed, 30 ticks a second.
 const ENTITY_COUNT := 100
@@ -83,6 +83,13 @@ func run_all() -> void:
 	await check_a_rule_that_calls_back_into_the_client_is_refused()
 	await check_prediction_after_disconnect_is_discarded()
 	await check_two_clients_predict_independently()
+	check_interpolation_api_outside_a_connection()
+	await check_interpolated_value_is_between_received_values_and_does_not_jump()
+	await check_get_property_still_gives_the_latest_value_and_interpolation_lags_it()
+	await check_interpolation_converges_after_the_entity_stops()
+	await check_the_own_entity_is_predicted_not_interpolated()
+	await check_two_clients_interpolate_independently()
+	await check_a_rule_that_calls_interpolation_functions_is_harmless()
 
 
 func ok(check: String) -> void:
@@ -1112,6 +1119,290 @@ func check_two_clients_predict_independently() -> void:
 		expect(name, absf((b_after.x - b_before.x) - 4.0 / 30.0) <= 0.01, "B moved %f" % (b_after.x - b_before.x))
 		# Each one reads the other's entity as plain data.
 		expect(name, a.get_predicted_property(b_entity, "position") == a.get_property(b_entity, "position"), "A's value for B is predicted")
+	a.disconnect_from_server()
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+# ----- interpolation of the other entities -----
+
+# Two players on the player server: A, which the checks drive, and B, which watches it. Returns [a, b, entity],
+# where entity is A's entity as B knows it, or an empty array if they could not be set up.
+func join_pair(check: String) -> Array:
+	var a: TesseraClient = await join_as_player()
+	var b: TesseraClient = await join_as_player()
+	if a == null or b == null:
+		fail(check, "could not join the player server twice")
+		return []
+	var seen: bool = await pump([a, b], func(): return find_entity_of(b, a.get_connection_id()) != -1, 5.0)
+	if not expect(check, seen, "B does not see the entity of A"):
+		return []
+	return [a, b, find_entity_of(b, a.get_connection_id())]
+
+
+# Sends one input of `driver` for each tick of the server for `seconds`, reading `driver` and the `others`
+# every frame and calling `sample` after each.
+func drive_and_sample(driver: TesseraClient, input: PackedByteArray, others: Array, seconds: float, sample: Callable) -> void:
+	var start := Time.get_ticks_msec()
+	var deadline := start + int(seconds * 1000.0)
+	var sent := 0
+	while Time.get_ticks_msec() < deadline:
+		var due := int((Time.get_ticks_msec() - start) / (TICK * 1000.0)) + 1
+		while sent < due:
+			driver.send_input(input)
+			sent += 1
+		driver.poll()
+		for client in others:
+			client.poll()
+		sample.call()
+		OS.delay_msec(2)
+		await process_frame
+
+
+func check_interpolation_api_outside_a_connection() -> void:
+	var name := "interpolation_api_outside_a_connection"
+	var before := failures
+	var client := make_player_client()
+	for _pass in 3:
+		expect(name, client.get_interpolated_property(1, "position") == null, "a value without a connection")
+		expect(name, not client.is_interpolating(), "interpolating without a connection")
+		expect(name, client.get_interpolation_stats()["state"] == "off", "stats: %s" % str(client.get_interpolation_stats()))
+		client.clear_interpolation()
+		client.poll()
+	expect(name, client.set_interpolation(31, 2.5) == ERR_INVALID_PARAMETER, "a delay of 31 was taken")
+	expect(name, client.get_last_error() != "", "no reason for a delay of 31")
+	expect(name, client.set_interpolation(2, 0.0) == ERR_INVALID_PARAMETER, "a snap distance of 0 was taken")
+	expect(name, client.get_last_error() != "", "no reason for a snap distance of 0")
+	expect(name, client.set_interpolation(-1, 2.5) == ERR_INVALID_PARAMETER, "a negative delay was taken")
+	expect(name, client.get_last_error() != "", "no reason for a negative delay")
+	expect(name, client.get_interpolation_stats()["state"] == "off", "a refused call changed the state")
+	expect(name, client.set_interpolation(2, 2.5) == OK, "set_interpolation failed: " + client.get_last_error())
+	expect(name, client.get_interpolation_stats()["state"] == "waiting", "stats: %s" % str(client.get_interpolation_stats()))
+	expect(name, not client.is_interpolating(), "interpolating before a buffer arrived")
+	client.clear_interpolation()
+	expect(name, client.get_interpolation_stats()["state"] == "off", "clear_interpolation did not turn it off")
+	# With no arguments it sets the defaults.
+	expect(name, client.set_interpolation() == OK, "set_interpolation() failed: " + client.get_last_error())
+	var stats: Dictionary = client.get_interpolation_stats()
+	expect(name, stats["delay_ticks"] == 2 and stats["snap_distance"] == 2.5, "defaults: %s" % str(stats))
+	finish(name, before)
+
+
+func check_interpolated_value_is_between_received_values_and_does_not_jump() -> void:
+	var name := "interpolated_value_is_between_received_values_and_does_not_jump"
+	var before := failures
+	var pair: Array = await join_pair(name)
+	if pair.is_empty():
+		return
+	var a: TesseraClient = pair[0]
+	var b: TesseraClient = pair[1]
+	var entity: int = pair[2]
+	expect(name, b.set_interpolation(2, 2.5) == OK, "set_interpolation failed: " + b.get_last_error())
+	var raw := []
+	var shown := []
+	await drive_and_sample(a, PackedByteArray([127, 0]), [b], 1.5, func():
+		var latest = b.get_property(entity, "position")
+		var smooth = b.get_interpolated_property(entity, "position")
+		if latest is Vector3 and smooth is Vector3 and b.is_interpolating():
+			raw.append(latest.x)
+			shown.append(smooth.x)
+	)
+	expect(name, shown.size() > 50, "only %d samples" % shown.size())
+	if shown.size() > 50:
+		var low: float = raw.min()
+		var high: float = raw.max()
+		var biggest_raw := 0.0
+		var biggest_shown := 0.0
+		var went_back := false
+		for index in shown.size():
+			if shown[index] < low - 0.0001 or shown[index] > high + 0.0001:
+				fail(name, "a shown value %f is outside what was received (%f to %f)" % [shown[index], low, high])
+				break
+			if index > 0:
+				biggest_raw = maxf(biggest_raw, absf(raw[index] - raw[index - 1]))
+				biggest_shown = maxf(biggest_shown, absf(shown[index] - shown[index - 1]))
+				went_back = went_back or shown[index] < shown[index - 1] - 0.0001
+		expect(name, not went_back, "the shown value went back")
+		expect(name, biggest_raw > 0.2, "get_property did not step (%f)" % biggest_raw)
+		expect(name, biggest_shown < biggest_raw * 0.9, "the shown value stepped %f as get_property did (%f)" % [biggest_shown, biggest_raw])
+		expect(name, shown.back() > shown[0] + 3.0, "the entity did not move")
+	a.disconnect_from_server()
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+func check_get_property_still_gives_the_latest_value_and_interpolation_lags_it() -> void:
+	var name := "get_property_still_gives_the_latest_value_and_interpolation_lags_it"
+	var before := failures
+	var pair: Array = await join_pair(name)
+	if pair.is_empty():
+		return
+	var a: TesseraClient = pair[0]
+	var b: TesseraClient = pair[1]
+	var entity: int = pair[2]
+	expect(name, b.set_interpolation(2, 2.5) == OK, "set_interpolation failed: " + b.get_last_error())
+	# A lambda keeps its own copy of a number it uses, so what it counts goes in a Dictionary.
+	var seen := {"frames": 0, "lag": 0.0, "ahead": 0}
+	var started := Time.get_ticks_msec()
+	await drive_and_sample(a, PackedByteArray([127, 0]), [b], 1.8, func():
+		if Time.get_ticks_msec() - started < 800:
+			return
+		var latest = b.get_property(entity, "position")
+		var smooth = b.get_interpolated_property(entity, "position")
+		if latest is Vector3 and smooth is Vector3:
+			seen["frames"] += 1
+			seen["lag"] += latest.x - smooth.x
+			if smooth.x > latest.x + 0.000001:
+				seen["ahead"] += 1
+	)
+	var frames: int = seen["frames"]
+	expect(name, frames > 30, "only %d samples" % frames)
+	expect(name, seen["ahead"] == 0, "the interpolated value was ahead of get_property on %d frames" % seen["ahead"])
+	expect(name, frames > 0 and seen["lag"] / frames > 0.1, "the interpolated value did not lag (mean %f m)" % (seen["lag"] / maxf(frames, 1)))
+	a.disconnect_from_server()
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+func check_interpolation_converges_after_the_entity_stops() -> void:
+	var name := "interpolation_converges_after_the_entity_stops"
+	var before := failures
+	var pair: Array = await join_pair(name)
+	if pair.is_empty():
+		return
+	var a: TesseraClient = pair[0]
+	var b: TesseraClient = pair[1]
+	var entity: int = pair[2]
+	expect(name, b.set_interpolation(2, 2.5) == OK, "set_interpolation failed: " + b.get_last_error())
+	await drive_and_sample(a, PackedByteArray([127, 0]), [b], 0.8, func(): pass)
+	await drive_and_sample(a, PackedByteArray([0, 0]), [b], 1.3, func(): pass)
+	var latest = b.get_property(entity, "position")
+	var smooth = b.get_interpolated_property(entity, "position")
+	expect(name, latest is Vector3 and smooth is Vector3, "no values")
+	if latest is Vector3 and smooth is Vector3:
+		expect(name, absf(latest.x - smooth.x) <= 0.001 and absf(latest.z - smooth.z) <= 0.001, "shown %s, latest %s" % [str(smooth), str(latest)])
+	var stats: Dictionary = b.get_interpolation_stats()
+	expect(name, stats["state"] == "running" and stats["lag_ticks"] <= 2.5, "stats: %s" % str(stats))
+	a.disconnect_from_server()
+	b.disconnect_from_server()
+	finish(name, before)
+
+
+func check_the_own_entity_is_predicted_not_interpolated() -> void:
+	var name := "the_own_entity_is_predicted_not_interpolated"
+	var before := failures
+	var client: TesseraClient = await join_as_player()
+	if client == null:
+		fail(name, "could not join the player server")
+		return
+	var own := find_own_entity(client)
+	expect(name, client.set_interpolation(2, 2.5) == OK, "set_interpolation failed: " + client.get_last_error())
+	if await start_prediction(client, make_rule(), name):
+		await drive_per_tick([client], [PackedByteArray([127, 0])], 0.6)
+		client.send_input(PackedByteArray([127, 0])) # the prediction is a step ahead of the server now
+		var predicted: Vector3 = client.get_predicted_property(own, "position")
+		var interpolated: Vector3 = client.get_interpolated_property(own, "position")
+		var latest: Vector3 = client.get_property(own, "position")
+		expect(name, interpolated == predicted, "interpolated %s, predicted %s" % [str(interpolated), str(predicted)])
+		expect(name, predicted.x > latest.x + 0.01, "the prediction is not ahead of the server (%s, %s)" % [str(predicted), str(latest)])
+		# Without the prediction the entity is one of the others, and is shown in the past while it moves.
+		client.clear_prediction()
+		var lagged := false
+		var shown_ahead := false
+		var started := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - started < 800:
+			client.send_input(PackedByteArray([127, 0]))
+			client.poll()
+			var smooth = client.get_interpolated_property(own, "position")
+			var server = client.get_property(own, "position")
+			if smooth is Vector3 and server is Vector3:
+				lagged = lagged or server.x - smooth.x > 0.05
+				shown_ahead = shown_ahead or smooth.x > server.x + 0.000001
+			OS.delay_msec(8)
+			await process_frame
+		expect(name, lagged, "after clear_prediction the entity was not shown in the past")
+		expect(name, not shown_ahead, "the interpolated value was ahead of the server")
+	client.disconnect_from_server()
+	finish(name, before)
+
+
+func check_two_clients_interpolate_independently() -> void:
+	var name := "two_clients_interpolate_independently"
+	var before := failures
+	var pair: Array = await join_pair(name)
+	if pair.is_empty():
+		return
+	var a: TesseraClient = pair[0]
+	var near: TesseraClient = pair[1]
+	var far: TesseraClient = await join_as_player()
+	if far == null:
+		fail(name, "could not join the player server")
+		return
+	var seen: bool = await pump([a, far], func(): return find_entity_of(far, a.get_connection_id()) != -1, 5.0)
+	expect(name, seen, "the third client does not see the entity of A")
+	var near_entity: int = pair[2]
+	var far_entity := find_entity_of(far, a.get_connection_id())
+	expect(name, near.set_interpolation(2, 2.5) == OK and far.set_interpolation(6, 2.5) == OK, "set_interpolation failed")
+	var samples := {"frames": 0, "gap": 0.0}
+	await drive_and_sample(a, PackedByteArray([127, 0]), [near, far], 1.6, func():
+		var near_shown = near.get_interpolated_property(near_entity, "position")
+		var far_shown = far.get_interpolated_property(far_entity, "position")
+		if near_shown is Vector3 and far_shown is Vector3 and near.is_interpolating() and far.is_interpolating():
+			samples["frames"] += 1
+			samples["gap"] += near_shown.x - far_shown.x
+	)
+	var frames: int = samples["frames"]
+	expect(name, near.get_interpolation_stats()["delay_ticks"] == 2 and far.get_interpolation_stats()["delay_ticks"] == 6, "the delays are not each one's own")
+	expect(name, frames > 30 and samples["gap"] / frames > 0.02, "the two did not show different times (mean gap %f m over %d frames)" % [samples["gap"] / maxf(frames, 1), frames])
+	await drive_and_sample(a, PackedByteArray([0, 0]), [near, far], 1.2, func(): pass)
+	for client in [near, far]:
+		var entity := find_entity_of(client, a.get_connection_id())
+		var latest = client.get_property(entity, "position")
+		var smooth = client.get_interpolated_property(entity, "position")
+		if latest is Vector3 and smooth is Vector3:
+			expect(name, absf(latest.x - smooth.x) <= 0.001, "one of them did not converge: shown %s, latest %s" % [str(smooth), str(latest)])
+		else:
+			fail(name, "no values after the entity stopped")
+	a.disconnect_from_server()
+	near.disconnect_from_server()
+	far.disconnect_from_server()
+	finish(name, before)
+
+
+# A prediction rule that calls the interpolation functions of its own client. They do not call back into the
+# game, so they are not refused (unlike send_input, poll and the others).
+func check_a_rule_that_calls_interpolation_functions_is_harmless() -> void:
+	var name := "a_rule_that_calls_interpolation_functions_is_harmless"
+	var before := failures
+	var pair: Array = await join_pair(name)
+	if pair.is_empty():
+		return
+	var a: TesseraClient = pair[0]
+	var b: TesseraClient = pair[1]
+	var own := find_own_entity(a)
+	var seen := {"calls": 0, "refused": 0, "set": [], "value": null, "is": null}
+	var base := make_rule()
+	var rule := func(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary:
+		seen["calls"] += 1
+		var result: int = a.set_interpolation(3, 2.5)
+		seen["set"].append(result)
+		if result == ERR_BUSY:
+			seen["refused"] += 1
+		seen["value"] = a.get_interpolated_property(own, "position")
+		seen["is"] = a.is_interpolating()
+		a.clear_interpolation()
+		a.set_interpolation(2, 2.5)
+		return base.call(state, input, dt)
+	if await start_prediction(a, rule, name):
+		await drive_and_sample(a, PackedByteArray([127, 0]), [b], 0.6, func(): pass)
+		expect(name, seen["calls"] > 0, "the rule did not run")
+		expect(name, seen["refused"] == 0, "set_interpolation was refused inside the rule")
+		expect(name, seen["set"].all(func(result): return result == OK), "results: %s" % str(seen["set"]))
+		expect(name, seen["is"] != null and seen["value"] != null, "the other calls did not answer inside the rule")
+		expect(name, a.is_predicting(), "the prediction stopped: %s" % str(a.get_prediction_stats()))
+		expect(name, a.get_prediction_stats()["rule_failures"] == 0, "the rule failed")
+		expect(name, a.get_state() == TesseraClient.State.CONNECTED, "the client left the server")
+		expect(name, a.get_interpolation_stats()["delay_ticks"] == 2, "stats: %s" % str(a.get_interpolation_stats()))
 	a.disconnect_from_server()
 	b.disconnect_from_server()
 	finish(name, before)
