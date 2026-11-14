@@ -237,6 +237,15 @@ TESSERA_TEST(a_buffer_with_no_record_for_the_entity_means_it_did_not_change) {
     double out[3] = {};
     TESSERA_CHECK(c.DisplayedValue(s.entities[1], 0, out));
     TESSERA_CHECK(Near(out[0], 11.0));
+
+    // A buffer with no record at all still moves the clock: it says what tick the world is at.
+    c.AdvanceInterpolation(10.0);
+    TESSERA_CHECK(c.DisplayedTick() == 7.0);
+    const std::vector<uint8_t> nothing = s.source.Write(++s.tick); // nothing changed since the last tick
+    s.Deliver(s.tick, nothing);
+    TESSERA_CHECK(c.Stats().buffers_applied == 8);
+    c.AdvanceInterpolation(10.0);
+    TESSERA_CHECK(c.DisplayedTick() == 8.0);
 }
 
 TESSERA_TEST(a_buffer_the_receiver_refuses_does_not_move_the_clock) {
