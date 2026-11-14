@@ -368,7 +368,9 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
             interpolator_.OnEnter(compact_id, event.id.type());
             // The entity may have been visible under another id, and the id may have belonged to another
             // entity.
-            if (const auto known = compact_of_.find(event.id.raw()); known != compact_of_.end()) {
+            // (Under the same compact id it was just started fresh by the calls above: nothing to leave.)
+            if (const auto known = compact_of_.find(event.id.raw());
+                known != compact_of_.end() && known->second != compact_id) {
                 receiver_->OnLeave(known->second);
                 interpolator_.OnLeave(known->second);
                 entity_of_[known->second] = EntityId::Null();

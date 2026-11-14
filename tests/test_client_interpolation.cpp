@@ -366,6 +366,29 @@ TESSERA_TEST(an_entity_leaving_loses_its_history_and_a_reused_id_never_blends_tw
     TESSERA_CHECK(c.InterpolationEntities() == 0);
 }
 
+TESSERA_TEST(an_enter_for_an_entity_already_visible_under_the_same_compact_id_starts_it_fresh) {
+    Scene s;
+    InterpolationConfig config;
+    TESSERA_CHECK(s.h.client.SetInterpolation(config));
+    s.Show();
+    for (int i = 0; i < 3; ++i) {
+        s.Move(0, 12.0 + i);
+    }
+    ClientReplica& c = s.h.client;
+    TESSERA_CHECK(c.InterpolationEntities() == 1 && c.InterpolationStateCount(s.entities[0]) > 1);
+    // The same entity is announced again under the same compact id: it starts fresh, it does not leave.
+    s.h.SendBatch(++s.batches, s.tick, {Enter(s.entities[0], 0)});
+    s.h.Step();
+    TESSERA_CHECK(c.State() == ClientState::Connected);
+    TESSERA_CHECK(c.InterpolationEntities() == 1);
+    TESSERA_CHECK(c.InterpolationStateCount(s.entities[0]) == 0);
+    s.Move(0, 20.0);
+    TESSERA_CHECK(c.State() == ClientState::Connected);
+    TESSERA_CHECK(c.InterpolationEntities() == 1);
+    TESSERA_CHECK(c.InterpolationStateCount(s.entities[0]) >= 1);
+    TESSERA_CHECK(c.WordsOf(s.entities[0]) != nullptr && Near(s.X(0), 20.0));
+}
+
 TESSERA_TEST(a_disconnect_a_rejection_and_a_protocol_error_clear_the_history_and_keep_the_config) {
     InterpolationConfig config;
     config.delay_ticks = 3;
