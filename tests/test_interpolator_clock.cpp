@@ -167,8 +167,8 @@ TESSERA_TEST(a_display_time_that_lags_by_more_than_the_band_catches_up_a_tenth_f
     }
     TESSERA_CHECK(Near(steps[0], 1.1)); // 4 behind
     TESSERA_CHECK(Near(steps[1], 1.1)); // 2.9 behind
-    TESSERA_CHECK(Near(steps[2], 1.0)); // 1.8 behind: inside the band again
-    TESSERA_CHECK(Near(steps[3], 0.8)); // the newest tick (104) cuts it short
+    TESSERA_CHECK(Near(steps[2], 1.1)); // 1.8 behind: the band of a delay of 0 is a quarter of a tick
+    TESSERA_CHECK(Near(steps[3], 0.7)); // 0.7 behind, and the newest tick (104) cuts it short
     TESSERA_CHECK(c.interpolator.DisplayTick() == 104.0);
 }
 
@@ -189,6 +189,43 @@ TESSERA_TEST(a_display_time_that_leads_by_more_than_the_band_slows_down_a_tenth)
     c.interpolator.Advance(1.0);
     TESSERA_CHECK(Near(c.interpolator.DisplayTick() - previous, 1.0));
     TESSERA_CHECK(c.interpolator.Stats().stalls == 0);
+}
+
+TESSERA_TEST(after_a_stall_the_lag_converges_back_to_the_delay) {
+    for (const uint32_t delay : {2u, 6u}) {
+        for (const uint64_t outage : {3u, 5u, 8u}) {
+            Clock c(delay);
+            const double band = std::min(2.0, std::max(0.25, delay / 4.0));
+            uint64_t tick = 100;
+            double previous = 0.0;
+            for (int round = 0; round < 6; ++round) {
+                // The network stops for `outage` ticks (time goes on, nothing arrives), then comes back.
+                if (round > 0) {
+                    for (uint64_t step = 0; step < outage; ++step) {
+                        c.interpolator.Advance(1.0);
+                        TESSERA_CHECK(c.interpolator.DisplayTick() >= previous);
+                        previous = c.interpolator.DisplayTick();
+                    }
+                    tick += outage;
+                }
+                for (int step = 0; step < 80; ++step) {
+                    ++tick;
+                    c.interpolator.OnBuffer(tick);
+                    TESSERA_CHECK(c.interpolator.DisplayTick() >= previous);
+                    if (step == 79) {
+                        // Behind the newest tick by the delay, give or take the band.
+                        const double lag = c.interpolator.LagTicks();
+                        TESSERA_CHECK(lag >= static_cast<double>(delay) - 1.0 - band - 1e-9);
+                        TESSERA_CHECK(lag <= static_cast<double>(delay) + band + 1e-9);
+                    }
+                    c.interpolator.Advance(1.0);
+                    TESSERA_CHECK(c.interpolator.DisplayTick() >= previous);
+                    TESSERA_CHECK(c.interpolator.DisplayTick() <= static_cast<double>(c.interpolator.LatestTick()));
+                    previous = c.interpolator.DisplayTick();
+                }
+            }
+        }
+    }
 }
 
 TESSERA_TEST(a_much_newer_tick_resyncs_the_display_time_at_once) {

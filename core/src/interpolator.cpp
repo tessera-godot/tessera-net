@@ -3,6 +3,7 @@
 
 #include "tessera/net/replication/property_codecs.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <new>
@@ -240,6 +241,12 @@ double Interpolator::Target() const noexcept {
     return latest_ > config_.delay_ticks ? static_cast<double>(latest_ - config_.delay_ticks) : 0.0;
 }
 
+// The band grows with the delay (a quarter of it, between a quarter of a tick and kBandTicks), so that the
+// shown time comes back to within a fraction of the delay after a stall instead of staying a fixed 2 ticks off.
+double Interpolator::BandTicks() const noexcept {
+    return std::min(kBandTicks, std::max(kMinBandTicks, static_cast<double>(config_.delay_ticks) / 4.0));
+}
+
 void Interpolator::ResetClock() noexcept {
     running_ = false;
     display_ = 0.0;
@@ -273,11 +280,14 @@ void Interpolator::Advance(double ticks) noexcept {
     if (!enabled_ || !running_ || !std::isfinite(ticks) || !(ticks > 0.0)) {
         return;
     }
+    // The shown time is sampled once a tick, so right after a buffer it sits between 0 and 1 tick ahead of
+    // its target in a steady stream; only beyond that, plus the band, is it too far ahead.
     const double error = display_ - Target();
+    const double band = BandTicks();
     double rate = 1.0;
-    if (error > kBandTicks) {
+    if (error > 1.0 + band) {
         rate = 1.0 - kRateAdjust; // ahead: give back the slack that a late network ate
-    } else if (error < -kBandTicks) {
+    } else if (error < -band) {
         rate = 1.0 + kRateAdjust; // behind: catch up
     }
     display_ += ticks * rate;

@@ -46,10 +46,11 @@ struct InterpolationStats {
 class Interpolator final : public IRecordObserver {
 public:
     static constexpr uint32_t kMaxDelayTicks = 30;
-    /// States kept per entity beyond the delay: 2 for the slack of the clock, 4 for how far it may lag before
-    /// it jumps, and one to close the segment being shown.
+    /// States kept per entity beyond the delay: 4 for how far the shown time may lag behind its target before
+    /// it jumps, one for the state at or before the shown time, and one spare.
     static constexpr uint32_t kHistorySlack = 6;
-    static constexpr double kBandTicks = 2.0;   ///< How far the shown time may drift from its target.
+    static constexpr double kBandTicks = 2.0;    ///< The widest the band around the target gets (large delays).
+    static constexpr double kMinBandTicks = 0.25; ///< The narrowest it gets (small delays).
     static constexpr double kRateAdjust = 0.1;  ///< How much faster or slower it runs outside the band.
     static constexpr double kResyncTicks = 4.0; ///< Lagging further than this, it jumps to the target.
 
@@ -95,8 +96,9 @@ public:
     void OnBuffer(uint64_t tick) noexcept;
     /// `ticks` of time passed since the last call (negative, zero or not finite time does nothing, and so
     /// does a clock that has not started). The shown time follows the newest tick minus the delay: it runs
-    /// at full speed inside a band of `kBandTicks` around that target, a tenth faster or slower outside it,
-    /// jumps to the target when it is further behind than `kResyncTicks`, and never passes the newest tick.
+    /// at full speed inside a band around that target (a quarter of the delay, between `kMinBandTicks` and
+    /// `kBandTicks`), a tenth faster or slower outside it, jumps to the target when it is further behind than
+    /// `kResyncTicks`, and never passes the newest tick or goes back.
     void Advance(double ticks) noexcept;
     /// Whether the clock has started (a buffer arrived since the last `Reset`).
     bool Running() const noexcept {
@@ -176,6 +178,7 @@ private:
 
     uint32_t After(const View& view, uint32_t count) const noexcept;
     double Target() const noexcept;
+    double BandTicks() const noexcept;
     void ResetClock() noexcept;
 
     const ReplicationSchema& schema_;

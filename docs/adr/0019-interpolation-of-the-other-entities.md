@@ -27,8 +27,8 @@ there is no second path for the data to take that could disagree with the first.
 is not passed and nothing is held. No message changed, and the protocol stays at version 3.
 
 **A history for each entity, in a pool for each type.** An entity keeps its newest `delay + 6` states in order of tick
-(8 with the default delay; at most 36): 2 for the slack of the clock, 4 for how far the clock may fall behind before it
-jumps, and one more to close the segment being shown. The states live in a pool for each entity type, in blocks of 128
+(8 with the default delay; at most 36): 4 for how far the shown time may lag behind its aim before it jumps, one for
+the state at or before the shown time, and one spare. The states live in a pool for each entity type, in blocks of 128
 entities, taken when the entity becomes visible and given back when it leaves, so a state that arrives or a frame that is
 drawn allocates nothing. A state that arrives out of order is put in its place, a repeat of a tick is ignored, and when the
 history is full the oldest leaves (a state older than all of them is ignored). The numbers are counted
@@ -39,17 +39,20 @@ words themselves would round every frame to a step of the schema, and at 60 fram
 second is 4 millimeters a frame, which the rounding would turn into a stutter). An angle goes the short way round, so 350
 degrees to 10 goes through 0 and not through 180. An integer, an enum and a set of flags never take a value in between:
 they change all at once, at the tick of the state that brings them, which is when the position that goes with them
-changes, so what is shown is a picture of one moment.
+changes, so what is shown is a picture of one moment. It also means that such a value read through
+`get_interpolated_property` lags `get_property` by the delay too: a health value, say, changes about 66 ms later at 30 Hz.
 
 **The clock.** The time shown is a number of ticks, a `double`, kept by the interpolator, which reads no clock: whoever
 calls it says how much time passed (`AdvanceInterpolation(seconds)`; the extension's `poll` does it with the time since
-the last call, at most a quarter of a second). It is aimed at the newest tick received minus the delay. Within 2 ticks of
-that aim it runs at the speed of time; further ahead it runs a tenth slower and further behind a tenth faster; if it
-falls more than 4 ticks behind (the network stopped and came back, or a much newer tick arrived) it jumps to the aim
-instead of replaying what was missed; and it never passes the newest tick, which is why nothing is extrapolated. A
-frame that took a quarter of a second cannot take it past the newest state. Because the correction starts only when the
-clock is more than 2 ticks ahead of its aim, the time shown can sit up to 3 ticks closer to the newest tick than the delay
-says; it is never further than the delay.
+the last call, at most a quarter of a second). It is aimed at the newest tick received minus the delay. Inside a band around that aim it runs at the speed of
+time; further ahead it runs a tenth slower and further behind a tenth faster. The band is a quarter of the delay, at
+least a quarter of a tick and at most 2 ticks (about half a tick with the default delay). If it falls more than 4 ticks
+behind (the network stopped and came back, or a much newer tick arrived) it jumps to the aim instead of replaying what
+was missed; it never goes backward and never passes the newest tick, which is why nothing is extrapolated. A frame that
+took a quarter of a second cannot take it past the newest state. After a stall the correction brings the time shown back
+to about the delay behind the newest tick, within the band, in a few tens of ticks (about 25 ticks at 3 ticks of error);
+while it settles, and in a steady stream, the time shown is between the delay minus a tick and a band, and the delay plus
+a band, behind the newest tick at the moment a buffer arrives.
 
 **A long gap, and a jump, are not slid through.** The client cannot tell an entity that stood still for three seconds
 (the server sends nothing about it) from one that the budget of bytes kept waiting; it only sees two states far apart. If

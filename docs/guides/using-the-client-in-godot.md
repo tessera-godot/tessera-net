@@ -341,8 +341,9 @@ var position = client.get_predicted_property(id, "position") if id == own_entity
   that took long does not make it jump). Call `poll()` every frame.
 - **The price is the delay.** The other entities are shown about 66 ms in the past with the default of 2 ticks, and your
   own sphere, which is predicted, is in the present, so what you chase or touch is a little behind where it really is.
-  A larger delay gives more room to ride out a late state and costs more lag. The time shown can sit up to 3 ticks
-  closer to the newest state than the delay says, never further.
+  A larger delay gives more room to ride out a late state and costs more lag. The clock aims at the delay behind the
+  newest state and comes back to it after a stall, within a band of a quarter of the delay (at least a quarter of a
+  tick, at most 2 ticks).
 - **There is no extrapolation.** If a state arrives later than the delay, the entity waits where it is until it comes; it
   does not guess where it is going.
 - **A teleport, or a long silence, is not slid through.** Two neighbouring states more than `snap_distance` apart, or
@@ -351,7 +352,7 @@ var position = client.get_predicted_property(id, "position") if id == own_entity
   fastest entity goes in 8 ticks: speed times 8 divided by the tick rate (a player at 8 m/s moves 2.13 m, under the 2.5
   default). The gap of 8 ticks is not a setting of the extension.
 - **An angle goes the short way round,** and an integer, a choice and a set of flags change all at once, at the tick of the
-  state that brings them. A position is blended on the values the schema stands for, not on its steps of 1 centimeter.
+  state that brings them, so they lag `get_property` by the delay too (a health value changes about 66 ms later at 30 Hz). A position is blended on the values the schema stands for, not on its steps of 1 centimeter.
 - **`get_property` still gives the last value received,** and `get_interpolated_property` gives the same until you call
   `set_interpolation`.
 - **The calls are safe inside a prediction rule:** unlike `send_input` and the others, they do not call back into the game,
