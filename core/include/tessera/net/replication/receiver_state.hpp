@@ -22,6 +22,14 @@ enum class DecodeStatus : uint8_t {
     EventsMissing,   ///< The visibility events of the buffer's tick have not all been applied yet.
 };
 
+/// Told about each record `ReceiverState::Apply` stores, as it stores it.
+class IRecordObserver {
+public:
+    virtual ~IRecordObserver() = default;
+    /// The state of the entity under `compact_id` at `tick`: its `words` (valid only during the call).
+    virtual void OnRecord(uint32_t compact_id, uint64_t tick, const uint32_t* words) = 0;
+};
+
 /// The receiving side of replicated state, and the reference decoder: it keeps, for each compact id, the
 /// states it received over the last `history_ticks` ticks, because a record is written against the state the
 /// server last had confirmed, which may be older than the newest one received.
@@ -53,8 +61,10 @@ public:
     }
 
     /// Applies a buffer produced for `tick`. Stops at the first bad record, leaving it and later ones
-    /// unapplied; `applied` (if given) receives how many records were applied.
-    DecodeStatus Apply(std::span<const uint8_t> buffer, uint64_t tick, size_t* applied = nullptr);
+    /// unapplied; `applied` (if given) receives how many records were applied. `observer` (if given) is told
+    /// of each record right after it is stored, a late one included, and never of a record that was refused.
+    DecodeStatus Apply(std::span<const uint8_t> buffer, uint64_t tick, size_t* applied = nullptr,
+                       IRecordObserver* observer = nullptr);
 
     /// The newest received state of an entity (`words` of its type), or nullptr if none was received yet.
     const uint32_t* Current(uint32_t compact_id) const noexcept;

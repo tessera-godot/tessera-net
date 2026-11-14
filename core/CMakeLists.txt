@@ -23,6 +23,7 @@ add_library(tessera_net_core STATIC
     src/protocol.cpp
     src/client_replica.cpp
     src/predictor.cpp
+    src/interpolator.cpp
     src/replication_server.cpp)
 
 target_include_directories(tessera_net_core PUBLIC include)
