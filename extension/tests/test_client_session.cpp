@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -1358,4 +1359,309 @@ TESSERA_TEST(session_a_rule_that_leaves_a_number_that_is_not_finite_still_has_a_
     TESSERA_CHECK(p.session.Prediction().status == net::PredictionStatus::Failed);
     TESSERA_CHECK(!p.session.TakeRuleFailure().empty());
     TESSERA_CHECK(p.session.TakeRuleFailure().empty());
+}
+
+namespace {
+
+// The example server with players, a session that drives (A) and one that watches (B), connected, each with
+// the entity of the other and its own. The tick rate of this world is 100 a second.
+struct Pair {
+    server::example::ExampleGame game{0, false, true};
+    World world{game};
+    ClientSession a{world.Factory()};
+    ClientSession b{world.Factory()};
+    uint64_t a_entity = 0;
+    uint64_t b_entity = 0;
+    bool ok = false;
+
+    Pair() {
+        std::string error;
+        if (!a.Connect(PlayersSchema(), "a", 1, error) || !b.Connect(PlayersSchema(), "b", 2, error)) {
+            return;
+        }
+        bool both = false;
+        for (int i = 0; i < 200 && !both; ++i) {
+            StepBoth(world, a, b);
+            both = a.Entities().size() == 2 && b.Entities().size() == 2;
+        }
+        a_entity = OwnEntity(a);
+        b_entity = OwnEntity(b);
+        ok = both && a_entity != 0 && b_entity != 0 && a_entity != b_entity;
+    }
+
+    // One tick: A sends its input, the world steps and both sessions let `seconds` pass.
+    void Tick(int8_t x, int8_t z, double seconds = 0.01) {
+        const uint8_t bytes[2] = {static_cast<uint8_t>(x), static_cast<uint8_t>(z)};
+        a.SendInput(bytes);
+        StepBoth(world, a, b);
+        a.Advance(seconds);
+        b.Advance(seconds);
+    }
+};
+
+double X(const std::optional<Value>& value) {
+    return value ? value->vec[0] : std::nan("");
+}
+
+} // namespace
+
+TESSERA_TEST(session_set_interpolation_refuses_bad_values_with_a_reason) {
+    ClientSession session(NoTransport());
+    std::string error;
+    TESSERA_CHECK(!session.SetInterpolation(31, 2.5, error) && Contains(error, "delay_ticks"));
+    error.clear();
+    TESSERA_CHECK(!session.SetInterpolation(static_cast<uint32_t>(-1), 2.5, error) &&
+                  Contains(error, "delay_ticks"));
+    for (const double snap : {0.0, -1.0, std::nan(""), std::numeric_limits<double>::infinity()}) {
+        error.clear();
+        TESSERA_CHECK(!session.SetInterpolation(2, snap, error) && Contains(error, "snap_distance"));
+    }
+    TESSERA_CHECK(!session.Interpolation().configured); // nothing was set
+    TESSERA_CHECK(session.SetInterpolation(0, 0.001, error));
+    TESSERA_CHECK(session.SetInterpolation(30, 1000.0, error));
+}
+
+TESSERA_TEST(session_interpolation_can_be_set_before_connecting_and_survives_a_reconnect) {
+    server::example::ExampleGame game(0, false, true);
+    World world(game);
+    ClientSession session(world.Factory());
+    std::string error;
+    TESSERA_CHECK(session.SetInterpolation(4, 3.0, error)); // nothing is connected yet
+    InterpolationReport report = session.Interpolation();
+    TESSERA_CHECK(report.configured && !report.running && report.delay_ticks == 4 &&
+                  report.snap_distance == 3.0);
+
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error));
+    TESSERA_CHECK(world.Converge(session, events, 1));
+    report = session.Interpolation();
+    TESSERA_CHECK(report.configured && report.running && report.delay_ticks == 4 &&
+                  report.snap_distance == 3.0);
+    session.Disconnect();
+    report = session.Interpolation();
+    TESSERA_CHECK(report.configured && !report.running); // the settings stay, the clock does not
+    events.clear();
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error));
+    TESSERA_CHECK(world.Converge(session, events, 1));
+    report = session.Interpolation();
+    TESSERA_CHECK(report.configured && report.running && report.delay_ticks == 4 &&
+                  report.snap_distance == 3.0);
+
+    session.ClearInterpolation();
+    TESSERA_CHECK(!session.Interpolation().configured && !session.Interpolation().running);
+    session.Disconnect();
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error)); // forgotten: it does not come back
+    TESSERA_CHECK(!session.Interpolation().configured);
+}
+
+TESSERA_TEST(session_interpolated_value_before_set_interpolation_is_the_latest_value) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    for (int i = 0; i < 30; ++i) {
+        p.Tick(127, 0);
+    }
+    const auto plain = p.b.Property(p.a_entity, "position");
+    const auto interpolated = p.b.InterpolatedProperty(p.a_entity, "position");
+    TESSERA_CHECK(plain && interpolated && plain->vec[0] == interpolated->vec[0] &&
+                  plain->vec[2] == interpolated->vec[2]);
+    const auto owner = p.b.InterpolatedProperty(p.a_entity, "owner");
+    TESSERA_CHECK(owner && owner->integer == p.a.ConnectionId());
+    // Nothing known stays nothing.
+    TESSERA_CHECK(!p.b.InterpolatedProperty(0x123456789ull, "position").has_value());
+    TESSERA_CHECK(!p.b.InterpolatedProperty(p.a_entity, "nothing").has_value());
+    const InterpolationReport report = p.b.Interpolation();
+    TESSERA_CHECK(!report.configured && !report.running && report.stats.states == 0);
+}
+
+TESSERA_TEST(session_interpolated_position_lags_the_latest_and_lies_between_two_states) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.b.SetInterpolation(2, 2.5, error));
+    double lowest = 1e9;
+    double highest = -1e9;
+    double previous = -1e9;
+    int compared = 0;
+    for (int i = 0; i < 80; ++i) {
+        p.Tick(127, 0);
+        const double latest = X(p.b.Property(p.a_entity, "position"));
+        const double shown = X(p.b.InterpolatedProperty(p.a_entity, "position"));
+        lowest = std::min(lowest, latest);
+        highest = std::max(highest, latest);
+        if (i < 20) {
+            continue; // the clock has started and the entity has begun to move
+        }
+        ++compared;
+        TESSERA_CHECK(shown >= lowest - 0.0101 && shown <= highest + 0.0101);
+        TESSERA_CHECK(shown >= previous - 0.0101); // never back
+        const double behind = latest - shown;
+        TESSERA_CHECK(behind > 0.01 && behind <= 0.25); // a couple of ticks of 0.08 m
+        previous = shown;
+    }
+    TESSERA_CHECK(compared == 60);
+    const InterpolationReport report = p.b.Interpolation();
+    TESSERA_CHECK(report.configured && report.running && report.stats.states > 50);
+    TESSERA_CHECK(report.lag_ticks > 0.0 && report.lag_ticks <= 2.0 + 1e-9);
+}
+
+TESSERA_TEST(session_interpolated_value_of_a_property_that_is_not_blended_is_the_held_state) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.b.SetInterpolation(2, 2.5, error));
+    for (int i = 0; i < 30; ++i) {
+        p.Tick(127, 0);
+    }
+    const auto owner = p.b.InterpolatedProperty(p.a_entity, "owner");
+    const auto plain = p.b.Property(p.a_entity, "owner");
+    TESSERA_CHECK(owner && plain && owner->kind == Value::Kind::Int && plain->kind == Value::Kind::Int);
+    TESSERA_CHECK(owner && plain && owner->integer == plain->integer && owner->integer == p.a.ConnectionId());
+}
+
+TESSERA_TEST(session_interpolated_value_for_the_predicted_entity_is_the_predicted_one) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.a.SetInterpolation(2, 2.5, error));
+    TESSERA_CHECK(p.a.SetPrediction(p.a_entity, {"position"}, PlayerRule(), {}, error));
+    // Right after it is set the prediction waits for a state: the entity is shown as the server last said.
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Waiting);
+    for (int i = 0; i < 30; ++i) {
+        p.Tick(127, 0);
+    }
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Active);
+    const uint8_t east[] = {127, 0};
+    p.a.SendInput(east); // the prediction is now ahead of the server
+    const auto predicted = p.a.PredictedProperty(p.a_entity, "position");
+    const auto interpolated = p.a.InterpolatedProperty(p.a_entity, "position");
+    const auto plain = p.a.Property(p.a_entity, "position");
+    TESSERA_CHECK(predicted && interpolated && plain);
+    if (predicted && interpolated && plain) {
+        TESSERA_CHECK(interpolated->vec[0] == predicted->vec[0] && interpolated->vec[2] == predicted->vec[2]);
+        TESSERA_CHECK(predicted->vec[0] > plain->vec[0] + 0.01); // and not the server's, nor a lagging copy
+    }
+
+    // While the prediction is not active, the server's last word: never the interpolated one.
+    for (int i = 0; i < 70; ++i) {
+        p.a.SendInput(east); // too many inputs wait for a state: it pauses
+    }
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Paused);
+    {
+        const auto shown = p.a.InterpolatedProperty(p.a_entity, "position");
+        const auto last = p.a.Property(p.a_entity, "position");
+        TESSERA_CHECK(shown && last && shown->vec[0] == last->vec[0]);
+    }
+    p.a.ClearPrediction();
+    TESSERA_CHECK(p.a.SetPrediction(p.a_entity, {"position"}, PlayerRule(), {}, error));
+    const uint8_t giving_up[] = {99, 0};
+    for (int i = 0; i < 40; ++i) {
+        p.a.SendInput(giving_up);
+        StepBoth(p.world, p.a, p.b);
+        p.a.Advance(0.01);
+    }
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Failed);
+    {
+        const auto shown = p.a.InterpolatedProperty(p.a_entity, "position");
+        const auto last = p.a.Property(p.a_entity, "position");
+        TESSERA_CHECK(shown && last && shown->vec[0] == last->vec[0]);
+    }
+}
+
+TESSERA_TEST(session_without_prediction_the_own_entity_is_interpolated_like_the_others) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.a.SetInterpolation(2, 2.5, error));
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Off);
+    for (int i = 0; i < 60; ++i) {
+        p.Tick(127, 0);
+    }
+    const double latest = X(p.a.Property(p.a_entity, "position"));
+    const double shown = X(p.a.InterpolatedProperty(p.a_entity, "position"));
+    TESSERA_CHECK(shown < latest - 0.01 && latest - shown <= 0.25);
+}
+
+TESSERA_TEST(session_advance_moves_both_the_prediction_and_the_interpolation) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    PredictionSettings slow;
+    slow.smoothing_seconds = 5.0;
+    // A rule that is wrong on purpose: half of the speed.
+    TESSERA_CHECK(p.a.SetPrediction(p.a_entity, {"position"}, PlayerRule(0.5), slow, error));
+    TESSERA_CHECK(p.a.SetInterpolation(2, 2.5, error));
+    // The other player walks, and this one is predicted with that rule. No time passes for the session (no
+    // Advance), so a correction is still to slide and the other entity is behind.
+    for (int i = 0; i < 60; ++i) {
+        const uint8_t east[] = {127, 0};
+        p.a.SendInput(east);
+        const uint8_t b_east[] = {127, 0};
+        p.b.SendInput(b_east);
+        StepBoth(p.world, p.a, p.b);
+    }
+    TESSERA_CHECK(p.a.Prediction().status == net::PredictionStatus::Active);
+    const double before_predicted = X(p.a.PredictedProperty(p.a_entity, "position"));
+    const double before_other = X(p.a.InterpolatedProperty(p.b_entity, "position"));
+    const double latest_other = X(p.a.Property(p.b_entity, "position"));
+    TESSERA_CHECK(before_other < latest_other - 0.05); // behind: the clock has not moved on
+    TESSERA_CHECK(p.a.Interpolation().lag_ticks >= 2.0);
+    p.a.Advance(0.0);
+    p.a.Advance(-1.0);
+    TESSERA_CHECK(X(p.a.InterpolatedProperty(p.b_entity, "position")) == before_other); // nothing passed
+    p.a.Advance(10.0);
+    TESSERA_CHECK(X(p.a.PredictedProperty(p.a_entity, "position")) != before_predicted); // the slide moved
+    TESSERA_CHECK(p.a.Interpolation().lag_ticks == 0.0);
+    TESSERA_CHECK(X(p.a.InterpolatedProperty(p.b_entity, "position")) ==
+                  X(p.a.Property(p.b_entity, "position")));
+}
+
+TESSERA_TEST(session_clear_interpolation_and_disconnect_return_the_latest_values) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.b.SetInterpolation(2, 2.5, error));
+    for (int i = 0; i < 40; ++i) {
+        p.Tick(127, 0);
+    }
+    const double lagging = X(p.b.InterpolatedProperty(p.a_entity, "position"));
+    const double latest = X(p.b.Property(p.a_entity, "position"));
+    TESSERA_CHECK(lagging < latest);
+    p.b.ClearInterpolation();
+    TESSERA_CHECK(X(p.b.InterpolatedProperty(p.a_entity, "position")) == latest);
+    TESSERA_CHECK(!p.b.Interpolation().configured);
+    p.b.ClearInterpolation(); // harmless twice
+    TESSERA_CHECK(p.b.SetInterpolation(2, 2.5, error));
+    p.b.Disconnect();
+    TESSERA_CHECK(!p.b.InterpolatedProperty(p.a_entity, "position").has_value());
+    TESSERA_CHECK(!p.b.Interpolation().running);
+    p.b.Advance(1.0); // harmless
+}
+
+TESSERA_TEST(session_two_sessions_interpolate_independently) {
+    Pair p;
+    TESSERA_CHECK(p.ok);
+    std::string error;
+    TESSERA_CHECK(p.a.SetInterpolation(2, 2.5, error));
+    TESSERA_CHECK(p.b.SetInterpolation(6, 2.5, error));
+    for (int i = 0; i < 80; ++i) {
+        const uint8_t east[] = {127, 0};
+        p.a.SendInput(east);
+        p.b.SendInput(east);
+        StepBoth(p.world, p.a, p.b);
+        p.a.Advance(0.01);
+        p.b.Advance(0.01);
+    }
+    TESSERA_CHECK(p.a.Interpolation().delay_ticks == 2 && p.b.Interpolation().delay_ticks == 6);
+    // Each shows the other a different time in the past.
+    // (A clock that is ahead of its target slows down only when it is more than 2 ticks ahead, so the shown
+    // time may sit up to 3 ticks closer to the newest than the delay says: here 1 tick.)
+    const double a_behind =
+        X(p.a.Property(p.b_entity, "position")) - X(p.a.InterpolatedProperty(p.b_entity, "position"));
+    const double b_behind =
+        X(p.b.Property(p.a_entity, "position")) - X(p.b.InterpolatedProperty(p.a_entity, "position"));
+    TESSERA_CHECK(a_behind > 0.01 && b_behind > a_behind + 0.05);
+    TESSERA_CHECK(p.b.Interpolation().lag_ticks > p.a.Interpolation().lag_ticks + 0.5);
+    // And one session's settings are not the other's.
+    p.a.ClearInterpolation();
+    TESSERA_CHECK(!p.a.Interpolation().configured && p.b.Interpolation().configured);
 }

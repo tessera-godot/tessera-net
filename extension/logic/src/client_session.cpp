@@ -101,6 +101,9 @@ bool ClientSession::Connect(std::shared_ptr<const BuiltSchema> schema, const std
         schema_ = std::move(schema);
         transport_ = std::move(transport);
         replica_ = std::make_unique<net::ClientReplica>(*transport_, schema_->Schema());
+        if (interpolation_set_) {
+            replica_->SetInterpolation(interpolation_, nullptr); // the settings outlast the connection
+        }
     } catch (const std::exception& exception) {
         Close();
         error = std::string("could not connect: ") + exception.what();
@@ -477,6 +480,7 @@ bool ClientSession::SetPredictionSettings(const PredictionSettings& settings, st
 void ClientSession::Advance(double seconds) noexcept {
     if (replica_ && !RuleRunning()) {
         replica_->AdvancePrediction(seconds);
+        replica_->AdvanceInterpolation(seconds);
     }
 }
 
@@ -494,6 +498,104 @@ std::optional<Value> ClientSession::PredictedProperty(uint64_t entity, std::stri
         }
     }
     return Property(entity, name);
+}
+
+bool ClientSession::SetInterpolation(uint32_t delay_ticks, double snap_distance, std::string& error) {
+    try {
+        if (delay_ticks > net::Interpolator::kMaxDelayTicks) {
+            error = "delay_ticks must be from 0 to " + std::to_string(net::Interpolator::kMaxDelayTicks);
+            return false;
+        }
+        if (!std::isfinite(snap_distance) || snap_distance <= 0.0) {
+            error = "snap_distance must be a number above 0";
+            return false;
+        }
+        net::InterpolationConfig config;
+        config.delay_ticks = delay_ticks;
+        config.snap_distance = snap_distance;
+        if (replica_ && !replica_->SetInterpolation(config, &error)) {
+            return false;
+        }
+        interpolation_ = config;
+        interpolation_set_ = true;
+        return true;
+    } catch (const std::exception& exception) {
+        error = std::string("could not set the interpolation: ") + exception.what();
+    } catch (...) {
+        error = "could not set the interpolation";
+    }
+    return false;
+}
+
+void ClientSession::ClearInterpolation() noexcept {
+    interpolation_set_ = false;
+    if (replica_) {
+        replica_->ClearInterpolation();
+    }
+}
+
+std::optional<Value> ClientSession::InterpolatedProperty(uint64_t entity, std::string_view name) const {
+    if (!replica_ || !IsKnown(entity)) {
+        return std::nullopt;
+    }
+    // The entity of the player is shown as the prediction has it: a copy a couple of ticks in the past would
+    // lag behind the one the player is driving.
+    if (prediction_ && entity == prediction_->entity &&
+        replica_->Prediction() != net::PredictionStatus::Off) {
+        return PredictedProperty(entity, name);
+    }
+    if (!replica_->Interpolating()) {
+        return Property(entity, name);
+    }
+    const net::EntityId id = net::EntityId::FromRaw(entity);
+    const net::TypeSchema* type = schema_->Schema().Find(id.type());
+    const std::vector<PropertyInfo>* infos = schema_->Properties(id.type());
+    if (type == nullptr || infos == nullptr) {
+        return std::nullopt;
+    }
+    for (size_t i = 0; i < infos->size() && i < type->properties.size(); ++i) {
+        if ((*infos)[i].name != name) {
+            continue;
+        }
+        const ValueKind kind = (*infos)[i].kind;
+        const uint32_t index = static_cast<uint32_t>(i);
+        double numbers[3] = {0.0, 0.0, 0.0};
+        Value value;
+        if (kind == ValueKind::Position && replica_->DisplayedValue(id, index, numbers)) {
+            value.kind = Value::Kind::Vector3;
+            for (int axis = 0; axis < 3; ++axis) {
+                value.vec[axis] = numbers[axis];
+            }
+            return value;
+        }
+        if (kind == ValueKind::Angle && replica_->DisplayedValue(id, index, numbers)) {
+            value.kind = Value::Kind::Float;
+            value.number = numbers[0];
+            return value;
+        }
+        if (kind != ValueKind::Position && kind != ValueKind::Angle) {
+            // An integer, a flag, a mask or a choice does not take in-between values: it is the state in
+            // force at the time shown.
+            if (const uint32_t* words = replica_->DisplayedWords(id)) {
+                return ConvertProperty(type->properties[i], kind, words);
+            }
+        }
+        break;
+    }
+    return Property(entity, name);
+}
+
+InterpolationReport ClientSession::Interpolation() const {
+    InterpolationReport report;
+    report.configured = interpolation_set_;
+    report.delay_ticks = interpolation_.delay_ticks;
+    report.snap_distance = interpolation_.snap_distance;
+    if (replica_ && interpolation_set_) {
+        report.running = replica_->Interpolating();
+        report.stats = replica_->InterpolationInfo();
+        report.lag_ticks = replica_->InterpolationLag();
+    }
+    return report;
 }
 
 bool ClientSession::RuleRunning() const noexcept {
