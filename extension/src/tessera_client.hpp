@@ -79,6 +79,31 @@ public:
     void set_snap_distance(double distance);
     double get_snap_distance() const;
 
+    // Shows the entities that move by themselves a little in the past, smoothed between two states of the
+    // server. get_interpolated_property() then gives, for a position or an angle, a value in between the two
+    // states around a time delay_ticks behind the newest (0 to 30; the server runs at 30 ticks a second, so 2
+    // is about 66 ms), and for anything else the value in force at that time. A state that is late holds the
+    // entity where it is until it arrives: nothing is guessed ahead. Two states more than snap_distance
+    // apart (a teleport), or more than 8 ticks apart (a long silence), are not blended: the entity stays and
+    // moves to the new one at its tick. Set it before connecting or later; it stays through a reconnection.
+    // Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() for a delay outside 0 to 30 or
+    // a snap_distance that is not above 0. With no arguments it sets the defaults, 2 ticks and 2.5.
+    // The time moves with poll(), by the time that passed since the last call (at most a quarter of a second).
+    // None of these calls is refused inside a prediction rule: they do not call back into the game.
+    int set_interpolation(int delay_ticks, double snap_distance);
+    // Stops interpolating and forgets the settings. Harmless in any state.
+    void clear_interpolation();
+    // The value to show for a property of an entity: for the entity that is predicted (see set_prediction),
+    // whatever get_predicted_property() gives; with interpolation running, the interpolated value; otherwise
+    // the same as get_property(), which always gives what the server last said.
+    Variant get_interpolated_property(int64_t entity, const String& name) const;
+    // True once interpolation is set and a state buffer has arrived since the connection.
+    bool is_interpolating() const;
+    // The state ("off", "waiting" or "running"), the settings (delay_ticks, snap_distance) and the counts:
+    // states, states_ignored, gap_holds, snaps, stalls and resyncs, and lag_ticks, how far behind the newest
+    // tick the time shown is.
+    Dictionary get_interpolation_stats() const;
+
     int get_state() const;
     String get_rejection() const;
     String get_last_error() const;
