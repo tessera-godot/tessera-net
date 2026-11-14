@@ -2,6 +2,7 @@
 #pragma once
 
 #include "tessera/net/entity_id.hpp"
+#include "tessera/net/interpolator.hpp"
 #include "tessera/net/predictor.hpp"
 #include "tessera/net/protocol.hpp"
 #include "tessera/net/replication/property_schema.hpp"
@@ -112,6 +113,44 @@ public:
     /// nothing, unless the prediction is active.
     bool Predicted(std::span<double> out) const noexcept;
 
+    /// Starts showing the entities a little in the past, smoothed between the states received on either side
+    /// of the time shown (see `Interpolator`). Returns false, changing nothing and saying why in `error` when
+    /// given, for a configuration that cannot work. Safe to call in any state; connected, it starts from the
+    /// states the client already holds. The configuration stays through a disconnect and a reconnection,
+    /// while the states do not.
+    bool SetInterpolation(const InterpolationConfig& config, std::string* error = nullptr);
+    /// Stops interpolating and forgets the configuration.
+    void ClearInterpolation() noexcept;
+    /// Lets the time shown advance by `seconds` (at the tick rate of the server); call it with the time that
+    /// passed. Nothing happens before the hello or for time that is negative or not finite.
+    void AdvanceInterpolation(double seconds) noexcept;
+    /// Whether interpolation is configured, and whether its clock has started (a state buffer was applied).
+    bool InterpolationSet() const noexcept;
+    bool Interpolating() const noexcept;
+    const InterpolationConfig& InterpolationSettings() const noexcept;
+    const InterpolationStats& InterpolationInfo() const noexcept;
+    /// The tick being shown, and how far behind the newest applied tick it is, in ticks.
+    double DisplayedTick() const noexcept;
+    double InterpolationLag() const noexcept;
+    /// The memory the interpolation holds now; 0 when it is not configured.
+    size_t InterpolationMemoryBytes() const noexcept;
+    /// How many entities hold room for interpolation states now (the visible ones, while it is on).
+    size_t InterpolationEntities() const noexcept;
+    /// How many states are kept for an entity, and the tick of one of them (0 is the oldest).
+    size_t InterpolationStateCount(EntityId id) const noexcept;
+    uint64_t InterpolationStateTick(EntityId id, uint32_t index) const noexcept;
+    /// The quantized state of a visible entity as it was at the time shown: the newest with a tick not after
+    /// it (see `Interpolator::HeldWords`). Nullptr when the entity is not visible, has no state, or
+    /// interpolation is off or has not started. Valid until the next `Poll` or call that changes the
+    /// interpolation.
+    const uint32_t* DisplayedWords(EntityId id) const noexcept;
+    /// The position (3 numbers) or angle (1 number) of property `property_index` of the entity at the time
+    /// shown, blended between two states (see `Interpolator::Read`). False, writing nothing, for any other
+    /// kind of property or when `DisplayedWords` would be nullptr.
+    bool DisplayedValue(EntityId id, uint32_t property_index, std::span<double> out) const noexcept;
+    /// The tick of the newest state of a visible entity (the one `WordsOf` gives); 0 if there is none.
+    uint64_t StateTickOf(EntityId id) const noexcept;
+
     /// How many entities this client can see.
     size_t VisibleCount() const noexcept {
         return compact_of_.size();
@@ -167,6 +206,7 @@ private:
     uint32_t connection_id_ = 0;
     uint32_t tick_rate_ = 0;
     Predictor predictor_;
+    Interpolator interpolator_;
     std::unique_ptr<ReceiverState> receiver_;
     uint64_t batches_applied_ = 0;
     std::vector<EntityId> entity_of_;                   // by compact id; Null when the id is free

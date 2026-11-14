@@ -384,6 +384,14 @@ bool Interpolator::Linked(uint32_t compact_id, uint32_t index) const noexcept {
     return Locate(entities_[compact_id]).links[index] != 0;
 }
 
+size_t Interpolator::InUse() const noexcept {
+    size_t chunks = 0;
+    for (const Pool& pool : pools_) {
+        chunks += pool.blocks.size() * kChunksPerBlock - pool.free.size();
+    }
+    return chunks;
+}
+
 size_t Interpolator::MemoryBytes() const noexcept {
     if (!enabled_) {
         return 0;

@@ -197,7 +197,9 @@ TESSERA_TEST(leaving_frees_the_entity_and_a_reentering_id_starts_empty) {
     f.interpolator.OnEnter(3, kMobType);
     f.Feed(3, 10, 1.0);
     f.Feed(3, 11, 2.0);
+    TESSERA_CHECK(f.interpolator.InUse() == 1);
     f.interpolator.OnLeave(3);
+    TESSERA_CHECK(f.interpolator.InUse() == 0);
     TESSERA_CHECK(f.interpolator.StateCount(3) == 0);
     TESSERA_CHECK(f.interpolator.StateWords(3, 0) == nullptr);
     f.Feed(3, 12, 3.0); // for an entity that is gone
@@ -214,8 +216,10 @@ TESSERA_TEST(leaving_frees_the_entity_and_a_reentering_id_starts_empty) {
     // Entering again without leaving is the same: the old states do not carry over.
     TESSERA_CHECK(f.interpolator.OnEnter(3, kMobType));
     TESSERA_CHECK(f.interpolator.StateCount(3) == 0);
+    TESSERA_CHECK(f.interpolator.InUse() == 1); // the old room was given back, not kept beside the new
     f.interpolator.OnLeave(3);
     f.interpolator.OnLeave(3); // twice is harmless
+    TESSERA_CHECK(f.interpolator.InUse() == 0);
     f.interpolator.OnLeave(9999);
 }
 

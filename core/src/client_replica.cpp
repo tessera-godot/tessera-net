@@ -15,7 +15,7 @@ constexpr uint32_t kMaxTickRate = 1000;
 } // namespace
 
 ClientReplica::ClientReplica(ITransport& transport, const ReplicationSchema& schema)
-    : transport_(transport), schema_(schema), predictor_(schema) {}
+    : transport_(transport), schema_(schema), predictor_(schema), interpolator_(schema) {}
 
 void ClientReplica::Poll() {
     if (predictor_.RuleRunning()) {
@@ -140,6 +140,100 @@ bool ClientReplica::Predicted(std::span<double> out) const noexcept {
     return predictor_.Displayed(out);
 }
 
+bool ClientReplica::SetInterpolation(const InterpolationConfig& config, std::string* error) {
+    if (!interpolator_.Configure(config, error)) {
+        return false;
+    }
+    if (receiver_) {
+        // Connected: start from what the client holds, the newest state of each visible entity.
+        interpolator_.Reset(static_cast<uint32_t>(entity_of_.size()));
+        for (uint32_t compact_id = 0; compact_id < entity_of_.size(); ++compact_id) {
+            if (entity_of_[compact_id].IsNull()) {
+                continue;
+            }
+            interpolator_.OnEnter(compact_id, entity_of_[compact_id].type());
+            if (const uint32_t* words = receiver_->Current(compact_id)) {
+                interpolator_.OnRecord(compact_id, receiver_->CurrentTick(compact_id), words);
+            }
+        }
+        if (any_applied_) {
+            interpolator_.OnBuffer(applied_latest_);
+        }
+    }
+    return true;
+}
+
+void ClientReplica::ClearInterpolation() noexcept {
+    interpolator_.Clear();
+}
+
+void ClientReplica::AdvanceInterpolation(double seconds) noexcept {
+    if (tick_rate_ != 0) {
+        interpolator_.Advance(seconds * static_cast<double>(tick_rate_));
+    }
+}
+
+bool ClientReplica::InterpolationSet() const noexcept {
+    return interpolator_.Enabled();
+}
+
+bool ClientReplica::Interpolating() const noexcept {
+    return interpolator_.Running();
+}
+
+const InterpolationConfig& ClientReplica::InterpolationSettings() const noexcept {
+    return interpolator_.Config();
+}
+
+const InterpolationStats& ClientReplica::InterpolationInfo() const noexcept {
+    return interpolator_.Stats();
+}
+
+double ClientReplica::DisplayedTick() const noexcept {
+    return interpolator_.DisplayTick();
+}
+
+double ClientReplica::InterpolationLag() const noexcept {
+    return interpolator_.LagTicks();
+}
+
+size_t ClientReplica::InterpolationMemoryBytes() const noexcept {
+    return interpolator_.MemoryBytes();
+}
+
+size_t ClientReplica::InterpolationEntities() const noexcept {
+    return interpolator_.InUse();
+}
+
+size_t ClientReplica::InterpolationStateCount(EntityId id) const noexcept {
+    const auto known = compact_of_.find(id.raw());
+    return known == compact_of_.end() ? 0 : interpolator_.StateCount(known->second);
+}
+
+uint64_t ClientReplica::InterpolationStateTick(EntityId id, uint32_t index) const noexcept {
+    const auto known = compact_of_.find(id.raw());
+    return known == compact_of_.end() ? 0 : interpolator_.StateTick(known->second, index);
+}
+
+const uint32_t* ClientReplica::DisplayedWords(EntityId id) const noexcept {
+    const auto known = compact_of_.find(id.raw());
+    return known == compact_of_.end() ? nullptr : interpolator_.HeldWords(known->second);
+}
+
+bool ClientReplica::DisplayedValue(EntityId id, uint32_t property_index,
+                                   std::span<double> out) const noexcept {
+    const auto known = compact_of_.find(id.raw());
+    return known != compact_of_.end() && interpolator_.Read(known->second, property_index, out);
+}
+
+uint64_t ClientReplica::StateTickOf(EntityId id) const noexcept {
+    if (!receiver_) {
+        return 0;
+    }
+    const auto known = compact_of_.find(id.raw());
+    return known == compact_of_.end() ? 0 : receiver_->CurrentTick(known->second);
+}
+
 // An entity that is no longer visible has no state to predict from: what was predicted for it is dropped, and
 // the prediction waits until it is back.
 void ClientReplica::ForgetPredictionOf(EntityId entity) noexcept {
@@ -169,6 +263,7 @@ void ClientReplica::ResetVisible() {
     entity_of_.clear();
     compact_of_.clear();
     predictor_.Reset();
+    interpolator_.Reset(0);
 }
 
 void ClientReplica::HandleMessage(const TransportEvent& event) {
@@ -242,6 +337,7 @@ void ClientReplica::HandleServerHello(const ServerHello& hello) {
     connection_id_ = hello.connection_id;
     tick_rate_ = hello.tick_rate;
     predictor_.Reset();
+    interpolator_.Reset(hello.max_visible);
     receiver_ = std::make_unique<ReceiverState>(schema_, hello.max_visible, hello.max_baseline_age_ticks);
     entity_of_.assign(hello.max_visible, EntityId::Null());
     compact_of_.clear();
@@ -269,10 +365,12 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
                 Fail(); // no schema for that type
                 return;
             }
+            interpolator_.OnEnter(compact_id, event.id.type());
             // The entity may have been visible under another id, and the id may have belonged to another
             // entity.
             if (const auto known = compact_of_.find(event.id.raw()); known != compact_of_.end()) {
                 receiver_->OnLeave(known->second);
+                interpolator_.OnLeave(known->second);
                 entity_of_[known->second] = EntityId::Null();
                 compact_of_.erase(known);
                 ForgetPredictionOf(event.id);
@@ -285,6 +383,7 @@ void ClientReplica::HandleEventBatch(const EventBatch& batch) {
             compact_of_[event.id.raw()] = compact_id;
         } else {
             receiver_->OnLeave(compact_id);
+            interpolator_.OnLeave(compact_id);
             if (!entity_of_[compact_id].IsNull()) {
                 compact_of_.erase(entity_of_[compact_id].raw());
                 ForgetPredictionOf(entity_of_[compact_id]);
@@ -385,10 +484,14 @@ void ClientReplica::ApplyBuffer(uint64_t tick, uint32_t last_input_sequence,
     // Every event batch the buffer cites has been applied, so the events up to its tick are in.
     receiver_->AdvanceEvents(tick);
     size_t applied = 0;
-    if (receiver_->Apply(payload, tick, &applied) == DecodeStatus::Ok) {
+    IRecordObserver* observer = interpolator_.Enabled() ? &interpolator_ : nullptr;
+    if (receiver_->Apply(payload, tick, &applied, observer) == DecodeStatus::Ok) {
         ++stats_.buffers_applied;
         MarkApplied(tick);
         apply_happened_ = true;
+        // The clock of the interpolation sees the tick before the prediction replays anything, so that
+        // whatever the movement rule reads of it is the same as outside the rule.
+        interpolator_.OnBuffer(tick);
         if (predictor_.Status() != PredictionStatus::Off && tick_rate_ != 0) {
             // Whether or not the buffer has a record of the player's entity, it says which inputs the state
             // reflects. A buffer that is older than one already used is ignored by the predictor.

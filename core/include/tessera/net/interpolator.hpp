@@ -136,6 +136,9 @@ public:
     /// Whether the state at `index` is blended with the one before it. False for the oldest.
     bool Linked(uint32_t compact_id, uint32_t index) const noexcept;
 
+    /// How many entities hold room for states now.
+    size_t InUse() const noexcept;
+
     /// The memory held now: the lists, the pools and what they keep free.
     size_t MemoryBytes() const noexcept;
 
