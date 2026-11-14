@@ -81,8 +81,8 @@ public:
 
     // Shows the entities that move by themselves a little in the past, smoothed between two states of the
     // server. get_interpolated_property() then gives, for a position or an angle, a value in between the two
-    // states around a time delay_ticks behind the newest (0 to 30; the server runs at 30 ticks a second, so 2
-    // is about 66 ms), and for anything else the value in force at that time. A state that is late holds the
+    // states around a time delay_ticks behind the newest (0 to 30; the example server runs at 30 ticks a second,
+    // so 2 is about 66 ms there), and for anything else the value in force at that time. A state that is late holds the
     // entity where it is until it arrives: nothing is guessed ahead. Two states more than snap_distance
     // apart (a teleport), or more than 8 ticks apart (a long silence), are not blended: the entity stays and
     // moves to the new one at its tick. Set it before connecting or later; it stays through a reconnection.

@@ -151,8 +151,8 @@ TESSERA_TEST(a_state_older_than_all_kept_in_a_full_history_is_ignored_and_counte
     TESSERA_CHECK(f.interpolator.StateTick(0, 0) == 10);
     TESSERA_CHECK(f.interpolator.Stats().states_ignored == 1);
     TESSERA_CHECK(f.interpolator.Stats().states == 6);
-    // One that falls between the kept ones still gets in, pushing the oldest out.
-    f.Feed(0, 12, 12.5); // a repeat: ignored
+    // A tick that is already kept is a repeat: ignored, and nothing is pushed out.
+    f.Feed(0, 12, 12.5);
     TESSERA_CHECK(f.interpolator.Stats().states_ignored == 2);
 }
 
