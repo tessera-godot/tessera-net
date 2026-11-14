@@ -7,6 +7,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- Interpolation of the other entities. The core has `Interpolator` and, in `ClientReplica`, `SetInterpolation`,
+  `ClearInterpolation`, `AdvanceInterpolation`, `InterpolationSet`, `Interpolating`, `InterpolationSettings`,
+  `InterpolationInfo`, `DisplayedTick`, `InterpolationLag`, `InterpolationMemoryBytes`, `InterpolationEntities`,
+  `InterpolationStateCount`, `InterpolationStateTick`, `DisplayedWords`, `DisplayedValue` and `StateTickOf`. Each visible
+  entity keeps its newest states and the client shows it a few ticks in the past (2 by default, about 66 milliseconds
+  at 30 ticks a second): a position is blended between the two states on either side of that moment, an angle goes the
+  short way round, and an integer, an enum or a set of flags changes all at once. Nothing is extrapolated: a state that is
+  late makes the entity wait. Two neighbouring states more than 8 ticks or more than 2.5 world units apart are not
+  blended, so a teleport or a long silence is not slid through. `ReceiverState::Apply` takes an optional
+  `IRecordObserver`. It is off unless set, and costs nothing while it is off. No message changed: the protocol stays at
+  version 3.
+- In the Godot extension, `TesseraClient.set_interpolation(delay_ticks = 2, snap_distance = 2.5)`,
+  `clear_interpolation()`, `get_interpolated_property(id, name)`, `is_interpolating()` and `get_interpolation_stats()`.
+  `poll()` moves the time shown. For the predicted entity `get_interpolated_property` gives what
+  `get_predicted_property` gives. None of these calls is refused inside a prediction rule.
+- In the demo project, the other spheres are interpolated, and the label shows the delay.
+- A benchmark of what interpolation costs with 1,000 and 10,000 visible entities (`tessera_net_bench_interpolation`; see
+  [benchmarks](docs/benchmarks.md#9-interpolation-on-the-client)).
+- Tests: the default build now has 659 tests (it had 592), with a counter of memory allocations that shows that taking in
+  states and reading values allocate nothing; the server tests (93, they had 83) check interpolation against the example
+  server on a simulated network that loses, duplicates and delays messages, and measure the gaps under a budget of
+  bytes; the extension tests and the headless Godot test cover the new calls.
+- Architecture decision record 0019, "Interpolation of the other entities" (Proposed).
 - Prediction and reconciliation of the player's own entity. The core has `Predictor` and, in `ClientReplica`,
   `SetPrediction`, `SetPredictionSettings`, `ClearPrediction`, `AdvancePrediction`, `Prediction`, `PredictionInfo`,
   `PredictionPending`, `PredictedComponents`, `Predicted` and `TickRate`: the game gives a movement rule, `SendInput`
@@ -19,7 +42,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   call back into the client: while it runs, `send_input`, `poll`, `connect_to`, `disconnect_from_server`,
   `set_prediction` and `clear_prediction` are refused, with the reason in `get_last_error()`.
 - In the demo project, the green sphere is predicted with the movement rule of the example server written in GDScript,
-  and the label shows the size of the last correction. The other players' spheres are not smoothed.
+  and the label shows the size of the last correction.
 - Tests: the default build now has 592 tests (it had 539), with a test of the prediction against the example server on a
   simulated network that loses, duplicates and delays messages; the server tests, the extension tests and the headless
   Godot test cover the prediction too.
