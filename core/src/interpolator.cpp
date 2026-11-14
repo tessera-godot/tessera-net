@@ -43,6 +43,7 @@ bool Interpolator::Configure(const InterpolationConfig& config, std::string* err
     std::vector<Entity>().swap(entities_);
     config_ = config;
     stats_ = InterpolationStats{};
+    ResetClock();
     enabled_ = true;
     return true;
 }
@@ -51,6 +52,7 @@ void Interpolator::Clear() noexcept {
     enabled_ = false;
     config_ = InterpolationConfig{};
     stats_ = InterpolationStats{};
+    ResetClock();
     std::vector<Entity>().swap(entities_);
     std::vector<Pool>().swap(pools_);
 }
@@ -60,6 +62,7 @@ void Interpolator::Reset(uint32_t max_visible) {
         return;
     }
     stats_ = InterpolationStats{};
+    ResetClock();
     for (Pool& pool : pools_) {
         pool = Pool{};
     }
@@ -228,6 +231,59 @@ void Interpolator::OnRecord(uint32_t compact_id, uint64_t tick, const uint32_t* 
                                   view.words + (at + 1) * width, &ignored)
                                  ? 1
                                  : 0;
+    }
+}
+
+// Where the shown time wants to be: the delay behind the newest tick, and never before the start.
+double Interpolator::Target() const noexcept {
+    return latest_ > config_.delay_ticks ? static_cast<double>(latest_ - config_.delay_ticks) : 0.0;
+}
+
+void Interpolator::ResetClock() noexcept {
+    running_ = false;
+    display_ = 0.0;
+    latest_ = 0;
+}
+
+void Interpolator::OnBuffer(uint64_t tick) noexcept {
+    if (!enabled_) {
+        return;
+    }
+    if (!running_) {
+        running_ = true;
+        latest_ = tick;
+        display_ = Target();
+        return;
+    }
+    if (tick <= latest_) {
+        return; // older than what the clock has seen, or a repeat
+    }
+    latest_ = tick;
+    const double target = Target();
+    if (display_ - target < -kResyncTicks) {
+        // Too far behind to catch up by running a little faster (the network stopped and came back, or a
+        // much newer tick arrived): go to the target instead of replaying what was missed.
+        display_ = target;
+        ++stats_.resyncs;
+    }
+}
+
+void Interpolator::Advance(double ticks) noexcept {
+    if (!enabled_ || !running_ || !std::isfinite(ticks) || !(ticks > 0.0)) {
+        return;
+    }
+    const double error = display_ - Target();
+    double rate = 1.0;
+    if (error > kBandTicks) {
+        rate = 1.0 - kRateAdjust; // ahead: give back the slack that a late network ate
+    } else if (error < -kBandTicks) {
+        rate = 1.0 + kRateAdjust; // behind: catch up
+    }
+    display_ += ticks * rate;
+    const double newest = static_cast<double>(latest_);
+    if (display_ > newest) {
+        display_ = newest; // what has not arrived cannot be shown
+        ++stats_.stalls;
     }
 }
 

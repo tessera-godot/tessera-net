@@ -89,6 +89,30 @@ public:
     /// A state of the entity arrived (`words` of its type, copied).
     void OnRecord(uint32_t compact_id, uint64_t tick, const uint32_t* words) override;
 
+    /// The newest tick of which a buffer has been applied, as the clock sees it: the first one starts the
+    /// clock; one that is not newer than the last does nothing. Call it after a buffer was applied whole.
+    void OnBuffer(uint64_t tick) noexcept;
+    /// `ticks` of time passed since the last call (negative, zero or not finite time does nothing, and so
+    /// does a clock that has not started). The shown time follows the newest tick minus the delay: it runs
+    /// at full speed inside a band of `kBandTicks` around that target, a tenth faster or slower outside it,
+    /// jumps to the target when it is further behind than `kResyncTicks`, and never passes the newest tick.
+    void Advance(double ticks) noexcept;
+    /// Whether the clock has started (a buffer arrived since the last `Reset`).
+    bool Running() const noexcept {
+        return running_;
+    }
+    /// The tick being shown, in ticks and fractions of one; 0 until the clock starts.
+    double DisplayTick() const noexcept {
+        return display_;
+    }
+    uint64_t LatestTick() const noexcept {
+        return latest_;
+    }
+    /// The newest tick minus the tick being shown (0 until the clock starts).
+    double LagTicks() const noexcept {
+        return running_ ? static_cast<double>(latest_) - display_ : 0.0;
+    }
+
     /// How many states are kept for an entity, and the tick of one of them (0 is the oldest).
     size_t StateCount(uint32_t compact_id) const noexcept;
     uint64_t StateTick(uint32_t compact_id, uint32_t index) const noexcept;
@@ -132,8 +156,14 @@ private:
     bool Link(const TypeSchema& type, uint64_t before_tick, const uint32_t* before, uint64_t tick,
               const uint32_t* words, bool* gap_failed) const noexcept;
 
+    double Target() const noexcept;
+    void ResetClock() noexcept;
+
     const ReplicationSchema& schema_;
     bool enabled_ = false;
+    bool running_ = false;
+    double display_ = 0.0; // the tick being shown
+    uint64_t latest_ = 0;  // the newest tick of which a buffer was applied
     InterpolationConfig config_;
     InterpolationStats stats_;
     std::vector<Entity> entities_;
