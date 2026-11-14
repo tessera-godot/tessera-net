@@ -13,6 +13,7 @@ namespace tessera::net {
 namespace {
 
 constexpr size_t kTypeCount = 256;
+constexpr double kTwoPi = 6.283185307179586476925286766559;
 
 void Describe(std::string* error, const char* text) {
     if (error != nullptr) {
@@ -285,6 +286,73 @@ void Interpolator::Advance(double ticks) noexcept {
         display_ = newest; // what has not arrived cannot be shown
         ++stats_.stalls;
     }
+}
+
+// The index of the first state with a tick after the shown time (`count` if there is none).
+uint32_t Interpolator::After(const View& view, uint32_t count) const noexcept {
+    uint32_t index = count;
+    while (index > 0 && static_cast<double>(view.ticks[index - 1]) > display_) {
+        --index;
+    }
+    return index;
+}
+
+const uint32_t* Interpolator::HeldWords(uint32_t compact_id) const noexcept {
+    if (!running_ || StateCount(compact_id) == 0) {
+        return nullptr;
+    }
+    const Entity& entity = entities_[compact_id];
+    const View view = Locate(entity);
+    const uint32_t after = After(view, entity.count);
+    return view.words + static_cast<size_t>(after > 0 ? after - 1 : 0) * entity.type->words;
+}
+
+bool Interpolator::Read(uint32_t compact_id, uint32_t property_index, std::span<double> out) const noexcept {
+    if (!running_ || StateCount(compact_id) == 0) {
+        return false;
+    }
+    const Entity& entity = entities_[compact_id];
+    if (property_index >= entity.type->properties.size()) {
+        return false;
+    }
+    const PropertyDescriptor& property = entity.type->properties[property_index];
+    if (property.kind == PropertyKind::Position ? out.size() < 3
+                                                : (property.kind != PropertyKind::Angle || out.empty())) {
+        return false;
+    }
+    const View view = Locate(entity);
+    const size_t width = entity.type->words;
+    const uint32_t after = After(view, entity.count);
+    // The state to show, and the one to blend it with (the same one when nothing is blended).
+    uint32_t from = after > 0 ? after - 1 : 0;
+    uint32_t to = from;
+    double fraction = 0.0;
+    if (after > 0 && after < entity.count && view.links[after] != 0) {
+        to = after;
+        fraction = (display_ - static_cast<double>(view.ticks[from])) /
+                   static_cast<double>(view.ticks[to] - view.ticks[from]);
+    }
+    const uint32_t* a = view.words + from * width + property.word_offset;
+    const uint32_t* b = view.words + to * width + property.word_offset;
+    if (property.kind == PropertyKind::Position) {
+        double start[3];
+        double end[3];
+        DequantizePosition(property, a, start);
+        DequantizePosition(property, b, end);
+        for (int axis = 0; axis < 3; ++axis) {
+            out[axis] = start[axis] + (end[axis] - start[axis]) * fraction;
+        }
+        return true;
+    }
+    const double start = DequantizeAngle(property, a);
+    double turn = DequantizeAngle(property, b) - start;
+    turn -= kTwoPi * std::round(turn / kTwoPi); // the short way round: into (-pi, pi]
+    double angle = std::fmod(start + turn * fraction, kTwoPi);
+    if (angle < 0.0) {
+        angle += kTwoPi;
+    }
+    out[0] = angle < kTwoPi ? angle : 0.0;
+    return true;
 }
 
 size_t Interpolator::StateCount(uint32_t compact_id) const noexcept {

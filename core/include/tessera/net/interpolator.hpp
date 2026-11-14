@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -113,6 +114,20 @@ public:
         return running_ ? static_cast<double>(latest_) - display_ : 0.0;
     }
 
+    /// The words of the state in force at the shown time: the newest one with a tick not after it (the
+    /// oldest one if the shown time is before them all). Integers, enums and bit masks are read from these,
+    /// so they change all at once, at the tick of the state that brings them. Nullptr for an entity that is
+    /// not there or has no state, and while the clock has not started. The pointer holds until the next
+    /// call that changes the states (`OnRecord`, `OnEnter`, `OnLeave`, `Reset`, `Configure`).
+    const uint32_t* HeldWords(uint32_t compact_id) const noexcept;
+    /// The shown value of a position (3 numbers in `out`) or an angle (1 number, radians in [0, 2 pi)),
+    /// blended between the two states around the shown time when they are linked (see `Linked`), otherwise
+    /// the value of the older one until the shown time reaches the newer one. Before the first state it is
+    /// the first, after the last the last: nothing is extrapolated. False, writing nothing, for any other
+    /// kind of property, an index outside the type, an `out` too small, an entity with no state, or a clock
+    /// that has not started.
+    bool Read(uint32_t compact_id, uint32_t property_index, std::span<double> out) const noexcept;
+
     /// How many states are kept for an entity, and the tick of one of them (0 is the oldest).
     size_t StateCount(uint32_t compact_id) const noexcept;
     uint64_t StateTick(uint32_t compact_id, uint32_t index) const noexcept;
@@ -156,6 +171,7 @@ private:
     bool Link(const TypeSchema& type, uint64_t before_tick, const uint32_t* before, uint64_t tick,
               const uint32_t* words, bool* gap_failed) const noexcept;
 
+    uint32_t After(const View& view, uint32_t count) const noexcept;
     double Target() const noexcept;
     void ResetClock() noexcept;
 
