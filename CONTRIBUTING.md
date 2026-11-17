@@ -18,7 +18,27 @@ right now are feedback on the design, use cases, and measurements.
 
 ## Code style
 
-- C++20, formatted with the `.clang-format` in the repository.
+- C++20, formatted with `clang-format` 18.1.8 and the `.clang-format` in the repository (other versions format a
+  few things differently). The check needs that exact version, which you can get without installing anything on
+  your system, in a virtual environment:
+
+  ```bash
+  # Linux or macOS, once
+  python3 -m venv ~/.tessera-format-venv
+  ~/.tessera-format-venv/bin/python -m pip install --require-hashes -r tools/requirements-format.txt
+  # then, whenever you want to check
+  CLANG_FORMAT=~/.tessera-format-venv/bin/clang-format python3 tools/check_format.py
+  ```
+
+  ```powershell
+  # Windows, once
+  python -m venv $env:TEMP\tessera-format-venv
+  & $env:TEMP\tessera-format-venv\Scripts\python.exe -m pip install --require-hashes -r tools\requirements-format.txt
+  # then, whenever you want to check
+  python tools\check_format.py --clang-format $env:TEMP\tessera-format-venv\Scripts\clang-format.exe
+  ```
+
+  The script lists the files that are not formatted; add `--fix` to format them. The CI runs the same check.
 - Clean Code and SOLID: small units with one responsibility, dependencies through interfaces.
 - Comments and identifiers in English. Comment the reason, not the obvious.
 - No allocations on the per-tick hot path.
