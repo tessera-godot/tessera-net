@@ -1886,7 +1886,7 @@ TESSERA_TEST(session_survives_several_drops_in_a_row) {
             TESSERA_CHECK(!session.Prediction().failure.empty());
         }
         TESSERA_CHECK(DropServer(rig, session, events));
-        TESSERA_CHECK(session.Generation() >= generation); // a drop does not make a new connection
+        TESSERA_CHECK(session.Generation() == generation); // a drop does not make a new connection
         generation = session.Generation();
         TESSERA_CHECK(Count(events, Kind::Connected) == 1);
         TESSERA_CHECK(Count(events, Kind::Disconnected) == 1);
