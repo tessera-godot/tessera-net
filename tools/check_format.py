@@ -25,7 +25,13 @@ BATCH = 40  # files for each clang-format run, to keep the command line short on
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIREMENTS = os.path.join(ROOT, "tools", "requirements-format.txt")
 
-SETUP_HELP = """To get the right clang-format without installing anything on the system, make a virtual environment:
+# A line of clang-format output that is a problem other than "code should be clang-formatted".
+OTHER_PROBLEM = re.compile(
+    r"^(?:.+?:\d+:\d+: error: (?!code should be clang-formatted)|error:|Error |YAML:|.*[Nn]o such file)",
+    re.MULTILINE,
+)
+
+SETUP_HELP ="""To get the right clang-format without installing anything on the system, make a virtual environment:
   python -m venv <folder>
   <folder>/bin/python -m pip install --require-hashes -r tools/requirements-format.txt   (Windows: <folder>\\Scripts\\python.exe)
 then run this script again with CLANG_FORMAT=<folder>/bin/clang-format (Windows: <folder>\\Scripts\\clang-format.exe)
@@ -56,7 +62,14 @@ def find_clang_format(explicit):
 def version_of(executable):
     """The version a clang-format reports (for example "18.1.8"), or None if it cannot be run or read."""
     try:
-        result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     match = re.search(r"clang-format version (\S+)", result.stdout)
@@ -66,7 +79,12 @@ def version_of(executable):
 def tracked_files():
     """The C++ files git tracks, as paths relative to the repository root."""
     result = subprocess.run(
-        ["git", "-C", ROOT, "ls-files", "-z", "--", *PATTERNS], capture_output=True, text=True, check=False
+        ["git", "-C", ROOT, "ls-files", "-z", "--", *PATTERNS],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     if result.returncode != 0:
         print("git could not list the files:\n" + result.stderr)
@@ -76,7 +94,13 @@ def tracked_files():
 
 def run_clang_format(executable, arguments, files):
     return subprocess.run(
-        [executable, "--style=file", *arguments, *files], cwd=ROOT, capture_output=True, text=True, check=False
+        [executable, "--style=file", *arguments, *files],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
 
 
@@ -91,7 +115,9 @@ def check(executable, files):
             for match in re.finditer(r"^(.+?):\d+:\d+: (?:error|warning):", result.stderr, re.MULTILINE)
         }
         unformatted.extend(name for name in batch if name in found)
-        if result.returncode != 0 and not found:
+        if result.returncode != 0 and (not found or OTHER_PROBLEM.search(result.stderr)):
+            # Not only files out of format: clang-format could not read a file or its settings. Stopping here keeps
+            # that from hiding behind the list of files to format.
             print("clang-format failed:\n" + result.stderr)
             return None
     return unformatted
