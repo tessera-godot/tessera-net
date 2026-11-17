@@ -7,7 +7,10 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace schema_test {
 
@@ -38,6 +41,15 @@ inline tessera::schema::json::Position At(const std::string& text, const std::st
 /// A whole schema file with one type, whose properties are the text between the brackets (one per line, from line 2).
 inline std::string OneType(const std::string& properties, const std::string& type_fields = "\"type\": 1, \"name\": \"entity\"") {
     return "{\"format_version\": 1, \"types\": [{" + type_fields + ", \"properties\": [\n" + properties + "\n]}]}";
+}
+
+/// The bytes of a file of tests/schema (a fixture or a golden file).
+inline std::string ReadTestFile(const std::string& relative_path) {
+    std::ifstream file(std::string(TESSERA_SCHEMA_TEST_DIR) + "/" + relative_path, std::ios::binary);
+    if (!file) {
+        std::printf("  test bug: cannot open %s\n", relative_path.c_str());
+    }
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
 inline bool Has(const std::string& text, const std::string& part) {

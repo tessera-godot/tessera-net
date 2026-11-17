@@ -5,6 +5,7 @@ file(GLOB SCHEMA_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test
 add_executable(tessera_schema_tests ${SCHEMA_TEST_SOURCES} ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
 target_link_libraries(tessera_schema_tests PRIVATE tessera_schema_tool)
 target_include_directories(tessera_schema_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_compile_definitions(tessera_schema_tests PRIVATE TESSERA_SCHEMA_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(MSVC)
     target_compile_options(tessera_schema_tests PRIVATE /W4 /permissive-)
