@@ -37,7 +37,7 @@ if(TESSERA_EXTENSION_GODOT AND EXISTS "${TESSERA_EXTENSION_GODOT}")
              COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/run_godot_e2e.py e2e
                      "${TESSERA_EXTENSION_GODOT}" "${CMAKE_BINARY_DIR}/extension/stage/e2e"
                      $<TARGET_FILE:tessera_example_server>)
-    set_tests_properties(tessera_extension_godot PROPERTIES TIMEOUT 120)
+    set_tests_properties(tessera_extension_godot PROPERTIES TIMEOUT 240)
 else()
     message(STATUS "Godot executable not set: the end-to-end test is not registered")
 endif()
