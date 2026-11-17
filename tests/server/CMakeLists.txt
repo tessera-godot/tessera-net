@@ -17,6 +17,7 @@ add_test(NAME tessera_server_tests COMMAND tessera_server_tests)
 # The example server over real sockets, and as a process that gets signals. Only with ENet.
 if(TESSERA_BUILD_ENET)
     add_executable(tessera_server_enet_tests test_enet_server_example.cpp test_enet_stop_signals.cpp
+                   test_enet_reconnection.cpp
                    ${PROJECT_SOURCE_DIR}/server/example/stop_signals.cpp server_test_guard.cpp
                    ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
     target_link_libraries(tessera_server_enet_tests PRIVATE tessera_server tessera_net_enet)
