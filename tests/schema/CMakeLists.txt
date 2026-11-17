@@ -2,7 +2,9 @@
 # Tests of the schema tool. Built when the tool is (see tests/CMakeLists.txt). They have their own executable, so that
 # the main test program is the same with or without the tool.
 file(GLOB SCHEMA_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp)
-add_executable(tessera_schema_tests ${SCHEMA_TEST_SOURCES} ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
+# schema_test_guard.cpp makes a test that dies end with a message on the console instead of a dialog on MSVC.
+add_executable(tessera_schema_tests ${SCHEMA_TEST_SOURCES} schema_test_guard.cpp
+               ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
 # The header that the tool writes from a schema file of the tests, included by two of the test files.
 tessera_schema_generate_cpp(tessera_all_kinds_schema
                             SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/all_kinds.json
