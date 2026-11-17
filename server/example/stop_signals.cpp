@@ -20,9 +20,9 @@ namespace tessera::server::example {
 
 namespace {
 
-// All a handler does is set this flag, which is safe in a signal handler: one store to a lock-free atomic, with
-// no log, no allocation, no lock and no call into the host. A thread of ours polls the flag and asks the host
-// to stop from there.
+// All a handler does is set this flag, which is safe in a signal handler: one store to a lock-free atomic,
+// with no log, no allocation, no lock and no call into the host. A thread of ours polls the flag and asks the
+// host to stop from there.
 std::atomic<bool> g_stop_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free, "the signal handler needs a lock-free flag");
 

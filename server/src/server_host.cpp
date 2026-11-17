@@ -38,7 +38,7 @@ ServerHost::ServerHost(const ServerConfig& config, IGameLogic& logic, net::ITran
       jobs_(config_.worker_threads), grid_(setup_.grid),
       replication_(setup_.replication, setup_.relevancy, *setup_.schema, grid_, groups_, jobs_, transport_),
       loop_(net::TickConfig{static_cast<double>(config_.tick_rate_hz)}, jobs_),
-      context_{config_.shard_id, config_.tick_rate_hz, replication_, grid_, groups_, jobs_, log_,
+      context_{config_.shard_id,         config_.tick_rate_hz, replication_, grid_, groups_, jobs_, log_,
                [this] { RequestStop(); }},
       summary_(config_.summary_interval_s, log_) {
     loop_.SetPhaseHandler(net::Phase::Simulate,

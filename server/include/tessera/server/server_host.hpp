@@ -37,8 +37,9 @@ public:
     ServerHost(ServerHost&&) = delete;
     ServerHost& operator=(ServerHost&&) = delete;
 
-    /// Calls `OnStart`. Happens once; `Step` and `Run` call it when needed. If `OnStart` throws, the exception
-    /// reaches the caller and the host stays failed: later `Step` calls do nothing and `Run` returns 1.
+    /// Calls `OnStart`. Happens once; `Step` and `Run` call it when needed. If `OnStart` throws, the
+    /// exception reaches the caller and the host stays failed: later `Step` calls do nothing and `Run`
+    /// returns 1.
     void Start();
 
     /// Runs one tick now, without waiting. For tests, and for a game that runs its own loop.
