@@ -7,8 +7,10 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,47 @@ inline std::string ReadTestFile(const std::string& relative_path) {
     if (!file) {
         std::printf("  test bug: cannot open %s\n", relative_path.c_str());
     }
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
+/// A folder made for one test, in the temporary folder of the system, and removed (with what is in it) at the end.
+class TempDir {
+public:
+    TempDir() {
+        std::random_device random;
+        path_ = std::filesystem::temp_directory_path() / ("tessera_schema_test_" + std::to_string(random()) + "_" + std::to_string(random()));
+        std::filesystem::create_directories(path_);
+    }
+    ~TempDir() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path_, ignored);
+    }
+    TempDir(const TempDir&) = delete;
+    TempDir& operator=(const TempDir&) = delete;
+
+    const std::filesystem::path& Path() const {
+        return path_;
+    }
+    /// The path of a file or folder inside, with forward slashes.
+    std::string File(const std::string& name) const {
+        return (path_ / name).generic_string();
+    }
+    /// Writes a file inside (in binary), making the folders it needs.
+    std::string Write(const std::string& name, const std::string& bytes) const {
+        const std::filesystem::path target = path_ / name;
+        std::filesystem::create_directories(target.parent_path());
+        std::ofstream file(target, std::ios::binary | std::ios::trunc);
+        file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return target.generic_string();
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+/// The bytes of a file at a path (empty when there is none).
+inline std::string ReadAll(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
