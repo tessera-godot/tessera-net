@@ -16,6 +16,7 @@ option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose
 option(TESSERA_BUILD_ENET "Build the ENet transport, its tests and the head-to-head programs (downloads ENet)" OFF)
 option(TESSERA_BUILD_SERVER "Build the server library, its example and its tests" OFF)
 option(TESSERA_BUILD_EXTENSION "Build the Godot extension (downloads godot-cpp; needs ENet and the server)" OFF)
+set(TESSERA_SANITIZE "" CACHE STRING "Sanitizers to build everything with, for example address,undefined (GCC and Clang only)")
 
 # The extension is a shared library that carries the core and ENet inside it, so everything it links is built
 # position independent and with hidden symbols (only the entry point stays visible). That is set here, before
@@ -35,6 +36,17 @@ if(TESSERA_BUILD_EXTENSION)
     set(CMAKE_CXX_VISIBILITY_PRESET hidden)
     set(CMAKE_C_VISIBILITY_PRESET hidden)
     set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+endif()
+
+# Sanitizers are off unless asked for. When on, they apply to every target made after this point (the core, the server,
+# ENet, godot-cpp and the tests), so that a memory or undefined-behavior error in any of them stops the program with
+# a report instead of going unnoticed. The library is not meant to be loaded into Godot in this configuration.
+if(TESSERA_SANITIZE)
+    if(MSVC)
+        message(FATAL_ERROR "TESSERA_SANITIZE is for GCC and Clang. With MSVC, leave it empty.")
+    endif()
+    add_compile_options(-fsanitize=${TESSERA_SANITIZE} -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=${TESSERA_SANITIZE})
 endif()
 
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).

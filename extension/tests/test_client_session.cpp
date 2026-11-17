@@ -30,9 +30,9 @@ namespace {
 class TestGame final : public server::IGameLogic {
 public:
     explicit TestGame(float step = 0.01f, uint32_t entities = 3) : step_(step), count_(entities) {
-        schema_.AddType(1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
-                                                              TESSERA_COLUMN(Columns, y),
-                                                              TESSERA_COLUMN(Columns, z), step_, 2048.0f)});
+        schema_.AddType(
+            1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x), TESSERA_COLUMN(Columns, y),
+                                                  TESSERA_COLUMN(Columns, z), step_, 2048.0f)});
     }
 
     server::WorldSetup DescribeWorld() override {
@@ -107,8 +107,7 @@ private:
 struct World {
     explicit World(server::IGameLogic& game, uint32_t shard = 0, uint32_t max_players = 8)
         : network(net::NetworkConditions{}), log(server::LogLevel::Error, [](const std::string&) {}),
-          host(MakeConfig(shard, max_players), game, network.Server(), log) {
-    }
+          host(MakeConfig(shard, max_players), game, network.Server(), log) {}
 
     static server::ServerConfig MakeConfig(uint32_t shard, uint32_t max_players) {
         server::ServerConfig config;
@@ -131,7 +130,8 @@ struct World {
         host.Step();
     }
 
-    template <class Done> bool StepUntil(ClientSession& session, std::vector<SessionEvent>& events, Done done) {
+    template <class Done>
+    bool StepUntil(ClientSession& session, std::vector<SessionEvent>& events, Done done) {
         for (int i = 0; i < 200; ++i) {
             Step(&session, &events);
             if (done()) {
@@ -158,8 +158,7 @@ struct World {
     // The end of a connection that the simulated network owns.
     class Borrowed : public net::ITransport {
     public:
-        explicit Borrowed(net::ITransport& inner) : inner_(inner) {
-        }
+        explicit Borrowed(net::ITransport& inner) : inner_(inner) {}
         void Poll(std::vector<net::TransportEvent>& out) override {
             if (hook) {
                 hook();
@@ -284,7 +283,8 @@ TESSERA_TEST(session_connects_and_reports_the_state_changes) {
     std::vector<SessionEvent> events;
     world.Step(&session, &events);
     TESSERA_CHECK(session.State() == SessionState::Handshaking);
-    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Connected; }));
+    TESSERA_CHECK(
+        world.StepUntil(session, events, [&] { return session.State() == SessionState::Connected; }));
     TESSERA_CHECK(Count(events, Kind::Connected) == 1);
     TESSERA_CHECK(Count(events, Kind::Rejected) == 0 && Count(events, Kind::Disconnected) == 0);
     // More reading does not say it again.
@@ -379,8 +379,9 @@ TESSERA_TEST(session_unknown_entity_and_unknown_name_give_nothing) {
     TESSERA_CHECK(!session.Property(real.raw(), "positio").has_value());
     // An id that was never sent, and one of the right shape from a shard this server is not.
     TESSERA_CHECK(!session.Property(net::EntityId::Make(5, 1, 99, 0).raw(), "position").has_value());
-    TESSERA_CHECK(!session.Property(net::EntityId::Make(6, 1, real.index(), real.generation()).raw(), "position")
-                       .has_value());
+    TESSERA_CHECK(
+        !session.Property(net::EntityId::Make(6, 1, real.index(), real.generation()).raw(), "position")
+             .has_value());
     TESSERA_CHECK(!session.Property(0, "position").has_value());
 }
 
@@ -391,7 +392,8 @@ TESSERA_TEST(session_schema_mismatch_is_rejected_with_a_clear_text) {
     std::string error;
     TESSERA_CHECK(session.Connect(ClientSchema(0.01), "127.0.0.1", 7777, error));
     std::vector<SessionEvent> events;
-    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Rejected; }));
+    TESSERA_CHECK(
+        world.StepUntil(session, events, [&] { return session.State() == SessionState::Rejected; }));
     TESSERA_CHECK(Count(events, Kind::Rejected) == 1);
     TESSERA_CHECK(Count(events, Kind::Connected) == 0);
     std::string reason;
@@ -400,7 +402,8 @@ TESSERA_TEST(session_schema_mismatch_is_rejected_with_a_clear_text) {
             reason = e.reason;
         }
     }
-    for (const char* word : {"schema", "types", "kind", "order", "step", "range", "bits", "min", "max", "signed", "count"}) {
+    for (const char* word :
+         {"schema", "types", "kind", "order", "step", "range", "bits", "min", "max", "signed", "count"}) {
         TESSERA_CHECK(Contains(reason, word));
     }
     TESSERA_CHECK(session.RejectionText() == reason);
@@ -425,8 +428,8 @@ TESSERA_TEST(session_version_or_full_server_is_rejected_with_its_own_text) {
     TESSERA_CHECK(world.Converge(first, first_events, 3));
     TESSERA_CHECK(second.Connect(ClientSchema(), "127.0.0.1", 7777, error));
     std::vector<SessionEvent> second_events;
-    TESSERA_CHECK(world.StepUntil(second, second_events,
-                                  [&] { return second.State() == SessionState::Rejected; }));
+    TESSERA_CHECK(
+        world.StepUntil(second, second_events, [&] { return second.State() == SessionState::Rejected; }));
     TESSERA_CHECK(Contains(second.RejectionText(), "full"));
 
     // A server that speaks another protocol version: played by the test, since a real one is not at hand.
@@ -443,7 +446,8 @@ TESSERA_TEST(session_version_or_full_server_is_rejected_with_its_own_text) {
         for (const net::TransportEvent& event : inbox) {
             if (event.kind == net::TransportEvent::Kind::Message) {
                 std::vector<uint8_t> reply;
-                net::Encode(net::ServerHello{false, net::RejectReason::VersionMismatch, 99, 0, 30, 16, 32}, reply);
+                net::Encode(net::ServerHello{false, net::RejectReason::VersionMismatch, 99, 0, 30, 16, 32},
+                            reply);
                 network.Server().Send(event.connection, net::Channel::ReliableOrdered, reply);
             }
         }
@@ -465,7 +469,8 @@ TESSERA_TEST(session_server_gone_gives_removed_then_disconnected) {
     TESSERA_CHECK(world.Converge(session, events, 5));
     events.clear();
     world.network.Server().Disconnect(1); // the server numbers its connections from 1
-    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
+    TESSERA_CHECK(
+        world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
     TESSERA_CHECK(events.size() == 6);
     if (events.size() == 6) {
         for (size_t i = 0; i < 5; ++i) {
@@ -656,7 +661,8 @@ TESSERA_TEST(session_destroyed_while_connected_does_not_touch_the_schema_it_shar
         schema.reset(); // the caller lets go of its copy; the session still needs the schema
         TESSERA_CHECK(world.Converge(session, events, 3));
         const std::vector<uint64_t> entities = session.Entities();
-        TESSERA_CHECK(!entities.empty() && session.Property(entities.empty() ? 0 : entities[0], "position").has_value());
+        TESSERA_CHECK(!entities.empty() &&
+                      session.Property(entities.empty() ? 0 : entities[0], "position").has_value());
         TESSERA_CHECK(session.Snapshot().size() == 3);
     } // destroyed while connected
     for (int i = 0; i < 5; ++i) {
@@ -703,8 +709,8 @@ TESSERA_TEST(session_events_order_in_one_read) {
     world.network.Advance(++world.now);
     std::vector<SessionEvent> one_read;
     session.Poll(one_read);
-    TESSERA_CHECK((Kinds(one_read) == std::vector<Kind>{Kind::EntityRemoved, Kind::EntityAppeared,
-                                                        Kind::EntityAppeared}));
+    TESSERA_CHECK((Kinds(one_read) ==
+                   std::vector<Kind>{Kind::EntityRemoved, Kind::EntityAppeared, Kind::EntityAppeared}));
 }
 
 TESSERA_TEST(session_poll_after_a_protocol_break_ends_cleanly) {
@@ -718,7 +724,8 @@ TESSERA_TEST(session_poll_after_a_protocol_break_ends_cleanly) {
     events.clear();
     const std::vector<uint8_t> garbage = {0xFF, 0xEE, 0xDD};
     world.network.Server().Send(1, net::Channel::ReliableOrdered, garbage); // connection 1: the first client
-    TESSERA_CHECK(world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
+    TESSERA_CHECK(
+        world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; }));
     TESSERA_CHECK(events.size() == 4);
     if (events.size() == 4) {
         TESSERA_CHECK(events[0].kind == Kind::EntityRemoved && events[1].kind == Kind::EntityRemoved &&
@@ -1197,7 +1204,7 @@ TESSERA_TEST(session_two_sessions_predict_independently) {
 
 TESSERA_TEST(session_advance_moves_the_slide) {
     PredictionSettings slow;
-    slow.smoothing_seconds = 5.0; // a long slide, so that a few ticks of correction are still showing
+    slow.smoothing_seconds = 5.0;        // a long slide, so that a few ticks of correction are still showing
     Predicting p(PlayerRule(0.5), slow); // a rule that is wrong on purpose: half of the speed
     TESSERA_CHECK(p.ok);
     for (int i = 0; i < 30; ++i) {
@@ -1511,11 +1518,10 @@ namespace {
 class HealthGame final : public server::IGameLogic {
 public:
     HealthGame() {
-        schema_.AddType(1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
-                                                              TESSERA_COLUMN(Columns, y),
-                                                              TESSERA_COLUMN(Columns, z), 0.01f, 2048.0f),
-                            net::PropertyDescriptor::Integer(TESSERA_COLUMN(Columns, health), false, 0,
-                                                                                 65535)});
+        schema_.AddType(
+            1, {net::PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x), TESSERA_COLUMN(Columns, y),
+                                                  TESSERA_COLUMN(Columns, z), 0.01f, 2048.0f),
+                net::PropertyDescriptor::Integer(TESSERA_COLUMN(Columns, health), false, 0, 65535)});
     }
 
     server::WorldSetup DescribeWorld() override {
@@ -1782,7 +1788,8 @@ struct Rig {
 
 // A session whose transports come from whichever rig `current` points to when `Connect` asks for one.
 TransportFactory FactoryFor(Rig*& current) {
-    return [&current](const std::string& host, uint16_t port) { return current->world.Factory()(host, port); };
+    return
+        [&current](const std::string& host, uint16_t port) { return current->world.Factory()(host, port); };
 }
 
 // Lets the session send zeros until its prediction is running; false if it never does.
@@ -1802,7 +1809,8 @@ bool StartPrediction(Rig& rig, ClientSession& session, std::vector<SessionEvent>
 // The server goes away without the session asking, and the session is stepped until it says so.
 bool DropServer(Rig& rig, ClientSession& session, std::vector<SessionEvent>& events) {
     rig.world.network.Server().Disconnect(1); // the server numbers its connections from 1
-    return rig.world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; });
+    return rig.world.StepUntil(session, events,
+                               [&] { return session.State() == SessionState::Disconnected; });
 }
 
 } // namespace
@@ -1829,7 +1837,8 @@ TESSERA_TEST(session_after_a_drop_waits_and_after_connecting_again_starts_clean_
     TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 1 && Count(events, Kind::Disconnected) == 1);
     TESSERA_CHECK(session.Entities().empty());
     TESSERA_CHECK(session.ConnectionId() == -1);
-    TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Waiting); // set, and held until `Connect`
+    TESSERA_CHECK(session.Prediction().status ==
+                  net::PredictionStatus::Waiting); // set, and held until `Connect`
     TESSERA_CHECK(session.Interpolation().configured && !session.Interpolation().running);
 
     // The same session connects to the server that was started again.

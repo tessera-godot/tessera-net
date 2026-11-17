@@ -19,8 +19,7 @@ void InitializeTesseraNet(ModuleInitializationLevel level) {
     GDREGISTER_CLASS(TesseraClient);
 }
 
-void UninitializeTesseraNet(ModuleInitializationLevel) {
-}
+void UninitializeTesseraNet(ModuleInitializationLevel) {}
 
 } // namespace
 

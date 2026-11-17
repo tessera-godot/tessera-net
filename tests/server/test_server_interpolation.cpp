@@ -95,8 +95,7 @@ struct Scene {
         for (int i = 0; i < 80; ++i) {
             Tick(0, 0);
             entity = EntityOf(*b, a->ConnectionId());
-            if (a->State() == ClientState::Connected && !entity.IsNull() &&
-                b->StateTickOf(entity) > 0) {
+            if (a->State() == ClientState::Connected && !entity.IsNull() && b->StateTickOf(entity) > 0) {
                 break;
             }
         }

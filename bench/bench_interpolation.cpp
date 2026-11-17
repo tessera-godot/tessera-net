@@ -30,12 +30,12 @@ struct PlayerColumns {
 
 ReplicationSchema MakeSchema() {
     ReplicationSchema schema;
-    schema.AddType(0, {PropertyDescriptor::Position(TESSERA_COLUMN(PlayerColumns, x),
-                                                    TESSERA_COLUMN(PlayerColumns, y),
-                                                    TESSERA_COLUMN(PlayerColumns, z), 0.01f, 2048.0f),
-                       PropertyDescriptor::Integer(TESSERA_COLUMN(PlayerColumns, score), true,
-                                                   std::numeric_limits<int64_t>::min(),
-                                                   std::numeric_limits<int64_t>::max())});
+    schema.AddType(
+        0, {PropertyDescriptor::Position(TESSERA_COLUMN(PlayerColumns, x), TESSERA_COLUMN(PlayerColumns, y),
+                                         TESSERA_COLUMN(PlayerColumns, z), 0.01f, 2048.0f),
+            PropertyDescriptor::Integer(TESSERA_COLUMN(PlayerColumns, score), true,
+                                        std::numeric_limits<int64_t>::min(),
+                                        std::numeric_limits<int64_t>::max())});
     return schema;
 }
 

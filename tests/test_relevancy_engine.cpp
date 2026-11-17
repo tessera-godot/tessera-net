@@ -2,11 +2,11 @@
 #include "relevancy_test_support.hpp"
 #include "test_support.hpp"
 
-#include <memory>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <random>
 #include <set>
 #include <span>

@@ -20,7 +20,8 @@ public:
     static constexpr uint32_t kRetiredGeneration = 0xFFFF;
 
     /// Builds an id from its fields. Out-of-range fields are masked to their width.
-    static constexpr EntityId Make(uint32_t shard, uint32_t type, uint32_t index, uint32_t generation) noexcept {
+    static constexpr EntityId Make(uint32_t shard, uint32_t type, uint32_t index,
+                                   uint32_t generation) noexcept {
         return EntityId((static_cast<uint64_t>(shard & kMaxShard) << kShardShift) |
                         (static_cast<uint64_t>(type & kMaxType) << kTypeShift) |
                         (static_cast<uint64_t>(index & kMaxIndex) << kIndexShift) |
@@ -28,16 +29,32 @@ public:
     }
 
     /// The id that refers to nothing. All bits set, so its generation is the retired marker.
-    static constexpr EntityId Null() noexcept { return EntityId(~0ull); }
+    static constexpr EntityId Null() noexcept {
+        return EntityId(~0ull);
+    }
 
-    static constexpr EntityId FromRaw(uint64_t raw) noexcept { return EntityId(raw); }
+    static constexpr EntityId FromRaw(uint64_t raw) noexcept {
+        return EntityId(raw);
+    }
 
-    constexpr uint64_t raw() const noexcept { return raw_; }
-    constexpr uint32_t shard() const noexcept { return static_cast<uint32_t>(raw_ >> kShardShift) & kMaxShard; }
-    constexpr uint32_t type() const noexcept { return static_cast<uint32_t>(raw_ >> kTypeShift) & kMaxType; }
-    constexpr uint32_t index() const noexcept { return static_cast<uint32_t>(raw_ >> kIndexShift) & kMaxIndex; }
-    constexpr uint32_t generation() const noexcept { return static_cast<uint32_t>(raw_) & kRetiredGeneration; }
-    constexpr bool IsNull() const noexcept { return raw_ == ~0ull; }
+    constexpr uint64_t raw() const noexcept {
+        return raw_;
+    }
+    constexpr uint32_t shard() const noexcept {
+        return static_cast<uint32_t>(raw_ >> kShardShift) & kMaxShard;
+    }
+    constexpr uint32_t type() const noexcept {
+        return static_cast<uint32_t>(raw_ >> kTypeShift) & kMaxType;
+    }
+    constexpr uint32_t index() const noexcept {
+        return static_cast<uint32_t>(raw_ >> kIndexShift) & kMaxIndex;
+    }
+    constexpr uint32_t generation() const noexcept {
+        return static_cast<uint32_t>(raw_) & kRetiredGeneration;
+    }
+    constexpr bool IsNull() const noexcept {
+        return raw_ == ~0ull;
+    }
 
     friend constexpr auto operator<=>(EntityId, EntityId) noexcept = default;
 
@@ -51,4 +68,4 @@ private:
     uint64_t raw_;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

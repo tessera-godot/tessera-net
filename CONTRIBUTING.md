@@ -13,10 +13,32 @@ right now are feedback on the design, use cases, and measurements.
 - **Measure, do not guess.** Performance numbers in the docs come from the benchmarks in `bench/`. If your
   change affects them, run the benchmark again and update `docs/benchmarks.md` and the charts
   (`python tools/make_charts.py`).
+  To compare two builds on a machine that is busy, use `tools/bench_compare.ps1`: it alternates between them and
+  prints the median and the difference.
 
 ## Code style
 
-- C++20, formatted with the `.clang-format` in the repository.
+- C++20, formatted with `clang-format` 18.1.8 and the `.clang-format` in the repository (other versions format a
+  few things differently). The check needs that exact version, which you can get without installing anything on
+  your system, in a virtual environment:
+
+  ```bash
+  # Linux or macOS, once
+  python3 -m venv ~/.tessera-format-venv
+  ~/.tessera-format-venv/bin/python -m pip install --require-hashes -r tools/requirements-format.txt
+  # then, whenever you want to check
+  CLANG_FORMAT=~/.tessera-format-venv/bin/clang-format python3 tools/check_format.py
+  ```
+
+  ```powershell
+  # Windows, once
+  python -m venv $env:TEMP\tessera-format-venv
+  & $env:TEMP\tessera-format-venv\Scripts\python.exe -m pip install --require-hashes -r tools\requirements-format.txt
+  # then, whenever you want to check
+  python tools\check_format.py --clang-format $env:TEMP\tessera-format-venv\Scripts\clang-format.exe
+  ```
+
+  The script lists the files that are not formatted; add `--fix` to format them. The CI runs the same check.
 - Clean Code and SOLID: small units with one responsibility, dependencies through interfaces.
 - Comments and identifiers in English. Comment the reason, not the obvious.
 - No allocations on the per-tick hot path.
@@ -88,4 +110,22 @@ If you already have a copy of godot-cpp at that commit, add `-DFETCHCONTENT_SOUR
 command and nothing is fetched. Each build is for one godot-cpp target (`template_debug` or `template_release`), so there
 is one preset for each. The tests that need no Godot run with `ctest`. The test that runs a headless Godot against the
 example server is registered only when you pass `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable>` to the first
-command, and it is not part of the CI workflow: loading the library into Godot is checked locally.
+command. The CI workflow runs it in the Linux Debug jobs, with the official Godot 4.7.2 (pinned by version and SHA-512
+sum in `.github/workflows/ci.yml`). A warning that the extension prints on purpose (a prediction rule that fails turns
+the prediction off with one) is counted by that test: the run fails if the warnings are not the expected ones.
+
+### Running with sanitizers
+
+On Linux, with GCC or Clang and their sanitizer runtime installed, this builds the core, the server, ENet and the
+extension with AddressSanitizer and UBSan and runs the tests that need no Godot; a memory error or undefined behavior
+stops the test with a report:
+
+```bash
+cmake --preset linux-extension-sanitize
+cmake --build --preset linux-extension-sanitize
+ctest --preset linux-extension-sanitize
+```
+
+The library is not loaded into Godot in this build, because Godot itself is not built with the sanitizers. The option
+behind the preset is `-DTESSERA_SANITIZE=address,undefined`; it is empty by default and does not work with MSVC. The CI
+workflow runs this preset with GCC and with Clang.

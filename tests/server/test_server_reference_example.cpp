@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Everything below this comment is the example in docs/reference/networking.md ("Running a server"). If you change
-// one, change the other.
+// Everything below this comment is the example in docs/reference/networking.md ("Running a server"). If you
+// change one, change the other.
 #include "tessera/net/client_replica.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/transport/simulated_network.hpp"
@@ -25,9 +25,9 @@ struct MobColumns {
 class MiniGame final : public server::IGameLogic {
 public:
     MiniGame() {
-        schema_.AddType(1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x),
-                                                         TESSERA_COLUMN(MobColumns, y),
-                                                         TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
+        schema_.AddType(
+            1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x), TESSERA_COLUMN(MobColumns, y),
+                                             TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
     }
 
     // What the host needs before it can build anything: the schema, and who sees what.
@@ -38,7 +38,8 @@ public:
         return setup;
     }
 
-    // Once, before the first tick: make the table, with the shard id of the server in its ids, and one entity.
+    // Once, before the first tick: make the table, with the shard id of the server in its ids, and
+    // one entity.
     void OnStart(server::ServerContext& context) override {
         context_ = &context;
         table_ = std::make_unique<EntityTable<MobColumns>>(TableConfig{context.shard_id, 1});
@@ -88,8 +89,8 @@ TESSERA_TEST(server_reference_example) {
     config.tick_rate_hz = 30;
     config.max_players = 8;
 
-    // 3. A network in memory and a logger that says nothing. A real server gives the host an ENet transport and a
-    //    logger that writes to the standard output (`server::StdoutSink()`).
+    // 3. A network in memory and a logger that says nothing. A real server gives the host an ENet
+    //    transport and a logger that writes to the standard output (`server::StdoutSink()`).
     SimulatedNetwork network(NetworkConditions{});
     server::Logger log(server::LogLevel::Info, [](const std::string&) {});
 
@@ -99,8 +100,8 @@ TESSERA_TEST(server_reference_example) {
     // 5. A player: a client on the other end of the network.
     ClientReplica client(*network.AddClient(), game.Schema());
 
-    // 6. A real server calls `host.Run()`, which ticks at the configured rate until a stop is requested. Here the
-    //    ticks are run by hand, so the test does not have to wait.
+    // 6. A real server calls `host.Run()`, which ticks at the configured rate until a stop is
+    //    requested. Here the ticks are run by hand, so the test does not have to wait.
     for (uint64_t tick = 0; tick < 20; ++tick) {
         network.Advance(tick);
         client.Poll();

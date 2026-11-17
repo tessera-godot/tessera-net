@@ -87,7 +87,8 @@ public:
         std::lock_guard<std::mutex> lock(lines_mutex_);
         int count = 0;
         for (const std::string& line : lines_) {
-            if (line.size() >= tail.size() && line.compare(line.size() - tail.size(), tail.size(), tail) == 0) {
+            if (line.size() >= tail.size() &&
+                line.compare(line.size() - tail.size(), tail.size(), tail) == 0) {
                 ++count;
             }
         }
@@ -238,13 +239,15 @@ TESSERA_TEST(a_client_that_leaves_cleanly_is_freed_at_once) {
     TESSERA_CHECK(PumpUntil({&b}, kShortLimit, [&] { return b.Connected() && b.Players().size() == 1; }));
     const EntityId b_own = *b.Players().begin();
     Client a(room);
-    TESSERA_CHECK(PumpUntil({&a, &b}, kShortLimit,
-                            [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
+    TESSERA_CHECK(
+        PumpUntil({&a, &b}, kShortLimit, [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
     const EntityId a_own = NewOne(b.Players(), {b_own});
     const uint32_t a_id = a.Id();
 
     bool removed_before_the_log = false;
-    b.on_removed = [&](EntityId) { removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0; };
+    b.on_removed = [&](EntityId) {
+        removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0;
+    };
 
     const auto left_at = Clock::now();
     a.Leave();
@@ -276,14 +279,16 @@ TESSERA_TEST(a_silent_client_is_freed_by_the_enet_timeout_and_a_new_client_meanw
     TESSERA_CHECK(PumpUntil({&b}, kShortLimit, [&] { return b.Connected() && b.Players().size() == 1; }));
     const EntityId b_own = *b.Players().begin();
     Client a(room);
-    TESSERA_CHECK(PumpUntil({&a, &b}, kShortLimit,
-                            [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
+    TESSERA_CHECK(
+        PumpUntil({&a, &b}, kShortLimit, [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
     const EntityId a_own = NewOne(b.Players(), {b_own});
     const uint32_t a_id = a.Id();
     const uint32_t b_id = b.Id();
 
     bool removed_before_the_log = false;
-    b.on_removed = [&](EntityId) { removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0; };
+    b.on_removed = [&](EntityId) {
+        removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0;
+    };
 
     // A stops being served from here on, and its transport stays: a program that hangs or loses its network
     // does not say goodbye.
@@ -293,9 +298,12 @@ TESSERA_TEST(a_silent_client_is_freed_by_the_enet_timeout_and_a_new_client_meanw
 
     // A new client arrives while the old connection is still held by the server.
     Client c(room);
-    c.on_removed = [&](EntityId) { removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0; };
-    TESSERA_CHECK(PumpUntil({&b, &c}, kShortLimit,
-                            [&] { return c.Connected() && c.Players().size() == 3 && b.Players().size() == 3; }));
+    c.on_removed = [&](EntityId) {
+        removed_before_the_log = removed_before_the_log || room.Freed(a_id) == 0;
+    };
+    TESSERA_CHECK(PumpUntil({&b, &c}, kShortLimit, [&] {
+        return c.Connected() && c.Players().size() == 3 && b.Players().size() == 3;
+    }));
     TESSERA_CHECK(room.Freed(a_id) == 0);
     TESSERA_CHECK(c.Id() != a_id); // the slot of A is taken, so C cannot be given its number
     TESSERA_CHECK(c.Id() != b_id);
@@ -319,8 +327,8 @@ TESSERA_TEST(a_silent_client_is_freed_by_the_enet_timeout_and_a_new_client_meanw
     TESSERA_CHECK(freed_ms >= 4500);  // ENet keeps a peer for 5,000 ms at least
     TESSERA_CHECK(freed_ms <= 31000); // and drops it after 30,000 ms at the most
 
-    TESSERA_CHECK(PumpUntil({&b, &c}, kShortLimit,
-                            [&] { return b.Players().size() == 2 && c.Players().size() == 2; }));
+    TESSERA_CHECK(
+        PumpUntil({&b, &c}, kShortLimit, [&] { return b.Players().size() == 2 && c.Players().size() == 2; }));
     TESSERA_CHECK(room.Freed(a_id) == 1);
     TESSERA_CHECK(!removed_before_the_log);
     TESSERA_CHECK(b.Players() == (Entities{b_own, c_own}));
@@ -340,17 +348,19 @@ TESSERA_TEST(a_new_client_after_a_clean_leave_gets_a_fresh_entity) {
     TESSERA_CHECK(PumpUntil({&b}, kShortLimit, [&] { return b.Connected() && b.Players().size() == 1; }));
     const EntityId b_own = *b.Players().begin();
     Client a(room);
-    TESSERA_CHECK(PumpUntil({&a, &b}, kShortLimit,
-                            [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
+    TESSERA_CHECK(
+        PumpUntil({&a, &b}, kShortLimit, [&] { return a.Players().size() == 2 && b.Players().size() == 2; }));
     const EntityId a_own = NewOne(b.Players(), {b_own});
     const uint32_t a_id = a.Id();
 
     a.Leave();
-    TESSERA_CHECK(PumpUntil({&b}, kShortLimit, [&] { return room.Freed(a_id) > 0 && b.Players().size() == 1; }));
+    TESSERA_CHECK(
+        PumpUntil({&b}, kShortLimit, [&] { return room.Freed(a_id) > 0 && b.Players().size() == 1; }));
 
     Client d(room);
-    TESSERA_CHECK(PumpUntil({&b, &d}, kShortLimit,
-                            [&] { return d.Connected() && d.Players().size() == 2 && b.Players().size() == 2; }));
+    TESSERA_CHECK(PumpUntil({&b, &d}, kShortLimit, [&] {
+        return d.Connected() && d.Players().size() == 2 && b.Players().size() == 2;
+    }));
     // The number may be the one A had (the server hands out the lowest free one); the entity is not.
     TESSERA_CHECK(d.Id() < 8);
     const EntityId d_own = NewOne(b.Players(), {b_own});

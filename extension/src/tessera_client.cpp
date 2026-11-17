@@ -28,17 +28,18 @@ String ToGodot(const std::string& text) {
     return String::utf8(text.c_str(), static_cast<int64_t>(text.size()));
 }
 
-// The ENet client, flushed after everything that asks it to send: the session has no flush of its own to call.
+// The ENet client, flushed after everything that asks it to send: the session has no flush of its own to
+// call.
 class FlushingEnetClient final : public net::ITransport {
 public:
-    explicit FlushingEnetClient(const net::EnetClientConfig& config) : inner_(config) {
-    }
+    explicit FlushingEnetClient(const net::EnetClientConfig& config) : inner_(config) {}
 
     void Poll(std::vector<net::TransportEvent>& out) override {
         inner_.Poll(out);
         inner_.Flush();
     }
-    bool Send(net::TransportConnection connection, net::Channel channel, std::span<const uint8_t> data) override {
+    bool Send(net::TransportConnection connection, net::Channel channel,
+              std::span<const uint8_t> data) override {
         const bool sent = inner_.Send(connection, channel, data);
         inner_.Flush();
         return sent;
@@ -79,8 +80,7 @@ Variant ToVariant(const ext::Value& value) {
 
 } // namespace
 
-TesseraClient::TesseraClient() : session_(OpenEnet) {
-}
+TesseraClient::TesseraClient() : session_(OpenEnet) {}
 
 TesseraClient::~TesseraClient() {
     // The session says goodbye to the server when it goes; nothing may escape from a destructor.
@@ -398,8 +398,8 @@ void TesseraClient::clear_interpolation() {
 
 Variant TesseraClient::get_interpolated_property(int64_t entity, const String& name) const {
     try {
-        const auto value = session_.InterpolatedProperty(static_cast<uint64_t>(entity),
-                                                         std::string(name.utf8().get_data()));
+        const auto value =
+            session_.InterpolatedProperty(static_cast<uint64_t>(entity), std::string(name.utf8().get_data()));
         return value ? ToVariant(*value) : Variant();
     } catch (const std::exception&) {
         return Variant();
@@ -491,7 +491,8 @@ PackedInt64Array TesseraClient::get_entities() const {
 
 Variant TesseraClient::get_property(int64_t entity, const String& name) const {
     try {
-        const auto value = session_.Property(static_cast<uint64_t>(entity), std::string(name.utf8().get_data()));
+        const auto value =
+            session_.Property(static_cast<uint64_t>(entity), std::string(name.utf8().get_data()));
         return value ? ToVariant(*value) : Variant();
     } catch (const std::exception&) {
         return Variant();

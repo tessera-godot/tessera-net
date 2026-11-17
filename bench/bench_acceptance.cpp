@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Acceptance benchmark for the data core. Prints every criterion with the measured value and exits
 // with code 1 if any criterion fails. Build with -DTESSERA_BUILD_BENCH=ON and run in Release.
+#include "bench_network.hpp"
+#include "bench_relevancy.hpp"
+#include "bench_replication.hpp"
+#include "bench_report.hpp"
+#include "simulation_harness.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/tick_loop.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -12,15 +21,6 @@
 #include <string_view>
 #include <thread>
 #include <vector>
-
-#include "bench_network.hpp"
-#include "bench_relevancy.hpp"
-#include "bench_replication.hpp"
-#include "bench_report.hpp"
-#include "simulation_harness.hpp"
-#include "tessera/net/entity_table.hpp"
-#include "tessera/net/job_system.hpp"
-#include "tessera/net/tick_loop.hpp"
 
 using namespace tessera::net;
 using Clock = std::chrono::steady_clock;
@@ -106,7 +106,7 @@ void CheckStorage() {
         auto c = Clock::now();
         // churn: 10 rounds of destroying 10% at random and creating the same number again
         const uint32_t tenth = kEntities / 10;
-        std::vector<std::vector<uint32_t>> picks;  // prepared outside the timed section
+        std::vector<std::vector<uint32_t>> picks; // prepared outside the timed section
         for (int round = 0; round < 10; ++round) {
             picks.push_back(Permutation(kEntities, 100 + static_cast<uint32_t>(round)));
         }
@@ -160,7 +160,8 @@ void CheckDestroyOrders() {
         }
     }
     Report("destroy 1M entities (creation order)", Median(in_order), "ms", 12.0);
-    std::printf("%-46s %12.2f %-6s (information only)\n", "destroy 1M entities (random order)", Median(random_order), "ms");
+    std::printf("%-46s %12.2f %-6s (information only)\n", "destroy 1M entities (random order)",
+                Median(random_order), "ms");
 }
 
 void CheckScaling() {
@@ -202,14 +203,15 @@ void CheckDeterminism() {
     ReportBool("state hash, 1 vs 8 workers, 1000 ticks", one.StateHash() == eight.StateHash());
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "indicator") {
         bench::Info("WriteRecord indicator", WriteRecordIndicatorNs(), "ns"); // only the load indicator
         return 0;
     }
-    std::printf("Tessera Net data core: acceptance benchmark (%u hardware threads)\n", std::thread::hardware_concurrency());
+    std::printf("Tessera Net data core: acceptance benchmark (%u hardware threads)\n",
+                std::thread::hardware_concurrency());
     std::printf("%-46s %12s %-6s %-28s\n", "criterion", "measured", "", "result");
     if (argc > 1 && std::string_view(argv[1]) == "network-curve") {
         CheckNetworkCurve(argc > 2 && std::string_view(argv[2]) == "reverse"); // not part of the full run
@@ -228,6 +230,7 @@ int main(int argc, char** argv) {
     CheckReplication();
     CheckNetwork();
     const int failures = bench::Failures();
-    std::printf("\n%s (%d criteria failed)\n", failures == 0 ? "ALL CRITERIA PASSED" : "SOME CRITERIA FAILED", failures);
+    std::printf("\n%s (%d criteria failed)\n", failures == 0 ? "ALL CRITERIA PASSED" : "SOME CRITERIA FAILED",
+                failures);
     return failures == 0 ? 0 : 1;
 }

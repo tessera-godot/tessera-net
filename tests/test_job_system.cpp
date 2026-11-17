@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "tessera/net/job_system.hpp"
+#include "test_support.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <thread>
 #include <vector>
-
-#include "tessera/net/job_system.hpp"
-#include "test_support.hpp"
 
 using tessera::net::ThreadPoolJobSystem;
 
@@ -80,7 +80,8 @@ TESSERA_TEST(parallel_for_can_be_called_repeatedly) {
     ThreadPoolJobSystem jobs(4);
     std::atomic<uint64_t> total{0};
     for (int round = 0; round < 100; ++round) {
-        jobs.ParallelFor(1000, 50, [&](uint32_t begin, uint32_t end, uint32_t) { total.fetch_add(end - begin); });
+        jobs.ParallelFor(1000, 50,
+                         [&](uint32_t begin, uint32_t end, uint32_t) { total.fetch_add(end - begin); });
     }
     TESSERA_CHECK(total.load() == 100u * 1000u);
 }

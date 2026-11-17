@@ -54,8 +54,7 @@ const char* const kRefusedInRule = "a prediction rule cannot call back into the 
 
 } // namespace
 
-ClientSession::ClientSession(TransportFactory factory) : factory_(std::move(factory)) {
-}
+ClientSession::ClientSession(TransportFactory factory) : factory_(std::move(factory)) {}
 
 ClientSession::~ClientSession() {
     Close();
@@ -155,12 +154,14 @@ void ClientSession::Poll(std::vector<SessionEvent>& out) {
         now.clear();
     } else {
         std::vector<uint64_t> changed;
-        std::set_difference(known_.begin(), known_.end(), now.begin(), now.end(), std::back_inserter(changed));
+        std::set_difference(known_.begin(), known_.end(), now.begin(), now.end(),
+                            std::back_inserter(changed));
         for (uint64_t entity : changed) {
             out.push_back(SessionEvent{SessionEvent::Kind::EntityRemoved, entity, {}});
         }
         changed.clear();
-        std::set_difference(now.begin(), now.end(), known_.begin(), known_.end(), std::back_inserter(changed));
+        std::set_difference(now.begin(), now.end(), known_.begin(), known_.end(),
+                            std::back_inserter(changed));
         for (uint64_t entity : changed) {
             out.push_back(SessionEvent{SessionEvent::Kind::EntityAppeared, entity, {}});
         }
@@ -204,7 +205,8 @@ std::string ClientSession::RejectionText() const {
     switch (replica_->Rejection()) {
     case net::RejectReason::SchemaMismatch:
         return "the server's schema is not the same as this client's: compare, on both sides, the types, the "
-               "order of the properties, the kind of each one, and its settings (bits, step and range, min, max, "
+               "order of the properties, the kind of each one, and its settings (bits, step and range, min, "
+               "max, "
                "signed, count)";
     case net::RejectReason::VersionMismatch:
         return "the server speaks a different version of the protocol";

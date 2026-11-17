@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <string>
-
 #include "tessera/net/version.hpp"
 #include "test_support.hpp"
+
+#include <string>
 
 TESSERA_TEST(version_string_matches_numeric_version) {
     const tessera::net::Version version = tessera::net::GetVersion();

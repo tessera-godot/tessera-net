@@ -162,6 +162,15 @@
         "CMAKE_BUILD_TYPE": "Release",
         "GODOTCPP_TARGET": "template_release"
       }
+    },
+    {
+      "name": "linux-extension-sanitize",
+      "displayName": "Linux (Ninja, Debug), Godot extension, AddressSanitizer and UBSan (no Godot)",
+      "inherits": "linux-extension-debug",
+      "binaryDir": "${sourceDir}/build/linux-extension-sanitize",
+      "cacheVariables": {
+        "TESSERA_SANITIZE": "address,undefined"
+      }
     }
   ],
   "buildPresets": [
@@ -241,6 +250,10 @@
     {
       "name": "linux-extension-release",
       "configurePreset": "linux-extension-release"
+    },
+    {
+      "name": "linux-extension-sanitize",
+      "configurePreset": "linux-extension-sanitize"
     }
   ],
   "testPresets": [
@@ -368,6 +381,17 @@
     {
       "name": "linux-extension-release",
       "configurePreset": "linux-extension-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-extension-sanitize",
+      "configurePreset": "linux-extension-sanitize",
+      "environment": {
+        "ASAN_OPTIONS": "detect_stack_use_after_return=1:strict_string_checks=1:abort_on_error=0:halt_on_error=1",
+        "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+      },
       "output": {
         "outputOnFailure": true
       }

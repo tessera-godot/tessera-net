@@ -21,8 +21,8 @@ struct Value {
     bool flag = false;
 };
 
-/// Reads one property of an entity. `entity_words` is the start of the entity's quantized words; the property's
-/// own offset is added here.
+/// Reads one property of an entity. `entity_words` is the start of the entity's quantized words; the
+/// property's own offset is added here.
 ///   position -> Vector3        angle -> Float, in radians    integer -> Int
 ///   flag -> Bool               mask -> Int                   choice -> Int
 /// A mask is up to 64 bits, kept in a signed 64-bit integer: with all 64 bits in use, the top bit makes the

@@ -35,9 +35,9 @@ public:
                 float z[kPageSlots];
             };
             ReplicationSchema built;
-            built.AddType(1, {PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x),
-                                                           TESSERA_COLUMN(Columns, y),
-                                                           TESSERA_COLUMN(Columns, z), 0.01f, 5000.0f)});
+            built.AddType(
+                1, {PropertyDescriptor::Position(TESSERA_COLUMN(Columns, x), TESSERA_COLUMN(Columns, y),
+                                                 TESSERA_COLUMN(Columns, z), 0.01f, 5000.0f)});
             return built;
         }();
         WorldSetup setup;

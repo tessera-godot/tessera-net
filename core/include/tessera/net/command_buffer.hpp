@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/entity_id.hpp"
+
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
-
-#include "tessera/net/entity_id.hpp"
 
 namespace tessera::net {
 
@@ -18,8 +18,8 @@ struct StructuralCommand {
     enum class Kind : uint8_t { Create, Destroy };
 
     Kind kind;
-    uint32_t type;  ///< Entity type to create (used by Create).
-    EntityId id;    ///< Entity to destroy (used by Destroy).
+    uint32_t type; ///< Entity type to create (used by Create).
+    EntityId id;   ///< Entity to destroy (used by Destroy).
 };
 
 /// One queue per worker, so workers can queue commands in parallel without locks.
@@ -33,8 +33,7 @@ struct StructuralCommand {
 /// their enqueue order. Two different sources must never share a key: ties between workers are broken
 /// by worker index, which depends on timing, and that would make the result vary from run to run.
 /// Do not call `Push` from inside the `ApplyAll` callback.
-template <class Command>
-class CommandBuffers {
+template <class Command> class CommandBuffers {
 public:
     explicit CommandBuffers(uint32_t worker_count) : lanes_(std::max(worker_count, 1u)) {}
 
@@ -46,8 +45,7 @@ public:
 
     /// Calls `fn(const Command&)` for every queued command in key order, then empties the queues.
     /// Must run alone (no concurrent `Push`). Returns the number of commands applied.
-    template <class F>
-    size_t ApplyAll(F&& fn) {
+    template <class F> size_t ApplyAll(F&& fn) {
         order_.clear();
         for (uint32_t lane = 0; lane < lanes_.size(); ++lane) {
             for (uint32_t i = 0; i < lanes_[lane].commands.size(); ++i) {
@@ -55,8 +53,10 @@ public:
             }
         }
         std::sort(order_.begin(), order_.end(), [](const Ref& a, const Ref& b) {
-            if (a.key != b.key) return a.key < b.key;
-            if (a.lane != b.lane) return a.lane < b.lane;
+            if (a.key != b.key)
+                return a.key < b.key;
+            if (a.lane != b.lane)
+                return a.lane < b.lane;
             return a.index < b.index;
         });
         for (size_t i = 1; i < order_.size(); ++i) {
@@ -93,7 +93,7 @@ private:
     };
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable : 4324)  // padding is intended: one cache line per lane avoids false sharing
+#pragma warning(disable : 4324) // padding is intended: one cache line per lane avoids false sharing
 #endif
     struct alignas(64) Lane {
         std::vector<Entry> commands;
@@ -103,7 +103,7 @@ private:
 #endif
 
     std::vector<Lane> lanes_;
-    std::vector<Ref> order_;  // reused between calls, so steady-state use does not allocate
+    std::vector<Ref> order_; // reused between calls, so steady-state use does not allocate
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

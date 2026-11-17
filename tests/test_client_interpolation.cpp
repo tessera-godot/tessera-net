@@ -138,8 +138,8 @@ TESSERA_TEST(set_interpolation_is_refused_for_bad_values_and_changes_nothing) {
     good.snap_distance = 3.0;
     TESSERA_CHECK(c.SetInterpolation(good, &error));
     TESSERA_CHECK(c.InterpolationSet());
-    for (double snap : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
-                        std::numeric_limits<double>::infinity()}) {
+    for (double snap :
+         {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
         InterpolationConfig config;
         config.snap_distance = snap;
         error.clear();
@@ -277,7 +277,7 @@ TESSERA_TEST(a_held_buffer_feeds_the_interpolator_when_it_is_applied) {
     s.h.Step();
     s.source.Show({s.enter[1]});
     const std::vector<uint8_t> second = s.Write(0, 12.0); // tick 2: both entities have a record
-    s.h.SendStateBuffer(2, 2, second, 0); // it cites the second batch, which has not arrived
+    s.h.SendStateBuffer(2, 2, second, 0);                 // it cites the second batch, which has not arrived
     s.h.Step();
     ClientReplica& c = s.h.client;
     TESSERA_CHECK(c.Stats().buffers_held == 1);
@@ -489,8 +489,8 @@ TESSERA_TEST(advance_interpolation_moves_the_display_by_the_time_given_at_the_ti
     c.AdvanceInterpolation(0.5 / 30.0);
     TESSERA_CHECK(Near(c.DisplayedTick(), 19.5, 1e-9));
     const double shown = c.DisplayedTick();
-    for (double bad : {-1.0, 0.0, std::numeric_limits<double>::quiet_NaN(),
-                       std::numeric_limits<double>::infinity()}) {
+    for (double bad :
+         {-1.0, 0.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
         c.AdvanceInterpolation(bad);
         TESSERA_CHECK(c.DisplayedTick() == shown);
     }

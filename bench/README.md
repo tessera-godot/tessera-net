@@ -29,6 +29,9 @@ minutes and is not part of the full run (add `reverse` to play the points from t
 The word `indicator` prints only the time of one `WriteRecord`, which shows how busy the machine is (quiet is
 about 47 ns); the head-to-head script records it next to its results.
 
+If you cannot quiet the machine, `tools/bench_compare.ps1` runs the network benchmark of two builds one after
+the other, several times, and prints the median, the range and the difference of each.
+
 ## Godot nodes
 
 Build the extension with SCons against your godot-cpp and the API file of the Godot you will run it with, then

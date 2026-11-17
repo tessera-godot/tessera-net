@@ -34,8 +34,7 @@ struct Source {
     std::unique_ptr<TestColumns> columns = std::make_unique<TestColumns>();
     std::vector<uint32_t> words;
 
-    explicit Source(const ReplicationSchema& s) : schema(s), words(s.Find(kMobType)->words, 0) {
-    }
+    explicit Source(const ReplicationSchema& s) : schema(s), words(s.Find(kMobType)->words, 0) {}
 
     const uint32_t* Set(double x, double y, double z, float yaw = 0.0f, int32_t health = 0,
                         uint8_t state = 0) {
@@ -547,7 +546,7 @@ TESSERA_TEST(a_rule_that_returns_false_stops_the_prediction) {
         TESSERA_CHECK(!predictor.Predict(2, Byte(1), kDt));
         TESSERA_CHECK(!predictor.Reconcile(2, source.Set(2.0, 0.0, 0.0), 0, kDt));
         TESSERA_CHECK(predictor.Stats().rule_failures == 1); // counted once
-        predictor.Reset(); // a new connection does not bring it back
+        predictor.Reset();                                   // a new connection does not bring it back
         TESSERA_CHECK(predictor.Status() == PredictionStatus::Failed);
         // Only configuring again does.
         TESSERA_CHECK(predictor.Configure(Config(MoveXByInput()), nullptr));

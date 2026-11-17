@@ -32,8 +32,8 @@ enum class Stage : uint8_t {
     Select,       // per connection: choosing what fits the budget
     Write,        // per connection: writing the chosen records
     SendBuffers,  // sending the state buffers (main thread)
-    // Inside the relevancy stage. The first three run on the main thread and are nested in Relevancy; the rest run
-    // once per connection, on the workers.
+    // Inside the relevancy stage. The first three run on the main thread and are nested in Relevancy; the
+    // rest run once per connection, on the workers.
     RelFold,       // folding the changes the grid recorded into one record per entity
     RelIndex,      // filing those changes by grid cell
     RelRegion,     // the parallel region that looks at every connection, wall time
@@ -48,10 +48,10 @@ enum class Stage : uint8_t {
 
 /// Amounts that are counted, not timed.
 enum class Counter : uint8_t {
-    Changes,    // records of entities of the spatial types that changed in the grid in the tick (after folding)
+    Changes, // records of entities of the spatial types that changed in the grid in the tick (after folding)
     Candidates, // changes the gather looked at near the observers of a connection, repeats included, added up
-    Sorted,     // changes that go on to be sorted for a connection (repeats included), added up over connections
-    Near,       // changes within reach of an observer, repeats removed, added up over connections
+    Sorted, // changes that go on to be sorted for a connection (repeats included), added up over connections
+    Near,   // changes within reach of an observer, repeats removed, added up over connections
     Count
 };
 
@@ -142,8 +142,8 @@ inline const char* Name(Stage stage) noexcept {
     return "?";
 }
 
-/// True for the stages that run on the workers, one scope per connection: their time is the sum over the workers
-/// (CPU time), not the time that passed.
+/// True for the stages that run on the workers, one scope per connection: their time is the sum over the
+/// workers (CPU time), not the time that passed.
 inline bool PerConnection(Stage stage) noexcept {
     return stage == Stage::Scan || stage == Stage::Select || stage == Stage::Write ||
            stage == Stage::RelDestroy || stage == Stage::RelFull || stage == Stage::RelGather ||
@@ -151,8 +151,8 @@ inline bool PerConnection(Stage stage) noexcept {
 }
 
 /// True for the stages on the main thread that lie inside another stage (confirm inside transport, the three
-/// wall-time steps of the relevancy inside the relevancy stage), so that adding up the main thread does not count
-/// them twice.
+/// wall-time steps of the relevancy inside the relevancy stage), so that adding up the main thread does not
+/// count them twice.
 inline bool Nested(Stage stage) noexcept {
     return stage == Stage::Confirm || stage == Stage::RelFold || stage == Stage::RelIndex ||
            stage == Stage::RelRegion;
@@ -178,8 +178,8 @@ private:
     std::chrono::steady_clock::time_point start_;
 };
 
-/// What one empty scope costs, in nanoseconds, measured over a million of them. It runs on the last stage and puts
-/// that stage's counters back, so measuring the timer leaves the numbers as they were.
+/// What one empty scope costs, in nanoseconds, measured over a million of them. It runs on the last stage and
+/// puts that stage's counters back, so measuring the timer leaves the numbers as they were.
 inline double TimerCostNanoseconds() {
     constexpr int kScopes = 1'000'000;
     constexpr Stage kScratch = Stage::SendBuffers;
@@ -199,11 +199,11 @@ inline double TimerCostNanoseconds() {
 
 #define TESSERA_PROFILE_JOIN_INNER(a, b) a##b
 #define TESSERA_PROFILE_JOIN(a, b) TESSERA_PROFILE_JOIN_INNER(a, b)
-#define TESSERA_PROFILE_SCOPE(stage)                                                              \
-    ::tessera::net::profile::ScopedTimer TESSERA_PROFILE_JOIN(tessera_profile_scope_, __LINE__)( \
+#define TESSERA_PROFILE_SCOPE(stage)                                                                         \
+    ::tessera::net::profile::ScopedTimer TESSERA_PROFILE_JOIN(tessera_profile_scope_, __LINE__)(             \
         ::tessera::net::profile::Stage::stage)
 
-#define TESSERA_PROFILE_COUNT(counter, amount) \
+#define TESSERA_PROFILE_COUNT(counter, amount)                                                               \
     ::tessera::net::profile::Add(::tessera::net::profile::Counter::counter, (amount))
 
 #else

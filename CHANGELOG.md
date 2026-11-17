@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- A format check. `tools/check_format.py` checks, or with `--fix` rewrites, every C++ file that git tracks with
+  `clang-format` 18.1.8, the version pinned (with the hashes of its files) in `tools/requirements-format.txt`; it
+  refuses any other version. The CI has a `Format` job that runs the same check. `CONTRIBUTING.md` says how to get that
+  `clang-format` in a virtual environment, so that nothing is installed on your system.
+- Sanitizer builds. The option `TESSERA_SANITIZE` (empty by default, for GCC and Clang) builds everything with the
+  sanitizers it names, and the preset `linux-extension-sanitize` uses `address,undefined` and runs the tests that need no
+  Godot; the library is not loaded into Godot there. The CI has a `Sanitizers` job with GCC and Clang. ENet's own code is
+  built without the two checks that flag how it marks the 32nd fragment of a word (`1 << 31` on a signed integer) and how
+  it takes the offset of a header field (through a null pointer); our code and every other check stay on.
+- The headless Godot test runs in the CI, in the Linux debug jobs, with the official Godot 4.7.2 downloaded and checked
+  against a pinned SHA-512 sum; a step makes the job fail if the test is not registered.
+- The headless Godot test counts the warnings of the client: the three prediction rules that fail on purpose must give
+  exactly the three expected warnings, and any other `TesseraClient:` warning fails the run.
+- `tools/bench_compare.ps1`, which compares the network benchmark of two builds on a machine that is busy, is now
+  described in `bench/README.md` and `CONTRIBUTING.md`.
 - In the demo project, when the connection drops the demo tries again on its own: after 0.5, 1, 2 and 4 seconds and every
   5 seconds from then on, each wait shifted by up to 20 percent so that clients that lost a server together do not come
   back together. It comes back as a new player, with a new sphere and the prediction set again. A refusal from the server
@@ -79,6 +94,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Architecture decision record 0017, "Player input" (Accepted).
 
 ### Changed
+- The C++ code was formatted with `clang-format` (the `.clang-format` did not change), in one commit for each of
+  `core/include`, `core/src`, `server`, `extension`, `tests` and `bench`: 79 of the 174 files. Nothing else changed in
+  those commits: the test counts are the same as before (661, 16, 93, 8 on Linux and 5 on Windows, 79; no message
+  format changed), and the compiled objects of the core, the server and the extension are byte for byte the same on
+  Linux with GCC. The tests, and one benchmark file, differ only where a line number is printed or the order of the
+  `#include` lines moved.
+- The roadmap says that records 0018 and 0019 are accepted, and `tools/build.sh` names the right number of tests.
 - **The protocol version is now 3** (0.2.0-alpha spoke version 1). Clients and servers of 0.2.0-alpha no longer connect to
   the new ones: the server refuses their hello with `VersionMismatch`. Version 2 added the `Input` message; version 3
   adds a field to the header of the `StateBuffer`, the newest input of the player that the state reflects. No other

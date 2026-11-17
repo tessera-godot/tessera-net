@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera_schema.hpp"
 
+#include <algorithm>
+#include <cstdint>
+#include <exception>
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
-
-#include <algorithm>
-#include <cstdint>
-#include <exception>
 #include <limits>
 #include <utility>
 
@@ -32,8 +31,8 @@ bool IsNumber(const Variant& value) {
     return value.get_type() == Variant::FLOAT || value.get_type() == Variant::INT;
 }
 
-// The keys each kind uses besides "name" and "kind". A key that belongs to another kind is an error, and so is a
-// missing key that has no default (the numbers the schema cannot guess).
+// The keys each kind uses besides "name" and "kind". A key that belongs to another kind is an error, and so
+// is a missing key that has no default (the numbers the schema cannot guess).
 enum KeyBit : unsigned {
     kStep = 1u << 0,
     kRange = 1u << 1,
@@ -59,9 +58,9 @@ const KindKeys kKindKeys[] = {
     {"choice", kCount, 0},
 };
 
-const std::pair<unsigned, const char*> kKeyNames[] = {{kStep, "step"}, {kRange, "range"}, {kBits, "bits"},
-                                                      {kMin, "min"},   {kMax, "max"},     {kSigned, "signed"},
-                                                      {kCount, "count"}};
+const std::pair<unsigned, const char*> kKeyNames[] = {
+    {kStep, "step"}, {kRange, "range"},   {kBits, "bits"},  {kMin, "min"},
+    {kMax, "max"},   {kSigned, "signed"}, {kCount, "count"}};
 
 // Compares the keys given with the ones the kind uses. An unknown kind is left to the schema's own message.
 std::string CheckKeys(const std::string& where, const std::string& kind, unsigned given) {
@@ -82,7 +81,8 @@ std::string CheckKeys(const std::string& where, const std::string& kind, unsigne
 }
 
 // Reads one property description. Returns the problem, or an empty string.
-std::string ReadProperty(uint32_t type, size_t index, const Variant& item, tessera::ext::PropertyDescription& out) {
+std::string ReadProperty(uint32_t type, size_t index, const Variant& item,
+                         tessera::ext::PropertyDescription& out) {
     const std::string type_part = "type " + std::to_string(type) + ", property ";
     if (item.get_type() != Variant::DICTIONARY) {
         return type_part + std::to_string(index) + ": must be a Dictionary";
@@ -188,9 +188,8 @@ int TesseraSchema::add_type(int type_id, const Array& properties) {
             if (problem.empty()) {
                 problem = tessera::ext::ValidateType(type);
             }
-            if (problem.empty() && std::any_of(types_.begin(), types_.end(), [&](const auto& known) {
-                    return known.type == type.type;
-                })) {
+            if (problem.empty() && std::any_of(types_.begin(), types_.end(),
+                                               [&](const auto& known) { return known.type == type.type; })) {
                 problem = "type " + std::to_string(type.type) + " is already described";
             }
             if (problem.empty()) {
@@ -254,7 +253,8 @@ void TesseraSchema::set_types(const Array& types) {
         const Dictionary entry = item;
         if (!entry.has("type") || entry["type"].get_type() != Variant::INT || !entry.has("properties") ||
             entry["properties"].get_type() != Variant::ARRAY) {
-            error_ = "types: item " + std::to_string(i) + " needs an int \"type\" and an Array \"properties\"";
+            error_ =
+                "types: item " + std::to_string(i) + " needs an int \"type\" and an Array \"properties\"";
             UtilityFunctions::push_error(ToGodot(error_));
             continue;
         }
@@ -274,8 +274,8 @@ void TesseraSchema::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_types", "types"), &TesseraSchema::set_types);
     ClassDB::bind_method(D_METHOD("get_types"), &TesseraSchema::get_types);
     // Kept in files and in copies, not shown in the inspector: add_type is how a script fills it.
-    ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "types", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_types",
-                 "get_types");
+    ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "types", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE),
+                 "set_types", "get_types");
 }
 
 } // namespace godot

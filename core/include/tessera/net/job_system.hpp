@@ -67,4 +67,4 @@ private:
     std::atomic<uint32_t> next_block_start_{0};
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

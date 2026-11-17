@@ -136,8 +136,8 @@ private:
     void BuildChangeIndex();
     /// Whether a change, before or after it, is within the reach of its type from any of the anchors.
     bool IsNear(const ChangedEntity& change, std::span<const Observer> anchors) const;
-    /// Appends the changes filed around `anchor` that are within reach of any of `anchors`. Returns how many it
-    /// looked at (counted only in measurement builds; 0 otherwise).
+    /// Appends the changes filed around `anchor` that are within reach of any of `anchors`. Returns how many
+    /// it looked at (counted only in measurement builds; 0 otherwise).
     uint64_t GatherNearbyChanges(const Observer& anchor, std::span<const Observer> anchors,
                                  std::vector<uint32_t>& out) const;
     void EvaluateChanges(ConnectionId id, Connection& connection) const;

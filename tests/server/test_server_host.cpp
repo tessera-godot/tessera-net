@@ -34,9 +34,9 @@ struct MobColumns {
 const ReplicationSchema& TestSchema() {
     static const ReplicationSchema schema = [] {
         ReplicationSchema built;
-        built.AddType(1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x),
-                                                       TESSERA_COLUMN(MobColumns, y),
-                                                       TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
+        built.AddType(
+            1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x), TESSERA_COLUMN(MobColumns, y),
+                                             TESSERA_COLUMN(MobColumns, z), 0.01f, 5000.0f)});
         return built;
     }();
     return schema;
@@ -134,20 +134,18 @@ private:
 // A host over a simulated network, with a game that records, and the log lines it wrote.
 struct Rig {
     explicit Rig(uint32_t shard_id = 0, uint32_t tick_rate_hz = 100, bool entity = false)
-        : network(NetworkConditions{}), log(LogLevel::Debug, [this](const std::string& line) {
-              lines.push_back(line);
-          }) {
+        : network(NetworkConditions{}),
+          log(LogLevel::Debug, [this](const std::string& line) { lines.push_back(line); }) {
         logic.make_entity = entity;
         config.shard_id = shard_id;
         config.tick_rate_hz = tick_rate_hz;
         config.max_players = 8;
-        host = std::make_unique<ServerHost>(config, logic, network.Server(), log,
-                                            [this] {
-                                                logic.events.push_back("flush");
-                                                if (logic.on_flush_hook) {
-                                                    logic.on_flush_hook();
-                                                }
-                                            });
+        host = std::make_unique<ServerHost>(config, logic, network.Server(), log, [this] {
+            logic.events.push_back("flush");
+            if (logic.on_flush_hook) {
+                logic.on_flush_hook();
+            }
+        });
     }
 
     // One tick the way a game loop would run it: the network moves, the clients read, the host steps.
@@ -366,7 +364,7 @@ TESSERA_TEST(host_client_that_leaves_before_hello_gets_no_callbacks) {
     Rig rig;
     ITransport* raw = rig.network.AddClient();
     rig.network.Advance(++rig.now); // both ends see Connected; the client never reads it, so no hello
-    raw->Disconnect(0); // a client sees the server as connection 0
+    raw->Disconnect(0);             // a client sees the server as connection 0
     rig.Step();                     // the server reads the connection and its end in one go
     TESSERA_CHECK(Count(rig.logic.events, "connected:0") == 0);
     TESSERA_CHECK(Count(rig.logic.events, "disconnected:0") == 0);
@@ -510,12 +508,12 @@ TESSERA_TEST(host_stop_inside_a_player_callback) {
     // The tick that accepted the player finished: nothing ticked after the callback, and its network phase
     // flushed before the shutdown did.
     const size_t connected = IndexOf(events, "connected:0");
-    TESSERA_CHECK(Count(std::vector<std::string>(events.begin() + static_cast<std::ptrdiff_t>(connected),
-                                                 events.end()),
-                        "tick") == 0);
-    TESSERA_CHECK(Count(std::vector<std::string>(events.begin() + static_cast<std::ptrdiff_t>(connected),
-                                                 events.end()),
-                        "flush") == 2);
+    TESSERA_CHECK(
+        Count(std::vector<std::string>(events.begin() + static_cast<std::ptrdiff_t>(connected), events.end()),
+              "tick") == 0);
+    TESSERA_CHECK(
+        Count(std::vector<std::string>(events.begin() + static_cast<std::ptrdiff_t>(connected), events.end()),
+              "flush") == 2);
 }
 
 TESSERA_TEST(host_stop_from_another_thread) {

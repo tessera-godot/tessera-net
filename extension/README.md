@@ -57,7 +57,10 @@ in `build/<preset>/extension/stage/demo/`, ready to open in Godot.
   `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable that runs without a window>`: no Godot is fetched by the build.
   It was run with Godot 4.7.2 on Windows, and on Linux in a container with a Godot 4.7.2 built from source (Debug
   library, built by GCC 13 and by Clang 18).
-- Loading the library into Godot is checked locally, not by the CI workflow, which builds and tests the extension without
-  starting Godot: we have no Godot binary for Linux that we could pin and verify.
+- The CI workflow runs that test on Linux in the debug configuration, with the official Godot 4.7.2 for Linux, which it
+  downloads and checks against a pinned SHA-512 sum. The release configuration does not start Godot.
+- The tests that need no Godot can also run with AddressSanitizer and UBSan on Linux (`linux-extension-sanitize`, see
+  [CONTRIBUTING.md](../CONTRIBUTING.md)), and the CI workflow has a job that does it. The library is not loaded into Godot
+  in that build, because Godot itself is not built with the sanitizers.
 - The first time Godot imports a project that has the extension, Godot 4.7.2 itself crashes at the end of the import
   (on Windows and on Linux). The test script repeats the import once, and the second one is clean.

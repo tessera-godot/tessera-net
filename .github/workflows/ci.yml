@@ -15,6 +15,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The same check you can run locally (see CONTRIBUTING.md): every C++ file git tracks has to be formatted by the
+  # exact clang-format version in tools/requirements-format.txt. It is installed into a virtual environment, from
+  # the files whose hashes are pinned there.
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install clang-format
+        run: |
+          python3 -m venv "$RUNNER_TEMP/format-venv"
+          "$RUNNER_TEMP/format-venv/bin/python" -m pip install --require-hashes -r tools/requirements-format.txt
+
+      - name: Check the formatting
+        run: CLANG_FORMAT="$RUNNER_TEMP/format-venv/bin/clang-format" python3 -I tools/check_format.py
+
   linux:
     name: Linux, ${{ matrix.compiler }}, ${{ matrix.config }}, ${{ matrix.mode }}
     runs-on: ubuntu-24.04
@@ -116,9 +136,10 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.build }}
 
-  # The Godot extension. It is built and its tests are run here; the library is not loaded into Godot in this job
-  # (that is checked locally, see extension/README.md), so no Godot is needed. The only thing fetched besides
-  # the sources is godot-cpp, at a pinned commit.
+  # The Godot extension. It is built and its tests are run here. In the debug configuration the library is also loaded
+  # into a headless Godot, the official Linux build of a pinned version whose SHA-512 sum is checked after the download;
+  # the release configuration does not start Godot. Besides the sources, the job fetches godot-cpp (at a pinned commit)
+  # and that one Godot archive.
   extension-linux:
     name: Extension, Linux, ${{ matrix.compiler }}, ${{ matrix.config }}
     runs-on: ubuntu-24.04
@@ -140,6 +161,73 @@ jobs:
       CXX: ${{ matrix.cxx }}
       # A warning in our C++ code fails the build.
       CXXFLAGS: -Werror
+      GODOT_VERSION: "4.7.2"
+      GODOT_SHA512: "9aa00f7a605200940bce3027a567b782f49bd8e940dd06ae9e987bd65aee1b1467edd56ed84fcdcbdd44354bf613bdbb4e5d2913e925850368e150c59ed54c65"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      # Official release, checked against the sum written above before anything in it is run.
+      - name: Download Godot and check its sum
+        if: matrix.config == 'debug'
+        run: |
+          set -eu
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          echo "${GODOT_SHA512}  $RUNNER_TEMP/godot.zip" | sha512sum -c -
+          mkdir "$RUNNER_TEMP/godot"
+          python3 -m zipfile -e "$RUNNER_TEMP/godot.zip" "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          echo "TESSERA_GODOT=$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.config }}" = debug ]; then
+            cmake --preset linux-extension-debug -DTESSERA_EXTENSION_GODOT="$TESSERA_GODOT"
+          else
+            cmake --preset linux-extension-release
+          fi
+
+      - name: Build
+        run: cmake --build --preset linux-extension-${{ matrix.config }}
+
+      # Without this, a wrong path would drop the Godot test without a word.
+      - name: Check that the Godot test is registered
+        if: matrix.config == 'debug'
+        run: |
+          ctest --preset linux-extension-debug -N -R '^tessera_extension_godot$' | grep -q 'Total Tests: 1'
+
+      - name: Test
+        run: ctest --preset linux-extension-${{ matrix.config }}
+
+  # The tests that need no Godot (the core, the server, ENet, the example server and the logic of the extension), built
+  # with AddressSanitizer and UBSan: a memory error or undefined behavior stops the test with a report. The library is
+  # not loaded into Godot in this job, since Godot itself is not built with the sanitizers. One known report in
+  # ENet's own code is switched off in core/CMakeLists.txt.
+  sanitizers:
+    name: Sanitizers, ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      # A warning in our C++ code fails the build.
+      CXXFLAGS: -Werror
     steps:
       - uses: actions/checkout@v7
         with:
@@ -149,13 +237,13 @@ jobs:
         run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
 
       - name: Configure
-        run: cmake --preset linux-extension-${{ matrix.config }}
+        run: cmake --preset linux-extension-sanitize
 
       - name: Build
-        run: cmake --build --preset linux-extension-${{ matrix.config }}
+        run: cmake --build --preset linux-extension-sanitize
 
       - name: Test
-        run: ctest --preset linux-extension-${{ matrix.config }}
+        run: ctest --preset linux-extension-sanitize
 
   extension-windows:
     name: Extension, Windows, MSVC, ${{ matrix.config }}

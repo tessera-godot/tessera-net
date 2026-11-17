@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-#include <cstdint>
-#include <vector>
-
 #include "tessera/net/command_buffer.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
 #include "test_support.hpp"
+
+#include <cstdint>
+#include <vector>
 
 using tessera::net::CommandBuffers;
 using tessera::net::EntityId;
@@ -19,7 +19,7 @@ TESSERA_TEST(apply_order_is_by_key_regardless_of_worker) {
     buffers.Push(2, 5, 50);
     buffers.Push(0, 7, 70);
     buffers.Push(1, 1, 10);
-    buffers.Push(0, 7, 71);  // same key on the same worker: enqueue order is kept
+    buffers.Push(0, 7, 71); // same key on the same worker: enqueue order is kept
     std::vector<int> order;
     const size_t applied = buffers.ApplyAll([&](const int& command) { order.push_back(command); });
     TESSERA_CHECK(applied == 4);
@@ -84,9 +84,8 @@ TESSERA_TEST(double_destroy_commands_are_applied_as_given) {
     buffers.Push(1, 1, StructuralCommand{StructuralCommand::Kind::Destroy, 0, id});
     int succeeded = 0;
     int failed = 0;
-    buffers.ApplyAll([&](const StructuralCommand& command) {
-        (table.Destroy(command.id) ? succeeded : failed) += 1;
-    });
+    buffers.ApplyAll(
+        [&](const StructuralCommand& command) { (table.Destroy(command.id) ? succeeded : failed) += 1; });
     TESSERA_CHECK(succeeded == 1);
     TESSERA_CHECK(failed == 1);
     TESSERA_CHECK(table.AliveCount() == 0);

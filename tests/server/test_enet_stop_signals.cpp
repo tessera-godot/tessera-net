@@ -25,7 +25,8 @@ namespace {
 
 struct Rig {
     Rig()
-        : network(NetworkConditions{}), game(4, false), log(server::LogLevel::Error, [](const std::string&) {}) {
+        : network(NetworkConditions{}), game(4, false),
+          log(server::LogLevel::Error, [](const std::string&) {}) {
         server::ServerConfig config;
         config.max_players = 8;
         config.tick_rate_hz = 100;

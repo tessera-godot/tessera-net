@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 
 IMPORT_LIMIT = 60.0  # seconds
 RUN_LIMIT = 90.0
@@ -25,6 +26,15 @@ SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
 # A run with fewer `OK` lines than this has skipped checks, whatever it printed at the end. Raise it when checks are added.
 MIN_OK_CHECKS = 46
+# The warnings the run is expected to print, which only the log of Godot shows. Three prediction rules fail on purpose
+# (a rule that returns nothing, one that returns a number, and one that gives a float where a Vector3 is needed); each
+# failure turns the prediction off with one warning. Any other line with "TesseraClient:" is a surprise and fails the run.
+WARNING_MARK = "TesseraClient:"
+EXPECTED_WARNINGS = [
+    "the prediction was turned off: the rule threw an exception: the rule did not return a Dictionary",
+    "the prediction was turned off: the rule threw an exception: the rule did not return a Dictionary",
+    "the prediction was turned off: the rule threw an exception: the rule gave a value for 'position' that is not a Vector3",
+]
 WINDOWS = os.name == "nt"
 
 
@@ -111,6 +121,26 @@ def load(godot, stage):
         return 1
     print("LOAD PASS")
     return 0
+
+
+def unexpected_warnings(output):
+    """What is wrong with the `TesseraClient:` warnings in the output of Godot: a list of messages, empty when
+    the run printed exactly the expected warnings, each as many times as expected. Lines are not tied to a rule by
+    their position, because the two output streams of Godot are mixed without any order."""
+    problems = []
+    missing = Counter(EXPECTED_WARNINGS)
+    for line in output.splitlines():
+        if WARNING_MARK not in line:
+            continue
+        text = line.split(WARNING_MARK, 1)[1].strip()
+        if missing[text] > 0:
+            missing[text] -= 1
+        else:
+            problems.append(f"unexpected warning: {line.strip()}")
+    for text, count in missing.items():
+        if count > 0:
+            problems.append(f"{count} missing warning(s): {text}")
+    return problems
 
 
 def free_port():
@@ -232,6 +262,8 @@ def e2e(godot, stage, server_exe):
             print("FAIL e2e: Godot reported a script error")
         elif sum(1 for line in output.splitlines() if line.startswith("OK ")) < MIN_OK_CHECKS:
             print(f"FAIL e2e: fewer than {MIN_OK_CHECKS} checks reported OK")
+        elif unexpected_warnings(output):
+            print("FAIL e2e: the warnings of the client are not the expected ones: " + "; ".join(unexpected_warnings(output)))
         else:
             result = 0
     finally:

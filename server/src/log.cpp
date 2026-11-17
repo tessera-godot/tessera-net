@@ -66,8 +66,7 @@ std::optional<LogLevel> ParseLogLevel(std::string_view name) {
 std::string FormatLogLine(std::chrono::system_clock::time_point when, LogLevel level,
                           std::string_view message) {
     constexpr int64_t kMsPerDay = 24 * 60 * 60 * 1000;
-    const int64_t ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()).count();
+    const int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()).count();
     int64_t days = ms / kMsPerDay;
     int64_t ms_of_day = ms % kMsPerDay;
     if (ms_of_day < 0) { // before 1970: round down, not toward zero

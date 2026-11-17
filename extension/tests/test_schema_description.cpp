@@ -79,7 +79,7 @@ uint64_t HashOf(std::vector<PropertyDescription> properties, uint32_t type = 1) 
 
 std::vector<PropertyDescription> Mixed() {
     return {Position("position"), Angle("heading"), Integer("health", 0, 100, false),
-            Flag("alive"),        Mask("flags", 8),  Choice("team", 5)};
+            Flag("alive"),        Mask("flags", 8), Choice("team", 5)};
 }
 
 } // namespace
@@ -161,12 +161,9 @@ TESSERA_TEST(schema_integer_column_fits_its_range) {
         bool is_signed;
         uint8_t bytes;
     };
-    const Case cases[] = {{-128, 127, true, 1},
-                          {-129, 127, true, 2},
-                          {0, 255, false, 1},
-                          {0, 65535, false, 2},
-                          {0, 65536, false, 4},
-                          {-(int64_t{1} << 40), int64_t{1} << 40, true, 8}};
+    const Case cases[] = {{-128, 127, true, 1}, {-129, 127, true, 2},
+                          {0, 255, false, 1},   {0, 65535, false, 2},
+                          {0, 65536, false, 4}, {-(int64_t{1} << 40), int64_t{1} << 40, true, 8}};
     for (const Case& c : cases) {
         const BuildResult result = BuildOne(Type(1, {Integer("n", c.min_value, c.max_value, c.is_signed)}));
         TESSERA_CHECK(result.schema != nullptr);
@@ -209,7 +206,7 @@ TESSERA_TEST(schema_rejects_empty_range) {
 
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();
-    const PropertyDescription bad[] = {Position("p", 0.01, 0.0),   Position("p", 0.0, 2048.0),
+    const PropertyDescription bad[] = {Position("p", 0.01, 0.0), Position("p", 0.0, 2048.0),
                                        Position("p", nan, 2048.0), Position("p", 0.01, inf),
                                        Position("p", -0.01, 2048.0)};
     for (const PropertyDescription& p : bad) {

@@ -171,7 +171,8 @@ TESSERA_TEST(max_words_is_the_largest_type) {
 TESSERA_TEST(hash_is_stable_and_depends_on_every_wire_field) {
     const uint64_t base = HashOf(FullType());
     TESSERA_CHECK(HashOf(FullType()) == base);
-    TESSERA_CHECK(base == 0xDBDC7F24EAC309B5ull); // golden value, computed outside the C++ code from the canonical form
+    TESSERA_CHECK(
+        base == 0xDBDC7F24EAC309B5ull); // golden value, computed outside the C++ code from the canonical form
     TESSERA_CHECK(HashOf(FullType(), 1) != base); // another type id
 
     auto changed = [&](auto edit) {

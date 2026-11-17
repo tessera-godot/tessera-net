@@ -33,17 +33,15 @@ constexpr uint32_t kMobLike = 1;
 
 ReplicationSchema MakeCostSchema() {
     ReplicationSchema schema;
-    schema.AddType(kPlayerLike,
-                   {PropertyDescriptor::Position(TESSERA_COLUMN(CostColumns, x),
-                                                 TESSERA_COLUMN(CostColumns, y),
-                                                 TESSERA_COLUMN(CostColumns, z), 0.01f, 2048.0f),
-                    PropertyDescriptor::Integer(TESSERA_COLUMN(CostColumns, score), true,
-                                                std::numeric_limits<int64_t>::min(),
-                                                std::numeric_limits<int64_t>::max())});
-    schema.AddType(kMobLike,
-                   {PropertyDescriptor::Position(TESSERA_COLUMN(CostColumns, x),
-                                                 TESSERA_COLUMN(CostColumns, y),
-                                                 TESSERA_COLUMN(CostColumns, z), 0.01f, 2048.0f)});
+    schema.AddType(kPlayerLike, {PropertyDescriptor::Position(TESSERA_COLUMN(CostColumns, x),
+                                                              TESSERA_COLUMN(CostColumns, y),
+                                                              TESSERA_COLUMN(CostColumns, z), 0.01f, 2048.0f),
+                                 PropertyDescriptor::Integer(TESSERA_COLUMN(CostColumns, score), true,
+                                                             std::numeric_limits<int64_t>::min(),
+                                                             std::numeric_limits<int64_t>::max())});
+    schema.AddType(kMobLike, {PropertyDescriptor::Position(TESSERA_COLUMN(CostColumns, x),
+                                                           TESSERA_COLUMN(CostColumns, y),
+                                                           TESSERA_COLUMN(CostColumns, z), 0.01f, 2048.0f)});
     return schema;
 }
 
@@ -206,8 +204,8 @@ TESSERA_TEST(memory_grows_linearly_with_the_delay_and_with_the_entities) {
     TESSERA_CHECK(ratio >= 1.95 && ratio <= 2.05); // twice the entities, twice the memory
 
     // A state takes 8 bytes of tick, 20 of words and 1 of mark; an entity also takes its own record.
-    Crowd short_delay(schema, kPlayerLike, 2000, 2);   // 8 states
-    Crowd long_delay(schema, kPlayerLike, 2000, 14);   // 20 states
+    Crowd short_delay(schema, kPlayerLike, 2000, 2); // 8 states
+    Crowd long_delay(schema, kPlayerLike, 2000, 14); // 20 states
     const double expected = (20.0 * 29.0 + sizeof(void*) * 3) / (8.0 * 29.0 + sizeof(void*) * 3);
     const double measured = static_cast<double>(long_delay.interpolator.MemoryBytes()) /
                             static_cast<double>(short_delay.interpolator.MemoryBytes());

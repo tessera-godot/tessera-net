@@ -97,3 +97,5 @@ setup (a different Godot build, another distribution) is still possible, and the
 
 **Open:** whether to replace the second copy of ENet with Godot's, whether to keep godot-cpp 4.5 or move to a newer one,
 how to run the Godot test on a Linux runner, and the shared schema.
+
+**Later (November 2026):** the Linux debug jobs of the CI workflow now download the official Godot 4.7.2, check it against a pinned SHA-512 sum and run the headless test, so the question of how to run the Godot test on a Linux runner is answered. The text above is left as it was written.

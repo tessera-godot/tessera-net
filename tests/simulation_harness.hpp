@@ -4,16 +4,16 @@
 // depend on the number of workers.
 #pragma once
 
-#include <algorithm>
-#include <cstdint>
-#include <unordered_map>
-#include <vector>
-
 #include "tessera/net/command_buffer.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/job_system.hpp"
 #include "tessera/net/spatial_grid.hpp"
 #include "tessera/net/tick_loop.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 namespace tessera::net::harness {
 
@@ -37,7 +37,8 @@ struct Position {
 Position PositionOf(EntityId id, uint64_t tick) {
     const uint64_t h = Mix(id.raw(), 1);
     return Position{static_cast<float>(h % 2000) - 1000.0f + static_cast<float>(tick) * 0.5f,
-                    static_cast<float>((h >> 16) % 200) - 100.0f, static_cast<float>((h >> 32) % 2000) - 1000.0f};
+                    static_cast<float>((h >> 16) % 200) - 100.0f,
+                    static_cast<float>((h >> 32) % 2000) - 1000.0f};
 }
 
 // A small world driven by the tick loop. Entities are created and destroyed pseudo-randomly; the
@@ -47,12 +48,8 @@ public:
     static constexpr uint32_t kItemsPerTick = 256;
 
     explicit Simulation(uint32_t workers)
-        : table_(TableConfig{}),
-          grid_(GridConfig{16.0f, 16.0f, 16.0f}),
-          jobs_(workers),
-          structure_commands_(workers),
-          move_commands_(workers),
-          loop_(TickConfig{}, jobs_) {
+        : table_(TableConfig{}), grid_(GridConfig{16.0f, 16.0f, 16.0f}), jobs_(workers),
+          structure_commands_(workers), move_commands_(workers), loop_(TickConfig{}, jobs_) {
         loop_.SetPhaseHandler(Phase::Simulate, [this](PhaseContext& c) { Simulate(c); });
         loop_.SetPhaseHandler(Phase::Structure, [this](PhaseContext& c) { Structure(c); });
         loop_.SetPhaseHandler(Phase::Grid, [this](PhaseContext& c) { UpdateGrid(c); });
@@ -156,4 +153,4 @@ private:
     std::unordered_map<uint64_t, size_t> live_index_;
 };
 
-}  // namespace tessera::net::harness
+} // namespace tessera::net::harness

@@ -32,7 +32,7 @@ struct WorldSetup {
 
 /// What the host hands the game when it starts. The references stay valid until `OnShutdown` has returned.
 struct ServerContext {
-    uint32_t shard_id;     ///< Put it in `TableConfig{shard, type}` so that it reaches the entity ids.
+    uint32_t shard_id; ///< Put it in `TableConfig{shard, type}` so that it reaches the entity ids.
     uint32_t tick_rate_hz;
     net::ReplicationServer& replication;
     net::SpatialGrid& grid;

@@ -179,15 +179,15 @@ TESSERA_TEST(version_does_not_change_when_nothing_changed) {
     const GroupId g = groups.CreateGroup(GroupKind::Exclusion);
     groups.AddMember(g, Id(1));
     const uint64_t before = groups.version();
-    groups.AddMember(g, Id(1));          // already a member
-    groups.RemoveMember(g, Id(2));       // not a member
-    groups.AddMember(999, Id(1));        // unknown group
+    groups.AddMember(g, Id(1));    // already a member
+    groups.RemoveMember(g, Id(2)); // not a member
+    groups.AddMember(999, Id(1));  // unknown group
     groups.RemoveMember(999, Id(1));
     groups.SetStatus(999, 0, true);
     groups.SetStatusForAll(999, true);
     groups.DestroyGroup(999);
-    groups.RemoveEntity(Id(77));         // in no group
-    groups.RemoveConnection(42);         // no exceptions
+    groups.RemoveEntity(Id(77)); // in no group
+    groups.RemoveConnection(42); // no exceptions
     TESSERA_CHECK(groups.version() == before);
 }
 
@@ -200,9 +200,9 @@ TESSERA_TEST(is_included_for_follows_membership_and_status) {
     groups.SetStatus(include, 3, true);
     groups.SetStatusForAll(exclude, true);
     TESSERA_CHECK(groups.IsIncludedFor(Id(1), 3));
-    TESSERA_CHECK(!groups.IsIncludedFor(Id(1), 4));   // not allowed for connection 4
-    TESSERA_CHECK(!groups.IsIncludedFor(Id(2), 3));   // exclusion groups never include
-    TESSERA_CHECK(!groups.IsIncludedFor(Id(9), 3));   // in no group
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(1), 4)); // not allowed for connection 4
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(2), 3)); // exclusion groups never include
+    TESSERA_CHECK(!groups.IsIncludedFor(Id(9), 3)); // in no group
     groups.RemoveMember(include, Id(1));
     TESSERA_CHECK(!groups.IsIncludedFor(Id(1), 3));
 }
