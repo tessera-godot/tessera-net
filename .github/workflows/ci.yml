@@ -177,6 +177,47 @@ jobs:
       - name: Test
         run: ctest --preset linux-extension-${{ matrix.config }}
 
+  # The tests that need no Godot (the core, the server, ENet, the example server and the logic of the extension), built
+  # with AddressSanitizer and UBSan: a memory error or undefined behavior stops the test with a report. The library is
+  # not loaded into Godot in this job, since Godot itself is not built with the sanitizers. One known report in
+  # ENet's own code is switched off in core/CMakeLists.txt.
+  sanitizers:
+    name: Sanitizers, ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      # A warning in our C++ code fails the build.
+      CXXFLAGS: -Werror
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja if it is missing
+        run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Configure
+        run: cmake --preset linux-extension-sanitize
+
+      - name: Build
+        run: cmake --build --preset linux-extension-sanitize
+
+      - name: Test
+        run: ctest --preset linux-extension-sanitize
+
   extension-windows:
     name: Extension, Windows, MSVC, ${{ matrix.config }}
     runs-on: windows-2022

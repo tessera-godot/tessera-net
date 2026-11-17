@@ -63,6 +63,12 @@ if(TESSERA_BUILD_ENET)
         if(MSVC)
             target_compile_options(enet PRIVATE /w)
         endif()
+        if(TESSERA_SANITIZE)
+            # ENet marks the 32nd fragment of a word with `1 << 31` on a signed int (protocol.c), which UBSan reports and
+            # which then stops the test. The compilers we use give the bit that is meant. Only that one check is turned
+            # off, and only in ENet's own code: our code and every other check stay on.
+            target_compile_options(enet PRIVATE -fno-sanitize=shift-base)
+        endif()
     endfunction()
     tessera_fetch_enet()
 
