@@ -5,7 +5,8 @@
 add_library(tessera_schema_tool STATIC
     src/cli.cpp
     src/json_reader.cpp
-    src/schema_file.cpp)
+    src/schema_file.cpp
+    src/names.cpp)
 
 target_include_directories(tessera_schema_tool PUBLIC include)
 target_link_libraries(tessera_schema_tool PUBLIC tessera_net_core)

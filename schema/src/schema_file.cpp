@@ -2,6 +2,7 @@
 #include "tessera/schema/schema_file.hpp"
 
 #include "tessera/net/entity_id.hpp"
+#include "tessera/schema/names.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -265,11 +266,21 @@ private:
         }
         type.name = value.AsString();
         type.name_where.position = value.position;
+        CheckNameAt(value);
         const auto [place, inserted] = type_names_.emplace(type.name, value.position);
         if (!inserted) {
             Add(value.position, "the type name " + Quoted(type.name) + " is already used on line " +
                                     std::to_string(place->second.line),
                 "give each type its own name");
+        }
+    }
+
+    // A name has to be good in C++ and in GDScript.
+    void CheckNameAt(const json::Value& value) {
+        std::string fix;
+        const std::string problem = CheckName(value.AsString(), &fix);
+        if (!problem.empty()) {
+            Add(value.position, problem, fix);
         }
     }
 
@@ -428,6 +439,7 @@ private:
         }
         property.name = value.AsString();
         property.name_where.position = value.position;
+        CheckNameAt(value);
         const auto [place, inserted] = names.emplace(property.name, value.position);
         if (!inserted) {
             Add(value.position, "the property name " + Quoted(property.name) + " is already used on line " +
@@ -502,6 +514,10 @@ ReadResult ReadSchema(std::string_view text) {
     reader.ReadRoot(*parsed.value, file);
     reader.Finish();
     result.diagnostics = std::move(reader.Diagnostics());
+    if (result.diagnostics.empty()) {
+        // Names that are good one by one can still make the same C++ name together.
+        result.diagnostics = FindCollisions(file);
+    }
     if (result.diagnostics.empty()) {
         result.file = std::move(file);
     }
