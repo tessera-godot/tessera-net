@@ -166,7 +166,9 @@ cmake --preset windows-msvc-extension-debug   # the Godot extension (fetches god
 
 The [CI workflow](.github/workflows/ci.yml) builds and tests both on Ubuntu (GCC and Clang) and on Windows (MSVC), in
 Release and Debug, with warnings as errors, and builds the default configuration too. It also builds the Godot extension
-and runs its tests, without starting Godot. Those jobs pass in GitHub Actions.
+and runs its tests; in the Linux Debug jobs it downloads the official Godot 4.7.2, checks its SHA-512 sum, and runs the
+headless Godot test with it. Other jobs check the formatting of the C++ files (`Format`) and run the tests that need no
+Godot with AddressSanitizer and UBSan (`Sanitizers`).
 
 [![CI](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml/badge.svg)](https://github.com/tessera-godot/tessera-net/actions/workflows/ci.yml)
 
