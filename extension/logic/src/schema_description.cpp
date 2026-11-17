@@ -175,8 +175,7 @@ std::string PrepareType(const TypeDescription& type, std::vector<net::PropertyDe
 
 BuiltSchema::BuiltSchema(std::unique_ptr<net::ReplicationSchema> schema,
                          std::map<uint32_t, std::vector<PropertyInfo>> properties)
-    : schema_(std::move(schema)), properties_(std::move(properties)) {
-}
+    : schema_(std::move(schema)), properties_(std::move(properties)) {}
 
 const std::vector<PropertyInfo>* BuiltSchema::Properties(uint32_t type) const noexcept {
     const auto found = properties_.find(type);

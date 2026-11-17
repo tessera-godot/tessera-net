@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// The client of a Tessera server without anything from Godot: a connection, the state it holds, and the events
-// that a script would hear about. The Godot class is a thin layer over this one.
+// The client of a Tessera server without anything from Godot: a connection, the state it holds, and the
+// events that a script would hear about. The Godot class is a thin layer over this one.
 #pragma once
 
 #include "tessera/ext/schema_description.hpp"
@@ -59,16 +59,17 @@ struct PredictionReport {
 };
 
 struct InterpolationReport {
-    bool configured = false;      ///< `SetInterpolation` was called (and not undone).
-    bool running = false;         ///< Connected, and a state buffer has arrived since.
+    bool configured = false; ///< `SetInterpolation` was called (and not undone).
+    bool running = false;    ///< Connected, and a state buffer has arrived since.
     uint32_t delay_ticks = 0;
     double snap_distance = 0.0;
     net::InterpolationStats stats;
-    double lag_ticks = 0.0;       ///< The newest tick applied minus the tick being shown.
+    double lag_ticks = 0.0; ///< The newest tick applied minus the tick being shown.
 };
 
 /// Opens the transport for a connection to `host:port`. May throw; the session turns that into an error.
-using TransportFactory = std::function<std::unique_ptr<net::ITransport>(const std::string& host, uint16_t port)>;
+using TransportFactory =
+    std::function<std::unique_ptr<net::ITransport>(const std::string& host, uint16_t port)>;
 
 class ClientSession {
 public:
@@ -79,7 +80,8 @@ public:
 
     /// Starts a connection, closing the one there is (without events). Returns false, with the reason in
     /// `error`, if the schema is missing, the port is outside 1 to 65535, or the transport cannot open; the
-    /// session is then disconnected. The session shares the schema: it stays alive as long as the session needs it.
+    /// session is then disconnected. The session shares the schema: it stays alive as long as the session
+    /// needs it.
     bool Connect(std::shared_ptr<const BuiltSchema> schema, const std::string& host, int port,
                  std::string& error);
 
@@ -87,8 +89,8 @@ public:
     void Disconnect() noexcept;
 
     /// Reads what arrived and appends the events it caused to `out`, in this order: Connected, EntityRemoved
-    /// (by increasing id), EntityAppeared (by increasing id), then Rejected or Disconnected. A call from inside
-    /// a call (a transport that calls back) does nothing.
+    /// (by increasing id), EntityAppeared (by increasing id), then Rejected or Disconnected. A call from
+    /// inside a call (a transport that calls back) does nothing.
     void Poll(std::vector<SessionEvent>& out);
 
     SessionState State() const noexcept;

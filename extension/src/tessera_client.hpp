@@ -5,6 +5,7 @@
 #include "tessera/ext/client_session.hpp"
 #include "tessera_schema.hpp"
 
+#include <chrono>
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/callable.hpp>
@@ -15,13 +16,11 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
-#include <chrono>
-
 namespace godot {
 
-// A connection to a Tessera server, seen from GDScript. Call poll() every frame: nothing is read, and no signal
-// is sent, until you do. All the calls are safe in any state; asking for something the client does not have
-// gives an empty answer, not an error.
+// A connection to a Tessera server, seen from GDScript. Call poll() every frame: nothing is read, and no
+// signal is sent, until you do. All the calls are safe in any state; asking for something the client does not
+// have gives an empty answer, not an error.
 TESSERA_GODOT_CLASS_BEGIN
 class TesseraClient : public RefCounted {
     GDCLASS(TesseraClient, RefCounted)
@@ -33,9 +32,9 @@ public:
     TesseraClient();
     ~TesseraClient();
 
-    // Starts connecting. Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error(): no valid schema,
-    // a port outside 1 to 65535, or a connection that could not be opened. A server that refuses, or is not
-    // there, shows up later, as the state.
+    // Starts connecting. Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error(): no valid
+    // schema, a port outside 1 to 65535, or a connection that could not be opened. A server that refuses, or
+    // is not there, shows up later, as the state.
     int connect_to(const String& host, int port);
     // Leaves the server. Raises no signal: the caller knows. Harmless if repeated or if nothing is connected.
     void disconnect_from_server();
@@ -85,12 +84,12 @@ public:
     // second, so 2 is about 66 ms there), and for anything else the value in force at that time. A state that
     // is late holds the entity where it is until it arrives: nothing is guessed ahead. Two states more than
     // snap_distance apart (a teleport), or more than 8 ticks apart (a long silence), are not blended: the
-    // entity stays and moves to the new one at its tick. Set it before connecting or later; it stays through a reconnection.
-    // Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() for a delay outside 0 to 30 or
-    // a snap_distance that is not above 0. With no arguments it sets the defaults, 2 ticks and 2.5.
-    // The time moves with poll(), by the time that passed since the last call (at most a quarter of a
-    // second).
-    // None of these calls is refused inside a prediction rule: they do not call back into the game.
+    // entity stays and moves to the new one at its tick. Set it before connecting or later; it stays through
+    // a reconnection. Returns OK, or ERR_INVALID_PARAMETER with the reason in get_last_error() for a delay
+    // outside 0 to 30 or a snap_distance that is not above 0. With no arguments it sets the defaults, 2 ticks
+    // and 2.5. The time moves with poll(), by the time that passed since the last call (at most a quarter of
+    // a second). None of these calls is refused inside a prediction rule: they do not call back into the
+    // game.
     int set_interpolation(int delay_ticks, double snap_distance);
     // Stops interpolating and forgets the settings. Harmless in any state.
     void clear_interpolation();
