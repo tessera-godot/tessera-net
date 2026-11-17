@@ -56,8 +56,7 @@ bool ValidSettings(double smoothing_seconds, double snap_distance, std::string* 
 
 } // namespace
 
-Predictor::Predictor(const ReplicationSchema& schema) : schema_(schema) {
-}
+Predictor::Predictor(const ReplicationSchema& schema) : schema_(schema) {}
 
 bool Predictor::Configure(const PredictionConfig& config, std::string* error) {
     if (rule_running_) {

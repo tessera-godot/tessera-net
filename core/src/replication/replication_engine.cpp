@@ -155,26 +155,26 @@ void ReplicationEngine::Update(uint64_t tick) {
     // at once.
     {
         TESSERA_PROFILE_SCOPE(EncodeWall);
-        jobs_.ParallelFor(static_cast<uint32_t>(active_.size()), 1,
-                          [&](uint32_t begin, uint32_t end, uint32_t) {
-                              for (uint32_t i = begin; i < end; ++i) {
-                                  Entry& entry = *connections_[active_[i]];
-                                  entry.bucket.Refill();
-                                  EncodeLimits limits;
-                                  limits.resend_after_ticks = entry.rtt.ResendAfter();
-                                  limits.type_weight = config_.type_weight.data();
-                                  if (!entry.bucket.Unlimited()) {
-                                      limits.max_bytes = static_cast<uint32_t>(std::clamp<int64_t>(
-                                          entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
-                                  }
-                                  entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
-                                  if (!entry.bucket.Unlimited() &&
-                                      entry.output.size() > 1) { // more than the end marker: it is sent
-                                      entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) +
-                                                          kBufferOverheadBytes);
-                                  }
-                              }
-                          });
+        jobs_.ParallelFor(
+            static_cast<uint32_t>(active_.size()), 1, [&](uint32_t begin, uint32_t end, uint32_t) {
+                for (uint32_t i = begin; i < end; ++i) {
+                    Entry& entry = *connections_[active_[i]];
+                    entry.bucket.Refill();
+                    EncodeLimits limits;
+                    limits.resend_after_ticks = entry.rtt.ResendAfter();
+                    limits.type_weight = config_.type_weight.data();
+                    if (!entry.bucket.Unlimited()) {
+                        limits.max_bytes = static_cast<uint32_t>(
+                            std::clamp<int64_t>(entry.bucket.AvailableBytes(), 1, config_.max_buffer_bytes));
+                    }
+                    entry.stats = entry.state.Encode(tick, store_, entry.output, limits);
+                    if (!entry.bucket.Unlimited() &&
+                        entry.output.size() > 1) { // more than the end marker: it is sent
+                        entry.bucket.Charge(static_cast<uint32_t>(entry.output.size()) +
+                                            kBufferOverheadBytes);
+                    }
+                }
+            });
     }
     last_stats_ = EncodeStats{};
     for (const uint32_t id : active_) { // added up in connection order, whatever the workers did

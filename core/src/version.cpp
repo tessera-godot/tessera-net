@@ -11,4 +11,4 @@ std::string_view GetVersionString() noexcept {
     return "0.0.1";
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

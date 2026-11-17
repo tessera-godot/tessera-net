@@ -56,7 +56,7 @@ void ThreadPoolJobSystem::ParallelFor(uint32_t count, uint32_t grain, const Body
     }
     job_ready_.notify_all();
 
-    RunBlocks(0);  // the calling thread works too
+    RunBlocks(0); // the calling thread works too
 
     std::unique_lock<std::mutex> lock(mutex_);
     job_done_.wait(lock, [this] { return workers_finished_ == threads_.size(); });
@@ -93,4 +93,4 @@ void ThreadPoolJobSystem::WorkerLoop(uint32_t worker) {
     }
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

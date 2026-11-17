@@ -24,8 +24,7 @@ void Describe(std::string* error, const char* text) {
 
 } // namespace
 
-Interpolator::Interpolator(const ReplicationSchema& schema) : schema_(schema) {
-}
+Interpolator::Interpolator(const ReplicationSchema& schema) : schema_(schema) {}
 
 bool Interpolator::Configure(const InterpolationConfig& config, std::string* error) {
     if (config.delay_ticks > kMaxDelayTicks) {

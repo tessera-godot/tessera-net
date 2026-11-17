@@ -25,10 +25,11 @@ int32_t CellIndex(float position, float cell_size) {
     return static_cast<int32_t>(std::clamp(cell, kLow, kHigh));
 }
 
-}  // namespace
+} // namespace
 
 SpatialGrid::SpatialGrid(GridConfig config) : config_(config) {
-    if (!IsPositiveFinite(config.cell_x) || !IsPositiveFinite(config.cell_y) || !IsPositiveFinite(config.cell_z)) {
+    if (!IsPositiveFinite(config.cell_x) || !IsPositiveFinite(config.cell_y) ||
+        !IsPositiveFinite(config.cell_z)) {
         throw std::invalid_argument("SpatialGrid: every cell size must be a positive, finite number");
     }
 }
@@ -37,7 +38,8 @@ CellCoord SpatialGrid::CellOf(float x, float y, float z) const noexcept {
     if (!IsFinite(x, y, z)) {
         return CellCoord{0, 0, 0};
     }
-    return CellCoord{CellIndex(x, config_.cell_x), CellIndex(y, config_.cell_y), CellIndex(z, config_.cell_z)};
+    return CellCoord{CellIndex(x, config_.cell_x), CellIndex(y, config_.cell_y),
+                     CellIndex(z, config_.cell_z)};
 }
 
 bool SpatialGrid::Insert(EntityId id, float x, float y, float z) {
@@ -90,8 +92,8 @@ size_t SpatialGrid::ApplyMoves(const std::vector<PendingMove>& moves) {
         }
         Entry& entry = it->second;
         if (record_changes_ && (entry.x != move.x || entry.y != move.y || entry.z != move.z)) {
-            changes_.push_back(GridChange{GridChange::Kind::Moved, move.id, entry.x, entry.y, entry.z,
-                                          move.x, move.y, move.z});
+            changes_.push_back(GridChange{GridChange::Kind::Moved, move.id, entry.x, entry.y, entry.z, move.x,
+                                          move.y, move.z});
         }
         entry.x = move.x;
         entry.y = move.y;
@@ -184,4 +186,4 @@ void SpatialGrid::QuerySphere(float cx, float cy, float cz, float radius, std::v
     ForEachInSphere(cx, cy, cz, radius, [&](EntityId id, float, float, float) { out.push_back(id); });
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

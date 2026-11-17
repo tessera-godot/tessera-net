@@ -28,7 +28,7 @@ double ElapsedMs(Clock::time_point from, Clock::time_point to) {
 class HighResolutionTimer {
 public:
     HighResolutionTimer() {
-        constexpr DWORD kHighResolutionFlag = 0x00000002;  // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+        constexpr DWORD kHighResolutionFlag = 0x00000002; // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
         handle_ = CreateWaitableTimerExW(nullptr, nullptr, kHighResolutionFlag, TIMER_ALL_ACCESS);
     }
     ~HighResolutionTimer() {
@@ -49,7 +49,8 @@ public:
             return true;
         }
         LARGE_INTEGER due;
-        due.QuadPart = -std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count() / 100;  // 100 ns units, relative
+        due.QuadPart = -std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count() /
+                       100; // 100 ns units, relative
         if (!SetWaitableTimer(handle_, &due, 0, nullptr, nullptr, FALSE)) {
             return false;
         }
@@ -72,7 +73,7 @@ void SleepUntil(Clock::time_point deadline) {
     std::this_thread::sleep_until(deadline);
 }
 
-}  // namespace
+} // namespace
 
 TickLoop::TickLoop(TickConfig config, IJobSystem& jobs, ILoadPolicy* policy)
     : budget_ms_(0.0), jobs_(jobs), policy_(policy) {
@@ -107,8 +108,9 @@ void TickLoop::RunTick() {
 }
 
 void TickLoop::Run(const std::atomic<bool>& stop) {
-    const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt_seconds_));
-    Clock::time_point scheduled = Clock::now();  // when the current tick is supposed to start
+    const auto period =
+        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(dt_seconds_));
+    Clock::time_point scheduled = Clock::now(); // when the current tick is supposed to start
     while (!stop.load(std::memory_order_acquire)) {
         const Clock::time_point start = Clock::now();
         RunTick();
@@ -167,4 +169,4 @@ void TickLoop::RecordTick(double elapsed_ms, const std::array<double, kPhaseCoun
     metrics_.p99_ms = scratch_ms_[rank];
 }
 
-}  // namespace tessera::net
+} // namespace tessera::net

@@ -2,7 +2,6 @@
 #include "tessera/net/replication/connection_state.hpp"
 
 #include "tessera/net/profile.hpp"
-
 #include "tessera/net/replication/record_codec.hpp"
 #include "tessera/net/replication/state_store.hpp"
 
