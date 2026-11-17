@@ -14,8 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Sanitizer builds. The option `TESSERA_SANITIZE` (empty by default, for GCC and Clang) builds everything with the
   sanitizers it names, and the preset `linux-extension-sanitize` uses `address,undefined` and runs the tests that need no
   Godot; the library is not loaded into Godot there. The CI has a `Sanitizers` job with GCC and Clang. ENet's own code is
-  built without the one check that flags how it marks the 32nd fragment of a word (`1 << 31` on a signed integer); our
-  code and every other check stay on.
+  built without the two checks that flag how it marks the 32nd fragment of a word (`1 << 31` on a signed integer) and how
+  it takes the offset of a header field (through a null pointer); our code and every other check stay on.
 - The headless Godot test runs in the CI, in the Linux debug jobs, with the official Godot 4.7.2 downloaded and checked
   against a pinned SHA-512 sum; a step makes the job fail if the test is not registered.
 - The headless Godot test counts the warnings of the client: the three prediction rules that fail on purpose must give
