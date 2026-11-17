@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/entity_id.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
-
-#include "tessera/net/entity_id.hpp"
 
 namespace tessera::net {
 
@@ -39,11 +39,13 @@ public:
         return &names_[type];
     }
 
-    size_t Count() const noexcept { return count_; }
+    size_t Count() const noexcept {
+        return count_;
+    }
 
 private:
     std::array<std::string, EntityId::kMaxType + 1> names_;
     size_t count_ = 0;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

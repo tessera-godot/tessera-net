@@ -69,9 +69,9 @@ struct ServerStats {
     uint64_t event_batches_sent = 0;
     uint64_t inputs_delivered = 0; ///< Inputs handed to the game.
     uint64_t inputs_repeated = 0;  ///< Inputs that had already been delivered (the repeats a client sends).
-    uint64_t inputs_old = 0;     ///< Inputs older than the newest delivered, and never delivered themselves.
-    /// Drop events: a new input over the per-tick limit. The same input counts again each time a later message
-    /// repeats it and it is dropped again.
+    uint64_t inputs_old = 0; ///< Inputs older than the newest delivered, and never delivered themselves.
+    /// Drop events: a new input over the per-tick limit. The same input counts again each time a later
+    /// message repeats it and it is dropped again.
     uint64_t inputs_dropped = 0;
     /// State buffers sent with nothing to say about entities, only to confirm inputs.
     uint64_t input_confirmations_sent = 0;
@@ -84,8 +84,9 @@ using InputHandler =
 
 /// The server's side of the network phase of a tick: it reads the transport (greetings, confirmations,
 /// disconnections), runs the relevancy engine, sends each player the visibility events and the state buffer,
-/// and passes the confirmations on to the replication engine (queued while it reads, applied when it is done). It owns the relevancy and the replication engine; the
-/// game owns the simulation (the grid, the groups and the tables) and gives the server references to them.
+/// and passes the confirmations on to the replication engine (queued while it reads, applied when it is
+/// done). It owns the relevancy and the replication engine; the game owns the simulation (the grid, the
+/// groups and the tables) and gives the server references to them.
 ///
 /// Each tick, the game moves its entities and updates the grid, calls `Refresh` for each table and then
 /// `Update(tick)`. When a player connects (`on_connected`) the game sets their observers with
@@ -100,8 +101,8 @@ public:
                       SpatialGrid& grid, RelevancyGroups& groups, IJobSystem& jobs, ITransport& transport);
 
     /// Called from `Update`, when a player has been accepted and when one has gone (for any reason). They run
-    /// while the transport is being read, before the confirmations read in the same `Update` are applied (those
-    /// are applied together when the reading ends), so the state of the other players in
+    /// while the transport is being read, before the confirmations read in the same `Update` are applied
+    /// (those are applied together when the reading ends), so the state of the other players in
     /// `Replication().Connection(other)` does not yet show them.
     void SetCallbacks(std::function<void(ConnectionId)> on_connected,
                       std::function<void(ConnectionId)> on_disconnected);

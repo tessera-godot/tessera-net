@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/entity_id.hpp"
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,8 +10,6 @@
 #include <span>
 #include <unordered_map>
 #include <vector>
-
-#include "tessera/net/entity_id.hpp"
 
 namespace tessera::net {
 
@@ -52,10 +52,9 @@ struct GridChange {
     float new_x, new_y, new_z;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net
 
-template <>
-struct std::hash<tessera::net::CellCoord> {
+template <> struct std::hash<tessera::net::CellCoord> {
     size_t operator()(const tessera::net::CellCoord& c) const noexcept {
         // Large odd multipliers spread neighbouring cells across buckets.
         const uint64_t h = static_cast<uint64_t>(static_cast<uint32_t>(c.x)) * 73856093ull ^
@@ -95,15 +94,21 @@ public:
     /// changed cell. Unknown ids and non-finite positions are ignored.
     size_t ApplyMoves(const std::vector<PendingMove>& moves);
 
-    size_t EntityCount() const noexcept { return entries_.size(); }
-    size_t CellCount() const noexcept { return cells_.size(); }
+    size_t EntityCount() const noexcept {
+        return entries_.size();
+    }
+    size_t CellCount() const noexcept {
+        return cells_.size();
+    }
 
     /// Starts or stops keeping a list of the changes made to the grid (off by default, and then nothing
     /// is kept). While on, every `Insert`, `Remove` and every move in `ApplyMoves` that changes a
     /// position is added to the list, in the order it happened, including moves inside one cell. Calls
     /// that fail, and moves to the same position, are not recorded. Whoever turns it on must call
     /// `ClearChanges` regularly, or the list grows without limit. Only one consumer should read it.
-    void SetRecordChanges(bool enabled) noexcept { record_changes_ = enabled; }
+    void SetRecordChanges(bool enabled) noexcept {
+        record_changes_ = enabled;
+    }
 
     /// Like `SetRecordChanges(true)`, but several users can share the recording: it stays on until every
     /// user that called `RetainChangeRecording` has called `ReleaseChangeRecording`, and the last release
@@ -120,10 +125,14 @@ public:
     }
 
     /// The changes recorded since the last `ClearChanges`.
-    std::span<const GridChange> Changes() const noexcept { return changes_; }
+    std::span<const GridChange> Changes() const noexcept {
+        return changes_;
+    }
 
     /// Empties the list of recorded changes.
-    void ClearChanges() noexcept { changes_.clear(); }
+    void ClearChanges() noexcept {
+        changes_.clear();
+    }
 
     /// Appends the entities of one cell to `out`.
     void QueryCell(CellCoord cell, std::vector<EntityId>& out) const;
@@ -139,8 +148,7 @@ public:
     /// (borders included), using exact distances. Unlike `QuerySphere` it allocates nothing and hands
     /// over the stored position, so hot loops can filter without a second lookup. A non-finite
     /// centre or radius, or a negative radius, visits nothing. Safe to call in parallel.
-    template <class F>
-    void ForEachInSphere(float cx, float cy, float cz, float radius, F&& fn) const {
+    template <class F> void ForEachInSphere(float cx, float cy, float cz, float radius, F&& fn) const {
         if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(cz) || !std::isfinite(radius) ||
             radius < 0.0f) {
             return;
@@ -266,4 +274,4 @@ private:
     std::vector<GridChange> changes_;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net

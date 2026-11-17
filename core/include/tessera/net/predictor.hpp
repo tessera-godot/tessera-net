@@ -46,11 +46,11 @@ enum class PredictionStatus : uint8_t {
 };
 
 struct PredictionStats {
-    uint64_t reconciliations = 0;  ///< States of the server the prediction was corrected against.
-    uint64_t snaps = 0;            ///< Corrections that jumped instead of fading.
-    uint64_t rule_failures = 0;    ///< Times the rule failed (it is then off).
+    uint64_t reconciliations = 0;   ///< States of the server the prediction was corrected against.
+    uint64_t snaps = 0;             ///< Corrections that jumped instead of fading.
+    uint64_t rule_failures = 0;     ///< Times the rule failed (it is then off).
     uint64_t history_overflows = 0; ///< Times too many inputs waited for a confirmation.
-    double last_error = 0.0;       ///< The distance between what was shown and the corrected state.
+    double last_error = 0.0;        ///< The distance between what was shown and the corrected state.
 };
 
 /// What the player's client believes about its own entity before the server has said so: the state after the

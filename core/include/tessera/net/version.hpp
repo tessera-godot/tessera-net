@@ -18,4 +18,4 @@ Version GetVersion() noexcept;
 /// Returns the version formatted as "major.minor.patch".
 std::string_view GetVersionString() noexcept;
 
-}  // namespace tessera::net
+} // namespace tessera::net

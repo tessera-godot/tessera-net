@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "tessera/net/job_system.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -9,17 +11,15 @@
 #include <functional>
 #include <vector>
 
-#include "tessera/net/job_system.hpp"
-
 namespace tessera::net {
 
 /// The stages of one tick, in the order they run.
 enum class Phase : uint8_t {
-    Input,      ///< Apply player input.
-    Simulate,   ///< Run the simulation, in parallel.
-    Structure,  ///< Apply the creations and destructions queued during Simulate.
-    Grid,       ///< Update the spatial grid.
-    Network,    ///< Decide relevancy and replicate.
+    Input,     ///< Apply player input.
+    Simulate,  ///< Run the simulation, in parallel.
+    Structure, ///< Apply the creations and destructions queued during Simulate.
+    Grid,      ///< Update the spatial grid.
+    Network,   ///< Decide relevancy and replicate.
 };
 
 inline constexpr size_t kPhaseCount = 5;
@@ -39,10 +39,10 @@ struct TickConfig {
 struct TickMetrics {
     uint64_t ticks = 0;
     double mean_ms = 0.0;
-    double p99_ms = 0.0;  ///< 99th percentile over the most recent ticks.
+    double p99_ms = 0.0; ///< 99th percentile over the most recent ticks.
     double max_ms = 0.0;
     std::array<double, kPhaseCount> phase_mean_ms{};
-    uint64_t overruns = 0;  ///< Ticks that took longer than the budget.
+    uint64_t overruns = 0; ///< Ticks that took longer than the budget.
 };
 
 /// Receives the result of every tick so it can react to overload (for example by sending fewer
@@ -69,10 +69,14 @@ public:
     /// Runs ticks in real time until `stop` becomes true (checked after every tick).
     void Run(const std::atomic<bool>& stop);
 
-    const TickMetrics& Metrics() const noexcept { return metrics_; }
+    const TickMetrics& Metrics() const noexcept {
+        return metrics_;
+    }
 
     /// Time available per tick, in milliseconds.
-    double BudgetMs() const noexcept { return budget_ms_; }
+    double BudgetMs() const noexcept {
+        return budget_ms_;
+    }
 
 private:
     static constexpr size_t kWindow = 1024;
@@ -95,4 +99,4 @@ private:
     size_t recent_next_ = 0;
 };
 
-}  // namespace tessera::net
+} // namespace tessera::net
