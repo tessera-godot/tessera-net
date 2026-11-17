@@ -26,6 +26,9 @@ machine is busy. The network benchmark takes the longest; run it alone by adding
 name of the program. The word `network-curve` runs the network path at five amounts of change per tick (the
 first moves about one entity, to measure the fixed cost) and fits a line to the time of the phase; it takes a few
 minutes and is not part of the full run (add `reverse` to play the points from the busiest to the quietest).
+
+If you cannot quiet the machine, `tools/bench_compare.ps1` runs the network benchmark of two builds one after
+the other, several times, and prints the median, the range and the difference of each.
 The word `indicator` prints only the time of one `WriteRecord`, which shows how busy the machine is (quiet is
 about 47 ns); the head-to-head script records it next to its results.
 

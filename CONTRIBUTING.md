@@ -13,6 +13,8 @@ right now are feedback on the design, use cases, and measurements.
 - **Measure, do not guess.** Performance numbers in the docs come from the benchmarks in `bench/`. If your
   change affects them, run the benchmark again and update `docs/benchmarks.md` and the charts
   (`python tools/make_charts.py`).
+  To compare two builds on a machine that is busy, use `tools/bench_compare.ps1`: it alternates between them and
+  prints the median and the difference.
 
 ## Code style
 
