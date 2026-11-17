@@ -176,7 +176,8 @@ jobs:
         if: matrix.config == 'debug'
         run: |
           set -eu
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/godot.zip"             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           echo "${GODOT_SHA512}  $RUNNER_TEMP/godot.zip" | sha512sum -c -
           mkdir "$RUNNER_TEMP/godot"
           python3 -m zipfile -e "$RUNNER_TEMP/godot.zip" "$RUNNER_TEMP/godot"
