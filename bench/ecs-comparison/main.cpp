@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Compares the Tessera Net entity table with a general-purpose entity-component-system (EnTT), on one
 // thread, with one million entities. The EnTT side uses its default registry and views.
+#include "tessera/net/entity_table.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <entt/entt.hpp>
 #include <numeric>
 #include <random>
 #include <vector>
-
-#include <entt/entt.hpp>
-
-#include "tessera/net/entity_table.hpp"
 
 using namespace tessera::net;
 using Clock = std::chrono::steady_clock;
@@ -30,10 +29,18 @@ struct Columns {
 };
 using Table = EntityTable<Columns>;
 
-struct Position { float x, y, z; };
-struct Velocity { float x, y, z; };
-struct Health { float v; };
-struct NetState { bool dirty; };
+struct Position {
+    float x, y, z;
+};
+struct Velocity {
+    float x, y, z;
+};
+struct Health {
+    float v;
+};
+struct NetState {
+    bool dirty;
+};
 struct DirtyTag {};
 
 double Ms(Clock::time_point a, Clock::time_point b) {
@@ -62,7 +69,7 @@ entt::entity MakeEnttEntity(entt::registry& registry) {
     return e;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     std::vector<uint8_t> out(static_cast<size_t>(kEntities) * 10);
@@ -82,19 +89,24 @@ int main() {
             Table table(TableConfig{});
             std::vector<EntityId> ids(kEntities, EntityId::Null());
             const auto a = Clock::now();
-            for (EntityId& id : ids) id = table.Create();
+            for (EntityId& id : ids)
+                id = table.Create();
             const auto b = Clock::now();
-            for (const EntityId id : ids) table.Destroy(id);
+            for (const EntityId id : ids)
+                table.Destroy(id);
             const auto c = Clock::now();
             table_create.push_back(Ms(a, b));
             table_destroy.push_back(Ms(b, c));
 
-            for (EntityId& id : ids) id = table.Create();
+            for (EntityId& id : ids)
+                id = table.Create();
             const auto d = Clock::now();
             for (int round = 0; round < 10; ++round) {
                 const auto& pick = churn_picks[static_cast<size_t>(round)];
-                for (uint32_t i = 0; i < tenth; ++i) table.Destroy(ids[pick[i]]);
-                for (uint32_t i = 0; i < tenth; ++i) ids[pick[i]] = table.Create();
+                for (uint32_t i = 0; i < tenth; ++i)
+                    table.Destroy(ids[pick[i]]);
+                for (uint32_t i = 0; i < tenth; ++i)
+                    ids[pick[i]] = table.Create();
             }
             table_churn.push_back(Ms(d, Clock::now()));
         }
@@ -102,19 +114,24 @@ int main() {
             entt::registry registry;
             std::vector<entt::entity> entities(kEntities);
             const auto a = Clock::now();
-            for (entt::entity& e : entities) e = MakeEnttEntity(registry);
+            for (entt::entity& e : entities)
+                e = MakeEnttEntity(registry);
             const auto b = Clock::now();
-            for (const entt::entity e : entities) registry.destroy(e);
+            for (const entt::entity e : entities)
+                registry.destroy(e);
             const auto c = Clock::now();
             entt_create.push_back(Ms(a, b));
             entt_destroy.push_back(Ms(b, c));
 
-            for (entt::entity& e : entities) e = MakeEnttEntity(registry);
+            for (entt::entity& e : entities)
+                e = MakeEnttEntity(registry);
             const auto d = Clock::now();
             for (int round = 0; round < 10; ++round) {
                 const auto& pick = churn_picks[static_cast<size_t>(round)];
-                for (uint32_t i = 0; i < tenth; ++i) registry.destroy(entities[pick[i]]);
-                for (uint32_t i = 0; i < tenth; ++i) entities[pick[i]] = MakeEnttEntity(registry);
+                for (uint32_t i = 0; i < tenth; ++i)
+                    registry.destroy(entities[pick[i]]);
+                for (uint32_t i = 0; i < tenth; ++i)
+                    entities[pick[i]] = MakeEnttEntity(registry);
             }
             entt_churn.push_back(Ms(d, Clock::now()));
         }
@@ -123,10 +140,12 @@ int main() {
     // Iteration and serialization of changed entities, on a steady population.
     Table table(TableConfig{});
     std::vector<EntityId> ids(kEntities, EntityId::Null());
-    for (EntityId& id : ids) id = table.Create();
+    for (EntityId& id : ids)
+        id = table.Create();
     entt::registry registry;
     std::vector<entt::entity> entities(kEntities);
-    for (entt::entity& e : entities) e = MakeEnttEntity(registry);
+    for (entt::entity& e : entities)
+        e = MakeEnttEntity(registry);
 
     std::vector<double> table_iterate, entt_iterate;
     std::vector<double> table_serialize, entt_flag_serialize, entt_tag_serialize;
@@ -176,19 +195,22 @@ int main() {
         sink += n;
         const auto s1 = Clock::now();
         n = 0;
-        registry.view<NetState, const Position>().each([&](entt::entity e, NetState& state, const Position& p) {
-            if (!state.dirty) return;
-            state.dirty = false;
-            const uint32_t id = entt::to_integral(e);
-            const int16_t q[3] = {int16_t(p.x * 16.0f), int16_t(p.y * 16.0f), int16_t(p.z * 16.0f)};
-            std::memcpy(out.data() + n, &id, 4);
-            std::memcpy(out.data() + n + 4, q, 6);
-            n += 10;
-        });
+        registry.view<NetState, const Position>().each(
+            [&](entt::entity e, NetState& state, const Position& p) {
+                if (!state.dirty)
+                    return;
+                state.dirty = false;
+                const uint32_t id = entt::to_integral(e);
+                const int16_t q[3] = {int16_t(p.x * 16.0f), int16_t(p.y * 16.0f), int16_t(p.z * 16.0f)};
+                std::memcpy(out.data() + n, &id, 4);
+                std::memcpy(out.data() + n + 4, q, 6);
+                n += 10;
+            });
         sink += n;
         const auto s2 = Clock::now();
         // Variant: a tag component marks the changed entities. Adding the tag is a structural change.
-        for (uint32_t i = 0; i < tenth; ++i) registry.emplace_or_replace<DirtyTag>(entities[pick[i]]);
+        for (uint32_t i = 0; i < tenth; ++i)
+            registry.emplace_or_replace<DirtyTag>(entities[pick[i]]);
         n = 0;
         registry.view<DirtyTag, const Position>().each([&](entt::entity e, const Position& p) {
             const uint32_t id = entt::to_integral(e);
@@ -209,10 +231,14 @@ int main() {
     std::printf("%-44s %10s %10s\n", "operation (ms)", "table", "EnTT");
     std::printf("%-44s %10.2f %10.2f\n", "create 1 M", Median(table_create), Median(entt_create));
     std::printf("%-44s %10.2f %10.2f\n", "destroy 1 M", Median(table_destroy), Median(entt_destroy));
-    std::printf("%-44s %10.2f %10.2f\n", "churn (replace 10%, ten rounds)", Median(table_churn), Median(entt_churn));
-    std::printf("%-44s %10.2f %10.2f\n", "iterate 1 M (one pass)", Median(table_iterate), Median(entt_iterate));
-    std::printf("%-44s %10.2f %10.2f\n", "write the 10% that changed (dirty flag)", Median(table_serialize), Median(entt_flag_serialize));
-    std::printf("%-44s %10s %10.2f\n", "write the 10% that changed (tag component)", "-", Median(entt_tag_serialize));
+    std::printf("%-44s %10.2f %10.2f\n", "churn (replace 10%, ten rounds)", Median(table_churn),
+                Median(entt_churn));
+    std::printf("%-44s %10.2f %10.2f\n", "iterate 1 M (one pass)", Median(table_iterate),
+                Median(entt_iterate));
+    std::printf("%-44s %10.2f %10.2f\n", "write the 10% that changed (dirty flag)", Median(table_serialize),
+                Median(entt_flag_serialize));
+    std::printf("%-44s %10s %10.2f\n", "write the 10% that changed (tag component)", "-",
+                Median(entt_tag_serialize));
     std::printf("(sink %llu)\n", static_cast<unsigned long long>(sink));
     return 0;
 }

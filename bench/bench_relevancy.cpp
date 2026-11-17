@@ -308,18 +308,18 @@ void PrintReanchorCost(World& world, const SpatialGrid& grid) {
         for (uint32_t t = 0; t < 4; ++t) {
             const double range = kRanges[t];
             const double reach = range + kMargin;
-            grid.ForEachInSphereOfType(t, cx, 25.0f, cz, static_cast<float>(reach),
-                                       [&](EntityId id, float x, float y, float z) {
-                                           const double dx = static_cast<double>(x) - cx;
-                                           const double dy = static_cast<double>(y) - 25.0;
-                                           const double dz = static_cast<double>(z) - cz;
-                                           const double d2 = dx * dx + dy * dy + dz * dz;
-                                           if (d2 <= range * range ||
-                                               (d2 <= reach * reach &&
-                                                std::binary_search(visible.begin(), visible.end(), id.raw()))) {
-                                               wanted.push_back(id.raw());
-                                           }
-                                       });
+            grid.ForEachInSphereOfType(
+                t, cx, 25.0f, cz, static_cast<float>(reach), [&](EntityId id, float x, float y, float z) {
+                    const double dx = static_cast<double>(x) - cx;
+                    const double dy = static_cast<double>(y) - 25.0;
+                    const double dz = static_cast<double>(z) - cz;
+                    const double d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 <= range * range ||
+                        (d2 <= reach * reach &&
+                         std::binary_search(visible.begin(), visible.end(), id.raw()))) {
+                        wanted.push_back(id.raw());
+                    }
+                });
         }
         std::sort(wanted.begin(), wanted.end());
         wanted.erase(std::unique(wanted.begin(), wanted.end()), wanted.end());

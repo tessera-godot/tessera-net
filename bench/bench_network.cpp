@@ -37,9 +37,9 @@ using bench::ReportBool;
 
 namespace {
 
-// Regression limits: between 1.6 and 1.9 times what the path measures, so that run-to-run variation does not fail the
-// benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with one thread,
-// 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
+// Regression limits: between 1.6 and 1.9 times what the path measures, so that run-to-run variation does not
+// fail the benchmark but a real slowdown does. They are not the goals. The goals were 3.3 ms per tick with
+// one thread, 1 ms with eight workers and 100 kbps per player; the path does not meet them yet.
 constexpr double kLimitOneThreadMs = 50.0;
 constexpr double kLimitEightWorkersMs = 16.0;
 // What the budget promises, from the goal of 100 kbps on average and 200 kbps over any 10 seconds, with room
@@ -572,7 +572,8 @@ struct Measurement {
     double refresh_ms = 0.0;
     double update_ms = 0.0;
 #if TESSERA_PROFILE
-    // Per tick, over every measured tick: the time of each stage of the server's Update and how many scopes ran.
+    // Per tick, over every measured tick: the time of each stage of the server's Update and how many scopes
+    // ran.
     std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_ms{};
     std::array<double, static_cast<size_t>(profile::Stage::Count)> stage_calls{};
     double update_mean_ms = 0.0; // the mean over the same ticks as the stages, not the median of the runs
@@ -686,8 +687,8 @@ Measurement Measure(const Scenario& scenario, uint32_t workers) {
         result.stage_calls[i] = static_cast<double>(totals.calls) / (kRuns * kTicksPerRun);
     }
     for (size_t i = 0; i < result.counter_per_tick.size(); ++i) {
-        result.counter_per_tick[i] = static_cast<double>(profile::Value(static_cast<profile::Counter>(i))) /
-                                     (kRuns * kTicksPerRun);
+        result.counter_per_tick[i] =
+            static_cast<double>(profile::Value(static_cast<profile::Counter>(i))) / (kRuns * kTicksPerRun);
     }
     for (const double run : update_runs) { // every run has the same number of ticks
         result.update_mean_ms += run / static_cast<double>(update_runs.size());
@@ -895,7 +896,8 @@ void PrintStageTable(const Measurement& m, uint32_t workers) {
     Info(name, count(Counter::Near), "ents");
     std::snprintf(name, sizeof(name), "network relevancy: changes sorted per connection per tick, %s", kind);
     Info(name, count(Counter::Sorted) / kMain.players, "ents");
-    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at for each one sorted, %s", kind);
+    std::snprintf(name, sizeof(name), "network relevancy: candidates looked at for each one sorted, %s",
+                  kind);
     Info(name, count(Counter::Sorted) > 0 ? count(Counter::Candidates) / count(Counter::Sorted) : 0.0, "x");
     std::snprintf(name, sizeof(name), "network relevancy: sorted for each one that is near, %s", kind);
     Info(name, count(Counter::Near) > 0 ? count(Counter::Sorted) / count(Counter::Near) : 0.0, "x");

@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Compares keeping entities as Godot nodes with keeping them in a Tessera Net entity table.
 // Both sides run in the same process, on the same data and with the same arithmetic.
+#include "tessera/net/entity_table.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <vector>
-
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
-
-#include "tessera/net/entity_table.hpp"
+#include <vector>
 
 using namespace godot;
 namespace tn = tessera::net;
@@ -39,7 +38,7 @@ double Median(std::vector<double> values) {
     return values[values.size() / 2];
 }
 
-}  // namespace
+} // namespace
 
 class TesseraNodeBench : public RefCounted {
     GDCLASS(TesseraNodeBench, RefCounted)
