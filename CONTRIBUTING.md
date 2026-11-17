@@ -110,4 +110,22 @@ If you already have a copy of godot-cpp at that commit, add `-DFETCHCONTENT_SOUR
 command and nothing is fetched. Each build is for one godot-cpp target (`template_debug` or `template_release`), so there
 is one preset for each. The tests that need no Godot run with `ctest`. The test that runs a headless Godot against the
 example server is registered only when you pass `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable>` to the first
-command, and it is not part of the CI workflow: loading the library into Godot is checked locally.
+command, and it is not part of the CI workflow: loading the library into Godot is checked locally. A warning that the
+extension prints on purpose (a prediction rule that fails turns the prediction off with one) is counted by that test:
+the run fails if the warnings are not the expected ones.
+
+### Running with sanitizers
+
+On Linux, with GCC or Clang and their sanitizer runtime installed, this builds the core, the server, ENet and the
+extension with AddressSanitizer and UBSan and runs the tests that need no Godot; a memory error or undefined behavior
+stops the test with a report:
+
+```bash
+cmake --preset linux-extension-sanitize
+cmake --build --preset linux-extension-sanitize
+ctest --preset linux-extension-sanitize
+```
+
+The library is not loaded into Godot in this build, because Godot itself is not built with the sanitizers. The option
+behind the preset is `-DTESSERA_SANITIZE=address,undefined`; it is empty by default and does not work with MSVC. The CI
+workflow runs this preset with GCC and with Clang.

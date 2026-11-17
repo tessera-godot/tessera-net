@@ -20,8 +20,9 @@ clients.
 The extension has been loaded into Godot 4.7.2 on Windows, and a headless Godot talked to the example server there over
 real sockets. It was also loaded on Linux, in a container, into a Godot 4.7.2 built from source, and the same headless
 test passed there against the example server (with the Debug library built by GCC 13 and by Clang 18). Both checks were
-done locally. The continuous-integration workflow builds the extension on both systems but does not start Godot, because
-we have no Godot binary for Linux that we could pin and verify. Nothing else has been tried.
+done locally. The continuous-integration workflow builds the extension and runs the tests that need no Godot on both
+systems, but it does not start Godot: a Godot binary for Linux has not been pinned and verified for it yet. Nothing else
+has been tried.
 
 ## Build the extension
 

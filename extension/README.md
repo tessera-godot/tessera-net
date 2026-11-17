@@ -58,6 +58,9 @@ in `build/<preset>/extension/stage/demo/`, ready to open in Godot.
   It was run with Godot 4.7.2 on Windows, and on Linux in a container with a Godot 4.7.2 built from source (Debug
   library, built by GCC 13 and by Clang 18).
 - Loading the library into Godot is checked locally, not by the CI workflow, which builds and tests the extension without
-  starting Godot: we have no Godot binary for Linux that we could pin and verify.
+  starting Godot: a Godot binary for Linux has not been pinned and verified for it yet.
+- The tests that need no Godot can also run with AddressSanitizer and UBSan on Linux (`linux-extension-sanitize`, see
+  [CONTRIBUTING.md](../CONTRIBUTING.md)), and the CI workflow has a job that does it. The library is not loaded into Godot
+  in that build, because Godot itself is not built with the sanitizers.
 - The first time Godot imports a project that has the extension, Godot 4.7.2 itself crashes at the end of the import
   (on Windows and on Linux). The test script repeats the import once, and the second one is clean.
