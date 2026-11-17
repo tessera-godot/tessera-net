@@ -110,10 +110,9 @@ If you already have a copy of godot-cpp at that commit, add `-DFETCHCONTENT_SOUR
 command and nothing is fetched. Each build is for one godot-cpp target (`template_debug` or `template_release`), so there
 is one preset for each. The tests that need no Godot run with `ctest`. The test that runs a headless Godot against the
 example server is registered only when you pass `-DTESSERA_EXTENSION_GODOT=<path to a Godot executable>` to the first
-command. The CI workflow runs it in the Linux debug jobs, with the official Godot 4.7.2 (pinned by version and SHA-512
-sum in `.github/workflows/ci.yml`). A warning that the
-extension prints on purpose (a prediction rule that fails turns the prediction off with one) is counted by that test:
-the run fails if the warnings are not the expected ones.
+command. The CI workflow runs it in the Linux Debug jobs, with the official Godot 4.7.2 (pinned by version and SHA-512
+sum in `.github/workflows/ci.yml`). A warning that the extension prints on purpose (a prediction rule that fails turns
+the prediction off with one) is counted by that test: the run fails if the warnings are not the expected ones.
 
 ### Running with sanitizers
 
