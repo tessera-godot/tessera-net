@@ -3,7 +3,8 @@
 # Built with -DTESSERA_BUILD_SCHEMA_TOOL=ON, and always with -DTESSERA_BUILD_SERVER=ON (see the top-level
 # CMakeLists.txt). The library depends on the core library and nothing else.
 add_library(tessera_schema_tool STATIC
-    src/cli.cpp)
+    src/cli.cpp
+    src/json_reader.cpp)
 
 target_include_directories(tessera_schema_tool PUBLIC include)
 target_link_libraries(tessera_schema_tool PUBLIC tessera_net_core)
