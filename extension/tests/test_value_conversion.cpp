@@ -302,3 +302,8 @@ TESSERA_TEST(convert_never_yields_nan_or_infinity) {
     c.angle[0] = inf;
     TESSERA_CHECK(std::isfinite(rig.Roundtrip(1, c).number));
 }
+
+TESSERA_TEST(planted_signed_overflow) {
+    volatile int big = 2147483647;
+    CHECK(big + 1 != 0);
+}

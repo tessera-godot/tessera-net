@@ -164,6 +164,7 @@ func check_classes_exist() -> void:
 
 
 func check_misuse_before_connect() -> void:
+	expect("planted failure", false, "planted")
 	var name := "misuse_before_connect"
 	var before := failures
 	var client := TesseraClient.new()
