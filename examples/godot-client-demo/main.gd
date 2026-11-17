@@ -37,7 +37,8 @@ var host := DEFAULT_HOST
 var port := DEFAULT_PORT
 var left_on_purpose := false  # set when the demo closes the connection itself: then it does not try to come back
 var attempt := 0  # how many tries in a row have been scheduled since the connection was last up
-var retry_in := -1.0  # seconds until the next try; negative when none is waiting
+var retry_at := -1  # when the next try is due, in milliseconds of Time.get_ticks_msec(); negative when none is waiting
+var port_error := ""  # set when --port= is not a port: the demo shows it and does not try to connect
 var was_connected := false
 
 
@@ -47,6 +48,31 @@ static func reconnect_delay(attempt: int, random_value: float) -> float:
 	var steps := clampi(attempt, 1, 30) - 1
 	var base := minf(RECONNECT_FIRST_DELAY * pow(2.0, steps), RECONNECT_MAX_DELAY)
 	return base * (1.0 + RECONNECT_JITTER * (2.0 * clampf(random_value, 0.0, 1.0) - 1.0))
+
+
+# The time a wait ends, in milliseconds, for a wait that starts at now_ms. It is taken after a try returns: connecting
+# can block for seconds while a host name is looked up, and that time must not count as part of the wait.
+static func retry_deadline(now_ms: int, seconds: float) -> int:
+	return now_ms + roundi(seconds * 1000.0)
+
+
+# True once the wait is over. A negative deadline means that no try is waiting.
+static func retry_is_due(deadline_ms: int, now_ms: int) -> bool:
+	return deadline_ms >= 0 and now_ms >= deadline_ms
+
+
+static func retry_seconds_left(deadline_ms: int, now_ms: int) -> float:
+	if deadline_ms < 0:
+		return 0.0
+	return maxi(deadline_ms - now_ms, 0) / 1000.0
+
+
+# The port in a --port= argument, or -1 if it is not a whole number from 1 to 65535.
+static func parse_port(text: String) -> int:
+	if not text.is_valid_int():
+		return -1
+	var value := text.to_int()
+	return value if value >= 1 and value <= 65535 else -1
 
 
 # The first line of the label while the demo waits to try again.
@@ -82,26 +108,37 @@ func _ready() -> void:
 	client.disconnected.connect(_on_disconnected)
 	client.rejected.connect(_on_rejected)
 
-	for argument in OS.get_cmdline_user_args():
+	apply_arguments(OS.get_cmdline_user_args())
+	if port_error != "":
+		push_error(port_error)
+	_try_to_connect()
+	_build_scene()
+
+
+# Takes --host= and --port= from the arguments. A port that is not a port is reported in port_error, once, and the
+# demo does not try to connect with it.
+func apply_arguments(arguments: PackedStringArray) -> void:
+	for argument in arguments:
 		if argument.begins_with("--host="):
 			host = argument.substr(7)
 		elif argument.begins_with("--port="):
-			port = int(argument.substr(7))
-
-	_try_to_connect()
-	_build_scene()
+			var value := parse_port(argument.substr(7))
+			if value < 0:
+				port_error = "--port=%s is not a port: use a whole number from 1 to 65535" % argument.substr(7)
+			else:
+				port = value
+				port_error = ""
 
 
 func _process(delta: float) -> void:
 	# Nothing is read from the network, and no signal is sent, until poll() is called.
 	client.poll()
 	# The next try is made here, never from a signal: connecting from inside one would throw away the signals that
-	# are still waiting to be sent.
-	if retry_in >= 0.0:
-		retry_in -= delta
-		if retry_in <= 0.0:
-			retry_in = -1.0
-			_try_to_connect()
+	# are still waiting to be sent. The wait is an absolute time, so a try that blocks does not shorten the next wait.
+	var now := Time.get_ticks_msec()
+	if retry_is_due(retry_at, now):
+		retry_at = -1
+		_try_to_connect()
 	_send_input(delta)
 	for id in spheres:
 		# Your own sphere shows the prediction; the others show the interpolated value, a little in the past.
@@ -110,8 +147,10 @@ func _process(delta: float) -> void:
 			spheres[id].position = position
 	var stats := client.get_prediction_stats()
 	var first_line := "%s, %d entities %s" % [_state_name(), spheres.size(), client.get_rejection()]
-	if retry_in >= 0.0:
-		first_line = reconnect_text(retry_in, attempt)
+	if retry_at >= 0:
+		first_line = reconnect_text(retry_seconds_left(retry_at, Time.get_ticks_msec()), attempt)
+	if port_error != "":
+		first_line = port_error
 	status.text = first_line + "\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
 		"on" if client.is_predicting() else "off", stats["last_error"],
 		INTERPOLATION_DELAY_TICKS, _delay_ms(), _delay_ms()]
@@ -188,7 +227,7 @@ func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary
 func _on_connected() -> void:
 	was_connected = true
 	attempt = 0
-	retry_in = -1.0
+	retry_at = -1
 	print("Connected to the server")
 
 
@@ -204,17 +243,19 @@ func _on_disconnected() -> void:
 
 # A server that refuses on purpose (a different schema, no room left) would refuse again: no more tries.
 func _on_rejected(reason: String) -> void:
-	retry_in = -1.0
+	retry_at = -1
 	push_warning("The server refused the connection: " + reason)
 
 
 func _schedule_reconnect() -> void:
 	if wants_reconnect(client.get_state(), left_on_purpose):
 		attempt += 1
-		retry_in = reconnect_delay(attempt, randf())
+		retry_at = retry_deadline(Time.get_ticks_msec(), reconnect_delay(attempt, randf()))
 
 
 func _try_to_connect() -> void:
+	if port_error != "":
+		return
 	var error := client.connect_to(host, port)
 	if error != OK:
 		# No signal follows an error, so nothing else would schedule the next try.
@@ -234,7 +275,7 @@ func _exit_tree() -> void:
 
 func _leave() -> void:
 	left_on_purpose = true
-	retry_in = -1.0
+	retry_at = -1
 	client.disconnect_from_server()
 
 

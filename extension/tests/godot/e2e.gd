@@ -94,6 +94,8 @@ func run_all() -> void:
 	await check_a_rule_that_calls_interpolation_functions_is_harmless()
 	check_demo_reconnect_delay_follows_the_schedule()
 	check_demo_reconnect_text_and_decision()
+	check_demo_retry_deadline_counts_from_the_end_of_the_try()
+	check_demo_port_argument_is_checked()
 
 
 func ok(check: String) -> void:
@@ -1505,6 +1507,70 @@ func check_demo_reconnect_text_and_decision() -> void:
 		var wanted: bool = state == TesseraClient.State.DISCONNECTED
 		expect(name, demo.wants_reconnect(state, false) == wanted, "wants_reconnect(%d, false) gave %s" % [state, str(demo.wants_reconnect(state, false))])
 		expect(name, demo.wants_reconnect(state, true) == false, "wants_reconnect(%d, true) gave true" % state)
+	finish(name, before)
+
+
+# The wait before a retry is an absolute time taken after the try returns, so a try that blocks (a host name that takes
+# seconds to look up) does not count against the wait. This plays the frames of the demo on a clock of our own.
+func check_demo_retry_deadline_counts_from_the_end_of_the_try() -> void:
+	var name := "demo_retry_deadline_counts_from_the_end_of_the_try"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["retry_deadline", "retry_is_due", "retry_seconds_left"]), "the demo script lacks the retry deadline functions"):
+		return
+	expect(name, demo.retry_deadline(10000, 0.5) == 10500, "retry_deadline(10000, 0.5) gave %d" % demo.retry_deadline(10000, 0.5))
+	expect(name, demo.retry_deadline(0, 4.8) == 4800, "retry_deadline(0, 4.8) gave %d" % demo.retry_deadline(0, 4.8))
+	# Nothing waiting: never due, nothing left.
+	expect(name, not demo.retry_is_due(-1, 1000000), "a retry that is not scheduled is due")
+	expect(name, demo.retry_seconds_left(-1, 1000000) == 0.0, "seconds left for a retry that is not scheduled")
+	# Due exactly at the deadline, not a millisecond before.
+	expect(name, not demo.retry_is_due(9500, 9499) and demo.retry_is_due(9500, 9500) and demo.retry_is_due(9500, 99999), "the edge of the deadline")
+	expect(name, is_equal_approx(demo.retry_seconds_left(9500, 9000), 0.5), "seconds left at 9000: %f" % demo.retry_seconds_left(9500, 9000))
+	expect(name, demo.retry_seconds_left(9500, 9700) == 0.0, "seconds left after the deadline is not 0")
+	# The frames of a try that blocks for 8 s: the try starts at 1000 ms and returns at 9000 ms, and the wait of
+	# 0.5 s is scheduled then. The first frame after it is 16 ms later, with a delta of 8 s that must not count.
+	var now := 9000
+	var retry_at: int = demo.retry_deadline(now, 0.5)
+	var frames := 0
+	while not demo.retry_is_due(retry_at, now) and frames < 1000:
+		now += 16
+		frames += 1
+	expect(name, now - 9000 >= 500 and now - 9000 < 516, "the retry came %d ms after the try ended, wanted 500" % (now - 9000))
+	expect(name, frames > 25, "the retry was due after %d frames" % frames)
+	# A frame that itself takes 3 s (the window froze) is still one retry, not one for every frame it missed.
+	retry_at = demo.retry_deadline(now, 1.0)
+	now += 3000
+	expect(name, demo.retry_is_due(retry_at, now), "not due after a frame of 3 s")
+	finish(name, before)
+
+
+# The port comes from --port=; anything that is not a whole number from 1 to 65535 is an error shown once, and the demo
+# does not try to connect (a port of 0 would be tried for ever).
+func check_demo_port_argument_is_checked() -> void:
+	var name := "demo_port_argument_is_checked"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["parse_port", "apply_arguments", "_try_to_connect"]), "the demo script lacks parse_port or apply_arguments"):
+		return
+	var good := {"1": 1, "7777": 7777, "65535": 65535}
+	for text in good:
+		expect(name, demo.parse_port(text) == good[text], "parse_port('%s') gave %d" % [text, demo.parse_port(text)])
+	for text in ["", "abc", "0", "-5", "65536", "70000", "12x", " 80", "1.5", "99999999999999999999"]:
+		expect(name, demo.parse_port(text) == -1, "parse_port('%s') gave %d" % [text, demo.parse_port(text)])
+	var node: Node3D = demo.new()
+	node.apply_arguments(PackedStringArray(["--host=example.test", "--port=8123"]))
+	expect(name, node.host == "example.test" and node.port == 8123 and node.port_error == "", "good arguments: %s %d '%s'" % [node.host, node.port, node.port_error])
+	node.apply_arguments(PackedStringArray(["--port=abc"]))
+	expect(name, node.port_error.contains("abc"), "the error does not show the value: '%s'" % node.port_error)
+	# No try, no signal and nothing scheduled.
+	node._try_to_connect()
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the client tried to connect with a bad port")
+	expect(name, node.retry_at == -1 and node.attempt == 0, "a retry was scheduled with a bad port: %d, %d" % [node.retry_at, node.attempt])
+	node.free()
 	finish(name, before)
 
 
