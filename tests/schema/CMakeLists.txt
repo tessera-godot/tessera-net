@@ -22,3 +22,9 @@ else()
 endif()
 
 add_test(NAME tessera_schema_tests COMMAND tessera_schema_tests)
+
+# The real tool, run as a process twice, with the outputs compared.
+add_test(NAME tessera_schema_cli_stable
+         COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:tessera_schema>
+                 -DSCHEMA=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/all_kinds.json
+                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/stable -P ${CMAKE_CURRENT_SOURCE_DIR}/check_stable.cmake)
