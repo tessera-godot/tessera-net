@@ -108,12 +108,43 @@ const INTERPOLATION_DELAY_TICKS := 2
 const INTERPOLATION_SNAP_DISTANCE := 2.5
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
+# When the connection drops, the demo tries again: after 0.5 s, then 1 s, 2 s, 4 s, and every 5 s from then on.
+# Each wait is shifted by up to 20 % either way, so that many clients that dropped together do not all knock at
+# the same moment.
+const RECONNECT_FIRST_DELAY := 0.5
+const RECONNECT_MAX_DELAY := 5.0
+const RECONNECT_JITTER := 0.2
 
 var client := TesseraClient.new()
 var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
 var input_clock := 0.0
 var own_entity := -1  # the entity of this player, once the server has told us about it
+var host := DEFAULT_HOST
+var port := DEFAULT_PORT
+var left_on_purpose := false  # set when the demo closes the connection itself: then it does not try to come back
+var attempt := 0  # how many tries in a row have been scheduled since the connection was last up
+var retry_in := -1.0  # seconds until the next try; negative when none is waiting
+var was_connected := false
+
+
+# How long to wait before attempt number `attempt` (1 is the first try after the connection dropped). The random
+# value comes from the caller, from 0 to 1, so that the same arguments always give the same wait.
+static func reconnect_delay(attempt: int, random_value: float) -> float:
+	var steps := clampi(attempt, 1, 30) - 1
+	var base := minf(RECONNECT_FIRST_DELAY * pow(2.0, steps), RECONNECT_MAX_DELAY)
+	return base * (1.0 + RECONNECT_JITTER * (2.0 * clampf(random_value, 0.0, 1.0) - 1.0))
+
+
+# The first line of the label while the demo waits to try again.
+static func reconnect_text(seconds_left: float, attempt: int) -> String:
+	return "reconnecting in %d s (attempt %d)" % [maxi(ceili(seconds_left), 1), maxi(attempt, 1)]
+
+
+# True if a connection that ended is worth trying again: it dropped, the demo did not ask for it, and the server
+# did not refuse it on purpose.
+static func wants_reconnect(state: int, left_on_purpose: bool) -> bool:
+	return state == TesseraClient.State.DISCONNECTED and not left_on_purpose
 
 
 func _ready() -> void:
@@ -134,24 +165,30 @@ func _ready() -> void:
 
 	client.entity_appeared.connect(_on_entity_appeared)
 	client.entity_removed.connect(_on_entity_removed)
+	client.connected.connect(_on_connected)
+	client.disconnected.connect(_on_disconnected)
+	client.rejected.connect(_on_rejected)
 
-	var host := DEFAULT_HOST
-	var port := DEFAULT_PORT
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--host="):
 			host = argument.substr(7)
 		elif argument.begins_with("--port="):
 			port = int(argument.substr(7))
 
-	if client.connect_to(host, port) != OK:
-		push_error("Could not connect: " + client.get_last_error())
-
+	_try_to_connect()
 	_build_scene()
 
 
 func _process(delta: float) -> void:
 	# Nothing is read from the network, and no signal is sent, until poll() is called.
 	client.poll()
+	# The next try is made here, never from a signal: connecting from inside one would throw away the signals that
+	# are still waiting to be sent.
+	if retry_in >= 0.0:
+		retry_in -= delta
+		if retry_in <= 0.0:
+			retry_in = -1.0
+			_try_to_connect()
 	_send_input(delta)
 	for id in spheres:
 		# Your own sphere shows the prediction; the others show the interpolated value, a little in the past.
@@ -159,15 +196,18 @@ func _process(delta: float) -> void:
 		if position != null:
 			spheres[id].position = position
 	var stats := client.get_prediction_stats()
-	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
-		_state_name(), spheres.size(), client.get_rejection(),
+	var first_line := "%s, %d entities %s" % [_state_name(), spheres.size(), client.get_rejection()]
+	if retry_in >= 0.0:
+		first_line = reconnect_text(retry_in, attempt)
+	status.text = first_line + "\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
 		"on" if client.is_predicting() else "off", stats["last_error"],
 		INTERPOLATION_DELAY_TICKS, _delay_ms(), _delay_ms()]
 ```
 
 This is the start of the [demo script](../../examples/godot-client-demo/main.gd), word for word. The rest of the file sends
 the input (see [Send input](#send-input)), makes one sphere for each entity that appears, removes it when the entity goes,
-builds the camera and the light, and shows the state on screen. The second type is the one the example server makes for
+tries to connect again after a drop (see [Reconnecting](#reconnecting)), builds the camera and the light, and shows the
+state on screen. The second type is the one the example server makes for
 its players when it is started with `--players`; with a server that does not, the schema is refused, because it
 describes more than the server does.
 
@@ -181,7 +221,7 @@ already connecting.
 | `disconnect_from_server()` | Leaves the server. Sends no signal. Harmless if you call it twice or before connecting. |
 | `poll()` | Reads what arrived and sends the signals for it. |
 | `send_input(bytes)` | Sends one input of the player and returns its sequence number, or 0 if nothing was sent. See [Send input](#send-input). |
-| `get_connection_id()` | The id the server gave this client, or -1 while the state is not `CONNECTED`. |
+| `get_connection_id()` | The id the server gave this client, or -1 while the state is not `CONNECTED`. The number can be one an earlier connection had: the server gives out the lowest free one. |
 | `set_prediction(...)`, `clear_prediction()`, `get_predicted_property(...)`, `is_predicting()`, `get_prediction_stats()` | Predict the player's own entity. See [Predict your player](#predict-your-player). |
 | `set_interpolation(...)`, `clear_interpolation()`, `get_interpolated_property(...)`, `is_interpolating()`, `get_interpolation_stats()` | Show the other entities a little in the past, smoothed. See [Smooth the other entities](#smooth-the-other-entities). |
 | `get_state()` | One of `TesseraClient.State.CONNECTING`, `HANDSHAKING`, `CONNECTED`, `REJECTED`, `DISCONNECTED`. A new client is `DISCONNECTED`. |
@@ -197,7 +237,7 @@ already connecting.
 |---|---|
 | `connected()` | The server accepted the client. |
 | `rejected(reason: String)` | The server refused the client. |
-| `disconnected()` | The connection ended, or never opened. Not sent when your own script called `disconnect_from_server()`. |
+| `disconnected()` | The connection ended, or never opened, so also each time an attempt to connect fails. Not sent when your own script called `disconnect_from_server()`. |
 | `entity_appeared(id: int)` | The client now has the state of an entity. This is when the state arrived, not when the server made the entity visible. |
 | `entity_removed(id: int)` | The entity left. When a connection drops, you get this for every entity first, and then `disconnected`. |
 
@@ -361,13 +401,114 @@ var position = client.get_predicted_property(id, "position") if id == own_entity
   ms and reading every position about 0.12 ms on the machine where it was measured; each entity holds about 260 bytes
   while interpolation is on. It costs nothing while it is off.
 
+## Reconnecting
+
+A connection can end without your script asking: the server stops, the network breaks, or the server lets go of a client
+that went silent. The client does not try again by itself, because when and how often to try is up to the game. What it
+allows is calling `connect_to` again on the same client after a drop. The demo does it like this, and you can copy it:
+
+```gdscript
+func _on_connected() -> void:
+	was_connected = true
+	attempt = 0
+	retry_in = -1.0
+	print("Connected to the server")
+
+
+# This comes when a connection drops and also when a try to connect fails, so it is where the next try is scheduled.
+func _on_disconnected() -> void:
+	if was_connected:
+		print("Lost the connection to the server")
+	else:
+		print("Could not reach the server")
+	was_connected = false
+	_schedule_reconnect()
+
+
+# A server that refuses on purpose (a different schema, no room left) would refuse again: no more tries.
+func _on_rejected(reason: String) -> void:
+	retry_in = -1.0
+	push_warning("The server refused the connection: " + reason)
+
+
+func _schedule_reconnect() -> void:
+	if wants_reconnect(client.get_state(), left_on_purpose):
+		attempt += 1
+		retry_in = reconnect_delay(attempt, randf())
+
+
+func _try_to_connect() -> void:
+	var error := client.connect_to(host, port)
+	if error != OK:
+		# No signal follows an error, so nothing else would schedule the next try.
+		push_warning("Could not connect: " + client.get_last_error())
+		_schedule_reconnect()
+
+
+# Closing the window ends the connection on purpose, and nothing is tried again after that.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_leave()
+
+
+func _exit_tree() -> void:
+	_leave()
+
+
+func _leave() -> void:
+	left_on_purpose = true
+	retry_in = -1.0
+	client.disconnect_from_server()
+```
+
+The waits come from `reconnect_delay`, in the first block above: half a second, then 1, 2 and 4 seconds, and 5 seconds from
+the fifth try on, each shifted by up to a fifth either way. The shift is there on purpose. If a server stops and a hundred
+clients lose it together, clients that all wait the same time all come back in the same instant. A game that writes its own
+loop should do the same.
+
+Things the demo does that are worth keeping:
+
+- **It never connects from inside a signal.** The handler of `disconnected` only sets a timer, and `_process` makes the
+  try when the time comes. As said under [Signals](#signals), connecting inside a signal drops the signals that were
+  still waiting.
+- **It does not depend on a signal for an error.** When `connect_to` returns an error (a host name that does not
+  resolve, for one) no signal follows, because nothing was ever connected. A loop that only listens to `disconnected`
+  would stop at the first such error, so the demo counts the error as a failed try and schedules the next one.
+- **It does not try again after `rejected`.** The server said no on purpose, because the schema differs or it is full,
+  and it would say it again.
+- **It counts from the end of the last try.** `disconnected` also comes for each try that fails. With the server gone, a
+  try takes several seconds to fail by itself, about 8 in the runs described below (ENet keeps repeating the request
+  before it gives up), and the wait starts after that, so the tries come every 8 seconds or so plus the wait, not every
+  5 seconds.
+
+What a client that comes back is:
+
+- **A new player.** The server makes a new entity for it. Every entity of the old connection was reported with
+  `entity_removed` before `disconnected`, and the new ones arrive with `entity_appeared`.
+- **A connection id that can repeat.** The server gives out the lowest free number, so a client that left and came back
+  can get the number it had before. That is why the demo finds its own sphere by `owner == get_connection_id()` once it is
+  connected, and not by remembering an id.
+- **Without the prediction.** The prediction is dropped with the connection. Call `set_prediction` again on the new
+  entity, as the demo does in `_on_entity_appeared`. The interpolation you set with `set_interpolation` stays, so once the
+  first state arrives, it works again.
+
+The old connection, meanwhile, is the server's to let go of. A client that leaves with notice (`disconnect_from_server()`,
+or a program that ends) is released at the next tick of the server. A client that goes silent without a goodbye is
+released only when ENet gives up on it. ENet's limits are between 5 and 30 seconds, and with the example server in
+loopback on one machine it took about 6 seconds (between 6.0 and 6.8 seconds in the runs made). The entity of that player
+leaves the server in the same tick in which the connection is released. Until then a client that came back has been seen
+twice by the others, with the old entity and the new one, and the new client never gets the old entity nor removes it.
+
+**Coming back as the same player does not exist yet.** There is no token for it and the server does not keep the entity
+of a connection that ended. A client that comes back is a new player, always.
+
 ## When something goes wrong
 
 - **The schema does not match the server's.** The state becomes `REJECTED`, the `rejected` signal fires and
   `get_rejection()` says that the schema is not the same and tells you what to compare: the types, the order of the
   properties, the kind of each one and its numbers (bits, step and range, min, max, signed, count). The client never
   connects quietly with values it would read wrongly.
-- **The server is not there.** The connection times out after a few seconds and you get `disconnected`.
+- **The server is not there.** The connection times out after several seconds (about 8 in the runs made) and you get `disconnected`. See [Reconnecting](#reconnecting).
 - **The host name cannot be found.** `connect_to` returns `ERR_INVALID_PARAMETER` at once, `get_last_error()` says that
   the address could not be resolved, the state stays `DISCONNECTED` and no signal is sent, because nothing was ever
   connected. Looking a name up blocks the frame until the system answers or gives up, which for a name that does not
@@ -383,13 +524,15 @@ The client sends input (see [Send input](#send-input)), can predict the player's
 [Predict your player](#predict-your-player)) and can show the other entities smoothed, a little in the past (see
 [Smooth the other entities](#smooth-the-other-entities)). It does not extrapolate, does not compensate for the delay of
 the other entities when you aim at them, has no code generation and no shared schema file with the server (you write the
-description twice), and the server is not a Godot node. There is no editor plugin yet.
+description twice), and the server is not a Godot node. It does not reconnect by itself, and a client that comes back is
+a new player: coming back as the same player does not exist yet (see [Reconnecting](#reconnecting)). There is no editor plugin yet.
 
 ## Limits to know about
 
 - **Entity ids are `int`s with a sign.** The id has 64 bits, and a server with shard 2048 or higher sets the top bit, so
   its ids are negative in GDScript. They are still unique, and `int(id)` is what you pass back to `get_property`.
 - **A 64-bit `mask` is a signed `int`**, as described in the table.
+- **A reconnected client is a new player.** It gets a new entity, and its connection id can be one an earlier connection had. The server holds on to a connection that went silent until ENet gives up on it, about 6 seconds in loopback.
 - **`entity_appeared` means the state arrived.** An entity the server can see but has not sent yet is not listed.
 - **`poll()` cost.** It looks at every entity the client holds, so its cost grows with their number. No measurement of
   it is published.
