@@ -23,6 +23,8 @@ IMPORT_LIMIT = 60.0  # seconds
 RUN_LIMIT = 90.0
 SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
+# A run with fewer `OK` lines than this has skipped checks, whatever it printed at the end. Raise it when checks are added.
+MIN_OK_CHECKS = 43
 WINDOWS = os.name == "nt"
 
 
@@ -224,6 +226,12 @@ def e2e(godot, stage, server_exe):
             print("FAIL e2e: passed the time limit")
         elif code != 0 or "E2E PASS" not in output:
             print(f"FAIL e2e: exit code {code}")
+        elif "SCRIPT ERROR" in output:
+            # A script error inside a check stops that check without counting as a failure, so the run still ends with
+            # E2E PASS: the output has to be clean as well.
+            print("FAIL e2e: Godot reported a script error")
+        elif sum(1 for line in output.splitlines() if line.startswith("OK ")) < MIN_OK_CHECKS:
+            print(f"FAIL e2e: fewer than {MIN_OK_CHECKS} checks reported OK")
         else:
             result = 0
     finally:
