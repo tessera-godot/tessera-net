@@ -66,7 +66,8 @@ func run_all() -> void:
 	await check_server_unreachable_is_a_state_not_a_crash()
 	check_unresolvable_host()
 	check_schema_survives_duplicate_and_save()
-	await check_server_going_away_removes_entities_then_disconnects()
+	var dropped_client: TesseraClient = await check_server_going_away_removes_entities_then_disconnects()
+	await check_the_same_client_returns_after_the_server_restarts(dropped_client)
 	await check_works_next_to_godots_own_enet()
 	await check_send_input_outside_a_connection()
 	var player: TesseraClient = await check_input_moves_the_player_entity()
@@ -83,6 +84,7 @@ func run_all() -> void:
 	await check_a_rule_that_calls_back_into_the_client_is_refused()
 	await check_prediction_after_disconnect_is_discarded()
 	await check_two_clients_predict_independently()
+	await check_the_same_client_connects_again_and_again()
 	check_interpolation_api_outside_a_connection()
 	await check_interpolated_value_is_between_received_values_and_does_not_jump()
 	await check_get_property_still_gives_the_latest_value_and_interpolation_lags_it()
@@ -512,7 +514,7 @@ func check_schema_survives_duplicate_and_save() -> void:
 
 # A second example server (own port) is stopped by the test script when it sees STOP_SERVER: the client has to
 # drop every entity it knew, one signal each, and then say that it is disconnected, once.
-func check_server_going_away_removes_entities_then_disconnects() -> void:
+func check_server_going_away_removes_entities_then_disconnects() -> TesseraClient:
 	var name := "server_going_away_removes_entities_then_disconnects"
 	var before := failures
 	var client := make_client()
@@ -540,6 +542,7 @@ func check_server_going_away_removes_entities_then_disconnects() -> void:
 	expect(name, client.send_input(PackedByteArray([1, 2])) == 0, "send_input answered something after the server went away")
 	expect(name, client.get_connection_id() == -1, "a connection id after the server went away")
 	finish(name, before)
+	return client
 
 
 # Godot has its own ENet, and so does the extension. They live in one process here: a host of Godot's own talks to
@@ -1502,4 +1505,99 @@ func check_demo_reconnect_text_and_decision() -> void:
 		var wanted: bool = state == TesseraClient.State.DISCONNECTED
 		expect(name, demo.wants_reconnect(state, false) == wanted, "wants_reconnect(%d, false) gave %s" % [state, str(demo.wants_reconnect(state, false))])
 		expect(name, demo.wants_reconnect(state, true) == false, "wants_reconnect(%d, true) gave true" % state)
+	finish(name, before)
+
+
+# ----- coming back after a drop -----
+# What the demo counts on when it tries again: the same client connects once more after a drop, as a new player,
+# with the interpolation still set and no prediction until the game sets it again.
+
+func check_the_same_client_connects_again_and_again() -> void:
+	var name := "the_same_client_connects_again_and_again"
+	var before := failures
+	var client := make_player_client()
+	var seen := {"connected": 0, "disconnected": 0}
+	client.connected.connect(func(): seen["connected"] += 1)
+	client.disconnected.connect(func(): seen["disconnected"] += 1)
+	# Set once, before the first connection: it has to last through all of them.
+	expect(name, client.set_interpolation() == OK, "set_interpolation failed: " + client.get_last_error())
+	var previous_entity := -1
+	for cycle in 3:
+		var label := "%s (round %d)" % [name, cycle + 1]
+		expect(label, client.connect_to("127.0.0.1", input_port) == OK, "connect_to failed: " + client.get_last_error())
+		expect(label, not client.is_predicting(), "predicting before it was set again")
+		expect(label, client.get_interpolation_stats()["state"] == "waiting", "interpolation: %s" % str(client.get_interpolation_stats()))
+		var ready: bool = await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED and find_own_entity(client) != -1, 10.0)
+		if not expect(label, ready, "state %d, own entity %d" % [client.get_state(), find_own_entity(client)]):
+			client.disconnect_from_server()
+			continue
+		var own := find_own_entity(client)
+		expect(label, client.get_connection_id() >= 0, "connection id %d" % client.get_connection_id())
+		expect(label, client.get_property(own, "owner") == client.get_connection_id(), "the owner of the entity is not this connection")
+		# The number of the connection can be one an earlier connection had; the entity is a new one.
+		expect(label, own != previous_entity, "the entity of the round before came back")
+		previous_entity = own
+		expect(label, not client.is_predicting(), "predicting before set_prediction")
+		if await start_prediction(client, make_rule(), label):
+			var running: bool = await pump([client], func(): return client.get_interpolation_stats()["state"] == "running", 5.0)
+			var stats: Dictionary = client.get_interpolation_stats()
+			expect(label, running, "interpolation: %s" % str(stats))
+			expect(label, stats["delay_ticks"] == 2 and stats["snap_distance"] == 2.5, "interpolation settings: %s" % str(stats))
+		client.disconnect_from_server()
+		expect(label, client.get_entities().size() == 0, "entities after disconnect_from_server")
+		expect(label, client.get_connection_id() == -1, "a connection id after disconnect_from_server")
+		expect(label, not client.is_predicting(), "still predicting after disconnect_from_server")
+		expect(label, client.get_prediction_stats()["state"] == "off", "prediction: %s" % str(client.get_prediction_stats()))
+	expect(name, seen["connected"] == 3, "connected was emitted %d times" % seen["connected"])
+	expect(name, seen["disconnected"] == 0, "disconnected was emitted %d times for drops the game asked for" % seen["disconnected"])
+	finish(name, before)
+
+
+# The client of the check that stopped the second server comes back when the script says START_SERVER (the runner
+# starts a new server on the same port), with the waits of the demo.
+func check_the_same_client_returns_after_the_server_restarts(client: TesseraClient) -> void:
+	var name := "the_same_client_returns_after_the_server_restarts"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null and has_functions(demo, ["reconnect_delay"]), "the demo script is not in the test project"):
+		return
+	if not expect(name, client != null and client.get_state() == TesseraClient.State.DISCONNECTED, "the client of the server that went away is not disconnected"):
+		return
+	var seen := {"connected": 0, "disconnected": 0, "removed": 0}
+	client.connected.connect(func(): seen["connected"] += 1)
+	client.disconnected.connect(func(): seen["disconnected"] += 1)
+	client.entity_removed.connect(func(_id): seen["removed"] += 1)
+	expect(name, client.set_interpolation() == OK, "set_interpolation failed: " + client.get_last_error())
+	print("START_SERVER")
+	var attempt := 1
+	var tries := 0
+	var back := false
+	while attempt <= 4 and not back:
+		await pump([client], func(): return false, demo.reconnect_delay(attempt, 0.5))
+		if not expect(name, client.connect_to("127.0.0.1", doomed_port) == OK, "connect_to failed: " + client.get_last_error()):
+			break
+		tries += 1
+		await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED or client.get_state() == TesseraClient.State.DISCONNECTED, 6.0)
+		back = client.get_state() == TesseraClient.State.CONNECTED
+		if not back:
+			attempt += 1
+	print("the client came back after ", tries, " attempt(s)")
+	if not expect(name, back, "did not come back in 4 attempts"):
+		client.disconnect_from_server()
+		return
+	var arrived: bool = await pump([client], func(): return client.get_entities().size() == ENTITY_COUNT and client.get_interpolation_stats()["state"] == "running", 10.0)
+	expect(name, arrived, "%d entities, interpolation %s" % [client.get_entities().size(), str(client.get_interpolation_stats())])
+	expect(name, seen["connected"] == 1, "connected was emitted %d times" % seen["connected"])
+	expect(name, seen["removed"] == 0, "entity_removed was emitted %d times while coming back" % seen["removed"])
+	# An attempt that fails gives a disconnected signal, which is what the demo waits for to try again.
+	expect(name, seen["disconnected"] <= tries - 1, "disconnected was emitted %d times for %d attempts" % [seen["disconnected"], tries])
+	expect(name, client.get_connection_id() >= 0, "connection id %d" % client.get_connection_id())
+	var stats: Dictionary = client.get_interpolation_stats()
+	expect(name, stats["delay_ticks"] == 2, "interpolation settings: %s" % str(stats))
+	var inside := true
+	for id in client.get_entities():
+		var position = client.get_property(id, "position")
+		inside = inside and position is Vector3 and within_world(position)
+	expect(name, inside, "a value outside the world")
+	client.disconnect_from_server()
 	finish(name, before)

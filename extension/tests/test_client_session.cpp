@@ -1770,3 +1770,127 @@ TESSERA_TEST(session_two_sessions_interpolate_independently) {
     p.a.ClearInterpolation();
     TESSERA_CHECK(!p.a.Interpolation().configured && p.b.Interpolation().configured);
 }
+
+namespace {
+
+// A server of the example game with players, on a network of its own, as one run of a server program. A
+// second one stands for the same program started again.
+struct Rig {
+    server::example::ExampleGame game{0, false, true};
+    World world{game};
+};
+
+// A session whose transports come from whichever rig `current` points to when `Connect` asks for one.
+TransportFactory FactoryFor(Rig*& current) {
+    return [&current](const std::string& host, uint16_t port) { return current->world.Factory()(host, port); };
+}
+
+// Lets the session send zeros until its prediction is running; false if it never does.
+bool StartPrediction(Rig& rig, ClientSession& session, std::vector<SessionEvent>& events, uint64_t own) {
+    std::string error;
+    if (!session.SetPrediction(own, {"position"}, PlayerRule(), PredictionSettings{}, error)) {
+        return false;
+    }
+    for (int i = 0; i < 60 && session.Prediction().status != net::PredictionStatus::Active; ++i) {
+        const uint8_t zeros[2] = {0, 0};
+        session.SendInput(zeros);
+        rig.world.Step(&session, &events);
+    }
+    return session.Prediction().status == net::PredictionStatus::Active;
+}
+
+// The server goes away without the session asking, and the session is stepped until it says so.
+bool DropServer(Rig& rig, ClientSession& session, std::vector<SessionEvent>& events) {
+    rig.world.network.Server().Disconnect(1); // the server numbers its connections from 1
+    return rig.world.StepUntil(session, events, [&] { return session.State() == SessionState::Disconnected; });
+}
+
+} // namespace
+
+TESSERA_TEST(session_after_a_drop_waits_and_after_connecting_again_starts_clean_with_the_interpolation_kept) {
+    Rig first;
+    Rig second;
+    Rig* current = &first;
+    ClientSession session(FactoryFor(current));
+    std::string error;
+    std::vector<SessionEvent> events;
+    TESSERA_CHECK(session.SetInterpolation(3, 4.0, error));
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error));
+    TESSERA_CHECK(first.world.Converge(session, events, 1));
+    const uint64_t own = OwnEntity(session);
+    TESSERA_CHECK(own != 0);
+    TESSERA_CHECK(StartPrediction(first, session, events, own));
+    TESSERA_CHECK(session.Interpolation().running);
+    const InterpolationReport before = session.Interpolation();
+
+    // The server goes away on its own. What a game sees between that and its next `Connect`:
+    events.clear();
+    TESSERA_CHECK(DropServer(first, session, events));
+    TESSERA_CHECK(Count(events, Kind::EntityRemoved) == 1 && Count(events, Kind::Disconnected) == 1);
+    TESSERA_CHECK(session.Entities().empty());
+    TESSERA_CHECK(session.ConnectionId() == -1);
+    TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Waiting); // set, and held until `Connect`
+    TESSERA_CHECK(session.Interpolation().configured && !session.Interpolation().running);
+
+    // The same session connects to the server that was started again.
+    current = &second;
+    events.clear();
+    TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error));
+    TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Off);
+    TESSERA_CHECK(second.world.Converge(session, events, 1));
+    TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Off); // until it is set again
+    const InterpolationReport after = session.Interpolation();
+    TESSERA_CHECK(after.configured && after.running);
+    TESSERA_CHECK(after.delay_ticks == before.delay_ticks && after.snap_distance == before.snap_distance);
+    TESSERA_CHECK(session.ConnectionId() >= 0);
+    const uint64_t own_again = OwnEntity(session);
+    TESSERA_CHECK(own_again != 0);
+    const auto owner = session.Property(own_again, "owner");
+    TESSERA_CHECK(owner && owner->integer == session.ConnectionId());
+    TESSERA_CHECK(Count(events, Kind::Connected) == 1 && Count(events, Kind::EntityRemoved) == 0);
+    TESSERA_CHECK(StartPrediction(second, session, events, own_again));
+}
+
+TESSERA_TEST(session_survives_several_drops_in_a_row) {
+    constexpr int kCycles = 5;
+    std::vector<std::unique_ptr<Rig>> rigs;
+    for (int i = 0; i < kCycles; ++i) {
+        rigs.push_back(std::make_unique<Rig>());
+    }
+    Rig* current = rigs[0].get();
+    ClientSession session(FactoryFor(current));
+    std::string error;
+    uint64_t generation = session.Generation();
+    for (int cycle = 0; cycle < kCycles; ++cycle) {
+        current = rigs[static_cast<size_t>(cycle)].get();
+        Rig& rig = *current;
+        std::vector<SessionEvent> events;
+        TESSERA_CHECK(session.Connect(PlayersSchema(), "x", 1, error));
+        TESSERA_CHECK(session.Generation() > generation);
+        generation = session.Generation();
+        TESSERA_CHECK(rig.world.Converge(session, events, 1));
+        // Nothing of the cycles before is left: one entity, the one of this server, and no prediction.
+        TESSERA_CHECK(session.Entities().size() == 1);
+        TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Off);
+        TESSERA_CHECK(session.Prediction().failure.empty());
+        const uint64_t own = OwnEntity(session);
+        TESSERA_CHECK(own != 0);
+        TESSERA_CHECK(rig.game.PlayerEntityCount() == 1);
+        TESSERA_CHECK(StartPrediction(rig, session, events, own));
+        if (cycle % 2 == 1) {
+            // A rule that gave up leaves a reason; it must not follow the session into the next connection.
+            const uint8_t give_up[2] = {99, 0};
+            session.SendInput(give_up);
+            rig.world.Step(&session, &events);
+            TESSERA_CHECK(session.Prediction().status == net::PredictionStatus::Failed);
+            TESSERA_CHECK(!session.Prediction().failure.empty());
+        }
+        TESSERA_CHECK(DropServer(rig, session, events));
+        TESSERA_CHECK(session.Generation() >= generation); // a drop does not make a new connection
+        generation = session.Generation();
+        TESSERA_CHECK(Count(events, Kind::Connected) == 1);
+        TESSERA_CHECK(Count(events, Kind::Disconnected) == 1);
+        TESSERA_CHECK(Count(events, Kind::EntityAppeared) == 1 && Count(events, Kind::EntityRemoved) == 1);
+        TESSERA_CHECK(session.Entities().empty());
+    }
+}
