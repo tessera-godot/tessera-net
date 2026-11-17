@@ -23,5 +23,5 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0015](0015-preparing-for-server-meshing.md) | Preparing for server meshing | Accepted |
 | [0016](0016-the-godot-extension-client-first.md) | The Godot extension: client first | Accepted |
 | [0017](0017-player-input.md) | Player input | Accepted |
-| [0018](0018-prediction-and-reconciliation.md) | Prediction and reconciliation | Proposed |
-| [0019](0019-interpolation-of-the-other-entities.md) | Interpolation of the other entities | Proposed |
+| [0018](0018-prediction-and-reconciliation.md) | Prediction and reconciliation | Accepted |
+| [0019](0019-interpolation-of-the-other-entities.md) | Interpolation of the other entities | Accepted |

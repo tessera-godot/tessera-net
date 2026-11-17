@@ -1,6 +1,6 @@
 # 0019. Interpolation of the other entities
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-13
 
 ## Context
