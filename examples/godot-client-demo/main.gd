@@ -2,7 +2,8 @@
 # Connects to a Tessera server and draws a sphere for every entity it replicates. With the server started with
 # --players, each connected player has a sphere too, and WASD moves yours: the green sphere moves at once, on the
 # client's own guess of where the server will put it, and the server's answer corrects the guess. The other
-# spheres are shown a few ticks in the past, smoothed between the two states of the server around that time.
+# spheres are shown a few ticks in the past, smoothed between the two states of the server around that time. If the
+# connection drops, the demo tries again on its own, a bit later each time, and comes back as a new player.
 extends Node3D
 
 const DEFAULT_HOST := "127.0.0.1"
@@ -32,6 +33,12 @@ var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
 var input_clock := 0.0
 var own_entity := -1  # the entity of this player, once the server has told us about it
+var host := DEFAULT_HOST
+var port := DEFAULT_PORT
+var left_on_purpose := false  # set when the demo closes the connection itself: then it does not try to come back
+var attempt := 0  # how many tries in a row have been scheduled since the connection was last up
+var retry_in := -1.0  # seconds until the next try; negative when none is waiting
+var was_connected := false
 
 
 # How long to wait before attempt number `attempt` (1 is the first try after the connection dropped). The random
@@ -71,24 +78,30 @@ func _ready() -> void:
 
 	client.entity_appeared.connect(_on_entity_appeared)
 	client.entity_removed.connect(_on_entity_removed)
+	client.connected.connect(_on_connected)
+	client.disconnected.connect(_on_disconnected)
+	client.rejected.connect(_on_rejected)
 
-	var host := DEFAULT_HOST
-	var port := DEFAULT_PORT
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--host="):
 			host = argument.substr(7)
 		elif argument.begins_with("--port="):
 			port = int(argument.substr(7))
 
-	if client.connect_to(host, port) != OK:
-		push_error("Could not connect: " + client.get_last_error())
-
+	_try_to_connect()
 	_build_scene()
 
 
 func _process(delta: float) -> void:
 	# Nothing is read from the network, and no signal is sent, until poll() is called.
 	client.poll()
+	# The next try is made here, never from a signal: connecting from inside one would throw away the signals that
+	# are still waiting to be sent.
+	if retry_in >= 0.0:
+		retry_in -= delta
+		if retry_in <= 0.0:
+			retry_in = -1.0
+			_try_to_connect()
 	_send_input(delta)
 	for id in spheres:
 		# Your own sphere shows the prediction; the others show the interpolated value, a little in the past.
@@ -96,8 +109,10 @@ func _process(delta: float) -> void:
 		if position != null:
 			spheres[id].position = position
 	var stats := client.get_prediction_stats()
-	status.text = "%s, %d entities %s\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
-		_state_name(), spheres.size(), client.get_rejection(),
+	var first_line := "%s, %d entities %s" % [_state_name(), spheres.size(), client.get_rejection()]
+	if retry_in >= 0.0:
+		first_line = reconnect_text(retry_in, attempt)
+	status.text = first_line + "\nprediction: %s, error %.2f m\ninterpolation: %d ticks (%d ms)\nWASD moves the green sphere at once; the others are shown %d ms in the past, smoothed" % [
 		"on" if client.is_predicting() else "off", stats["last_error"],
 		INTERPOLATION_DELAY_TICKS, _delay_ms(), _delay_ms()]
 
@@ -168,6 +183,59 @@ func predict(state: Dictionary, input: PackedByteArray, dt: float) -> Dictionary
 	position.x = clampf(position.x + dx * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
 	position.z = clampf(position.z + dz * PLAYER_SPEED * dt, 0.0, WORLD_SIDE)
 	return {"position": position}
+
+
+func _on_connected() -> void:
+	was_connected = true
+	attempt = 0
+	retry_in = -1.0
+	print("Connected to the server")
+
+
+# This comes when a connection drops and also when a try to connect fails, so it is where the next try is scheduled.
+func _on_disconnected() -> void:
+	if was_connected:
+		print("Lost the connection to the server")
+	else:
+		print("Could not reach the server")
+	was_connected = false
+	_schedule_reconnect()
+
+
+# A server that refuses on purpose (a different schema, no room left) would refuse again: no more tries.
+func _on_rejected(reason: String) -> void:
+	retry_in = -1.0
+	push_warning("The server refused the connection: " + reason)
+
+
+func _schedule_reconnect() -> void:
+	if wants_reconnect(client.get_state(), left_on_purpose):
+		attempt += 1
+		retry_in = reconnect_delay(attempt, randf())
+
+
+func _try_to_connect() -> void:
+	var error := client.connect_to(host, port)
+	if error != OK:
+		# No signal follows an error, so nothing else would schedule the next try.
+		push_warning("Could not connect: " + client.get_last_error())
+		_schedule_reconnect()
+
+
+# Closing the window ends the connection on purpose, and nothing is tried again after that.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_leave()
+
+
+func _exit_tree() -> void:
+	_leave()
+
+
+func _leave() -> void:
+	left_on_purpose = true
+	retry_in = -1.0
+	client.disconnect_from_server()
 
 
 func _on_entity_removed(id: int) -> void:

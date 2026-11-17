@@ -80,6 +80,27 @@ states more than 2.5 meters apart, or more than 8 ticks apart, are not blended: 
 on at the tick of the new state, so a sphere that was still and starts to move does not slide through the time it
 stood. To change the delay, edit `INTERPOLATION_DELAY_TICKS` in `main.gd` (0 to 30); the label shows it.
 
+## When the connection drops
+
+If the connection to the server drops, the demo tries again on its own. It waits half a second, then 1, 2 and 4
+seconds, and 5 seconds from the fifth try on, with no limit on the number of tries. Each wait is shifted by up to a fifth
+either way, so that many clients that lost the same server do not all knock at the same moment. While it waits, the
+first line of the label counts down, for example `reconnecting in 3 s (attempt 2)`. The wait starts when the last try
+failed. A try at a server that is not there takes a while to fail on its own (about 7 or 8 seconds in the runs described
+below), so with the server stopped the tries come roughly every 8 seconds plus the wait.
+
+It comes back as a new player. There is a new sphere for it, the prediction is set again on that sphere, as it was the
+first time, and the interpolation setting is kept. It does not get its old entity back. If the old connection went
+silent without a goodbye, the server only lets go of it after the time limit of its network library, which was about 6
+seconds when measured on one machine (the library allows 5 to 30 seconds), and until then the other players see two
+spheres for this one.
+
+When the server refuses the connection on purpose, because it describes the entities differently or has no room left,
+the demo prints a warning with the reason and does not try again, since it would only be refused again. When the demo
+closes the connection itself, as it does when the project quits, it does not try to come back either.
+
+To see it, start the server with `--players`, open the demo, stop the server with Ctrl+C, and start it again.
+
 ## What has been checked
 
 Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
@@ -87,5 +108,11 @@ error, with the connect and disconnect lines in its output. In that kind of run 
 shown in the label stays at zero, and the sphere has not been moved with the keys. A client in a headless Godot, with
 the same rule, moves its predicted value before the server answers and ends where the server puts the entity, and a
 client that watches another player has an interpolated value that stays between the values received, lags behind the
-last one and ends on it when the player stops. Nobody has looked at the demo with a window yet, so how it looks on
-screen, how smooth the interpolated spheres are, and how the keys feel, are not confirmed.
+last one and ends on it when the player stops.
+
+The reconnection was run in a headless Godot against example servers started and stopped for the purpose. With the
+server stopped and started again on the same port, the demo connected again on its own and the new server saw a player
+join. Against a server that refuses it, it tried once and printed one warning. With an address that does not resolve,
+it kept trying with growing waits. With a server that never came back, it kept trying for as long as it ran, without a
+script error. Nobody has looked at the demo with a window yet, so how it looks on screen, how smooth the interpolated
+spheres are, how the keys feel, and how the countdown in the label reads, are not confirmed.
