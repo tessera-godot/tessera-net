@@ -49,7 +49,8 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    ```
 
    Or press Play in the editor. It connects to `127.0.0.1:7777`. To use another server, pass its address after `--`:
-   `godot --path <folder> -- --host=192.168.1.20 --port=7777`.
+   `godot --path <folder> -- --host=192.168.1.20 --port=7777`. A port that is not a whole number from 1 to 65535 is
+   reported as an error, once, and the demo does not try to connect.
 
 The label in the corner shows the state of the connection and how many entities the client has. If the server's
 description of the entities and the one in `main.gd` differ, the label says the connection was rejected and why.
@@ -86,8 +87,8 @@ If the connection to the server drops, the demo tries again on its own. It waits
 seconds, and 5 seconds from the fifth try on, with no limit on the number of tries. Each wait is shifted by up to a fifth
 either way, so that many clients that lost the same server do not all knock at the same moment. While it waits, the
 first line of the label counts down, for example `reconnecting in 3 s (attempt 2)`. The wait starts when the last try
-failed. A try at a server that is not there takes a while to fail on its own (about 7 or 8 seconds in the runs described
-below), so with the server stopped the tries come roughly every 8 seconds plus the wait.
+failed. A try at a server that is not there takes a while to fail on its own (about 7 or 8 seconds in runs on one
+machine), so with the server stopped the tries come roughly every 8 seconds plus the wait.
 
 It comes back as a new player. There is a new sphere for it, the prediction is set again on that sphere, as it was the
 first time, and the interpolation setting is kept. It does not get its old entity back. If the old connection went
@@ -96,7 +97,8 @@ seconds when measured on one machine (the library allows 5 to 30 seconds), and u
 spheres for this one.
 
 When the server refuses the connection on purpose, because it describes the entities differently or has no room left,
-the demo prints a warning with the reason and does not try again, since it would only be refused again. When the demo
+the demo prints a warning with the reason and does not try again. A different description would be refused again. A
+server with no room may have a free slot later, but the demo stops at any refusal, by design. When the demo
 closes the connection itself, as it does when the project quits, it does not try to come back either.
 
 To see it, start the server with `--players`, open the demo, stop the server with Ctrl+C, and start it again.
@@ -110,7 +112,9 @@ the same rule, moves its predicted value before the server answers and ends wher
 client that watches another player has an interpolated value that stays between the values received, lags behind the
 last one and ends on it when the player stops.
 
-The reconnection was run in a headless Godot against example servers started and stopped for the purpose. With the
+The reconnection was run in a headless Godot against example servers started and stopped for the purpose. The same
+headless test runs the demo script as a node: it schedules a try after a drop it did not ask for, makes the try from the
+frame loop and not from the signal, stops after a refusal and does not come back after the demo itself let go. With the
 server stopped and started again on the same port, the demo connected again on its own and the new server saw a player
 join. Against a server that refuses it, it tried once and printed one warning. With an address that does not resolve,
 it kept trying with growing waits. With a server that never came back, it kept trying for as long as it ran, without a

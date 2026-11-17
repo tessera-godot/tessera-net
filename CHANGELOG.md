@@ -13,7 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   is not tried again, and neither is a connection the demo closed itself. The label counts down, for example
   `reconnecting in 3 s (attempt 2)`. The extension and the server did not change, and no message did: the protocol stays
   at version 3.
-- Tests for what a client that comes back depends on. The server tests over real sockets (5 on Windows, they had 2) cover
+- Tests for what a client that comes back depends on. The server tests over real sockets (5 on Windows and 8 on Linux, they had 2 and 5) cover
   a client that leaves with notice, one that goes silent (released by ENet after about 6 seconds in loopback on the
   machine where it was measured) and a new client that arrives in between and gets an entity of its own. The extension
   tests (79, they had 77) and the headless Godot test cover a client that drops and connects again several times, with
