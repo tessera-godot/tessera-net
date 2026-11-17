@@ -82,6 +82,9 @@ add_custom_target(tessera_extension_stage ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/extension/stage/e2e/bin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/tests/godot"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e"
+    # The script of the demo, so that the test can call its functions that do not need a window.
+    COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/examples/godot-client-demo/main.gd"
+            "${CMAKE_BINARY_DIR}/extension/stage/e2e/demo_main.gd"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/extension/tessera_net.gdextension"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e/tessera_net.gdextension"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:tessera_net_godot>"

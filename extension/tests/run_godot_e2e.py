@@ -7,7 +7,7 @@ Usage:
 
 The stage directory is the one the build assembles (the test project, the .gdextension file and the library).
 `load` only checks that the extension loads. `e2e` also starts the example server, runs the test script against it
-and stops the server again; the whole run has to fit in 60 seconds.
+and stops the server again; the whole run has to fit in 90 seconds.
 
 The script only ever ends a process it started itself, and only when that process has passed its time limit.
 """
@@ -23,6 +23,8 @@ IMPORT_LIMIT = 60.0  # seconds
 RUN_LIMIT = 90.0
 SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
+# A run with fewer `OK` lines than this has skipped checks, whatever it printed at the end. Raise it when checks are added.
+MIN_OK_CHECKS = 46
 WINDOWS = os.name == "nt"
 
 
@@ -182,6 +184,8 @@ def e2e(godot, stage, server_exe):
     doomed = Server(server_exe, doomed_port)  # a second server, stopped while the test runs
     players = Server(server_exe, input_port, ["--players"])  # a third one, with an entity for each player
     doomed_stopped = []
+    restarted = []  # the second server started again on the same port, when the script asks for it
+    restart_failed = []
     result = 1
     try:
         if not server.wait_until_listening() or not doomed.wait_until_listening() or not players.wait_until_listening():
@@ -193,6 +197,12 @@ def e2e(godot, stage, server_exe):
         def on_line(line):
             if line.strip() == "STOP_SERVER" and not doomed_stopped:
                 doomed_stopped.append(doomed.stop())
+            elif line.strip() == "START_SERVER" and not restarted:
+                # The same port as before, so that the client that lost its server finds a new one there.
+                restarted.append(Server(server_exe, doomed_port))
+                if not restarted[0].wait_until_listening():
+                    print("FAIL restarted server: it did not start\n" + "\n".join(restarted[0].lines))
+                    restart_failed.append(True)
 
         code, output = run_watching(
             [
@@ -216,6 +226,12 @@ def e2e(godot, stage, server_exe):
             print("FAIL e2e: passed the time limit")
         elif code != 0 or "E2E PASS" not in output:
             print(f"FAIL e2e: exit code {code}")
+        elif "SCRIPT ERROR" in output:
+            # A script error inside a check stops that check without counting as a failure, so the run still ends with
+            # E2E PASS: the output has to be clean as well.
+            print("FAIL e2e: Godot reported a script error")
+        elif sum(1 for line in output.splitlines() if line.startswith("OK ")) < MIN_OK_CHECKS:
+            print(f"FAIL e2e: fewer than {MIN_OK_CHECKS} checks reported OK")
         else:
             result = 0
     finally:
@@ -227,6 +243,13 @@ def e2e(godot, stage, server_exe):
             doomed_stopped.append(doomed.stop())
         if doomed_stopped[0] != 0:
             print(f"FAIL second server: exit code {doomed_stopped[0]}, expected 0\n" + "\n".join(doomed.lines[-10:]))
+            result = 1
+        if restarted:
+            restarted_code = restarted[0].stop()
+            if restarted_code != 0:
+                print(f"FAIL restarted server: exit code {restarted_code}, expected 0\n" + "\n".join(restarted[0].lines[-10:]))
+                result = 1
+        if restart_failed:
             result = 1
         players_code = players.stop()
         if players_code != 0:

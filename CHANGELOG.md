@@ -7,6 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- In the demo project, when the connection drops the demo tries again on its own: after 0.5, 1, 2 and 4 seconds and every
+  5 seconds from then on, each wait shifted by up to 20 percent so that clients that lost a server together do not come
+  back together. It comes back as a new player, with a new sphere and the prediction set again. A refusal from the server
+  is not tried again, and neither is a connection the demo closed itself. The label counts down, for example
+  `reconnecting in 3 s (attempt 2)`. The extension and the server did not change, and no message did: the protocol stays
+  at version 3.
+- Tests for what a client that comes back depends on. The server tests over real sockets (5 on Windows and 8 on Linux, they had 2 and 5) cover
+  a client that leaves with notice, one that goes silent (released by ENet after about 6 seconds in loopback on the
+  machine where it was measured) and a new client that arrives in between and gets an entity of its own. The extension
+  tests (79, they had 77) and the headless Godot test cover a client that drops and connects again several times, with
+  the interpolation kept and no prediction until it is set again, and a server that is restarted on the same port under
+  a client. The headless Godot test also calls the reconnect timing of the demo. The default build still has 661 tests.
+- In the guide to the client in Godot, a section "Reconnecting" with the pattern the demo uses and what a client that
+  comes back is. Coming back as the same player does not exist yet.
 - Interpolation of the other entities. The core has `Interpolator` and, in `ClientReplica`, `SetInterpolation`,
   `ClearInterpolation`, `AdvanceInterpolation`, `InterpolationSet`, `Interpolating`, `InterpolationSettings`,
   `InterpolationInfo`, `DisplayedTick`, `InterpolationLag`, `InterpolationMemoryBytes`, `InterpolationEntities`,

@@ -426,12 +426,19 @@ in [record 0013](../adr/0013-enet-as-the-first-real-transport.md).
   never reuses one, and a client sees the server as 0. `Disconnect` lets the messages sent before it go out first. A peer that goes silent is detected with ENet's default
   timeouts (a limit of 32, a minimum of 5,000 ms and a maximum of 30,000 ms in 1.3.18; the server's are not tuned, the
   client's follow `timeout_ms`). `Poll`, `Send` and `Flush` must be called from one thread.
+- **A connection that goes silent.** A client that leaves with notice (`Disconnect`, or its transport destroyed) is
+  released by the server at its next tick. One that stops answering is released when ENet gives up on it. With the example
+  server over loopback on one machine, a client that stopped being served was released after about 6 seconds (between 6.0
+  and 6.8 seconds in the runs on Windows, and 6.2 seconds every time on Linux with gcc and with clang, in a container),
+  which is inside ENet's limits of 5 and 30 seconds. The server drops the entity of
+  that player in the same tick in which it releases the connection, so a client that connects in between has an entity of
+  its own for that time while the old one is still seen by the others, and it never takes the old one over.
 - **`Flush()`.** `Send` queues, and the datagrams leave on `Flush()` or on the next `Poll`. Call it on the server
   after `Update`, and on the client after `Poll` (the client's confirmation is sent inside `Poll`).
 - **Statistics.** `Stats()` counts the message bytes that `Send` accepted and `Poll` handed over. ENet does not say
   which message a lost packet carried, so `messages_lost` is always 0 here. `Wire()` has the bytes that went through
   the sockets, ENet's own headers included.
-- **Left out.** Encryption, authentication, reconnecting into an old session, and any tuning of ENet. It has been
+- **Left out.** Encryption, authentication, reconnecting into an old session (a client that comes back is a new connection), and any tuning of ENet. It has been
   built, tested and measured on Windows, and only on localhost; see "Running a server" for Linux.
 
 A server, one entity and one player over a UDP port on this machine; the rest is the example at the end of this

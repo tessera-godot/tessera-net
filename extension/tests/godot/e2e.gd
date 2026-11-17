@@ -66,7 +66,8 @@ func run_all() -> void:
 	await check_server_unreachable_is_a_state_not_a_crash()
 	check_unresolvable_host()
 	check_schema_survives_duplicate_and_save()
-	await check_server_going_away_removes_entities_then_disconnects()
+	var dropped_client: TesseraClient = await check_server_going_away_removes_entities_then_disconnects()
+	await check_the_same_client_returns_after_the_server_restarts(dropped_client)
 	await check_works_next_to_godots_own_enet()
 	await check_send_input_outside_a_connection()
 	var player: TesseraClient = await check_input_moves_the_player_entity()
@@ -83,6 +84,7 @@ func run_all() -> void:
 	await check_a_rule_that_calls_back_into_the_client_is_refused()
 	await check_prediction_after_disconnect_is_discarded()
 	await check_two_clients_predict_independently()
+	await check_the_same_client_connects_again_and_again()
 	check_interpolation_api_outside_a_connection()
 	await check_interpolated_value_is_between_received_values_and_does_not_jump()
 	await check_get_property_still_gives_the_latest_value_and_interpolation_lags_it()
@@ -90,6 +92,11 @@ func run_all() -> void:
 	await check_the_own_entity_is_predicted_not_interpolated()
 	await check_two_clients_interpolate_independently()
 	await check_a_rule_that_calls_interpolation_functions_is_harmless()
+	check_demo_reconnect_delay_follows_the_schedule()
+	check_demo_reconnect_text_and_decision()
+	check_demo_retry_deadline_counts_from_the_end_of_the_try()
+	check_demo_port_argument_is_checked()
+	await check_demo_reconnects_after_a_drop_and_stops_when_it_should()
 
 
 func ok(check: String) -> void:
@@ -510,7 +517,7 @@ func check_schema_survives_duplicate_and_save() -> void:
 
 # A second example server (own port) is stopped by the test script when it sees STOP_SERVER: the client has to
 # drop every entity it knew, one signal each, and then say that it is disconnected, once.
-func check_server_going_away_removes_entities_then_disconnects() -> void:
+func check_server_going_away_removes_entities_then_disconnects() -> TesseraClient:
 	var name := "server_going_away_removes_entities_then_disconnects"
 	var before := failures
 	var client := make_client()
@@ -538,6 +545,7 @@ func check_server_going_away_removes_entities_then_disconnects() -> void:
 	expect(name, client.send_input(PackedByteArray([1, 2])) == 0, "send_input answered something after the server went away")
 	expect(name, client.get_connection_id() == -1, "a connection id after the server went away")
 	finish(name, before)
+	return client
 
 
 # Godot has its own ENet, and so does the extension. They live in one process here: a host of Godot's own talks to
@@ -1405,4 +1413,325 @@ func check_a_rule_that_calls_interpolation_functions_is_harmless() -> void:
 		expect(name, a.get_interpolation_stats()["delay_ticks"] == 2, "stats: %s" % str(a.get_interpolation_stats()))
 	a.disconnect_from_server()
 	b.disconnect_from_server()
+	finish(name, before)
+
+
+# ----- the reconnect policy of the demo -----
+# The demo script (examples/godot-client-demo/main.gd) is copied into the test project as demo_main.gd. Only its
+# static functions are called here; the script is never made into a node.
+
+func demo_script() -> GDScript:
+	var script = load("res://demo_main.gd")
+	return script if script is GDScript else null
+
+
+# True if the script has all of these functions. Calling one that is missing stops the whole check with a script
+# error but does not count as a failure, so this is asked first.
+func has_functions(script: GDScript, names: Array) -> bool:
+	var found := []
+	for method in script.get_script_method_list():
+		found.append(method["name"])
+	for wanted in names:
+		if not found.has(wanted):
+			return false
+	return true
+
+
+func check_demo_reconnect_delay_follows_the_schedule() -> void:
+	var name := "demo_reconnect_delay_follows_the_schedule"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["reconnect_delay"]), "the demo script has no reconnect_delay"):
+		return
+	# With 0.5 as the random value the jitter is zero, so these are the plain steps.
+	var plain := {1: 0.5, 2: 1.0, 3: 2.0, 4: 4.0, 5: 5.0, 6: 5.0, 30: 5.0}
+	for attempt in plain:
+		var got: float = demo.reconnect_delay(attempt, 0.5)
+		expect(name, is_equal_approx(got, plain[attempt]), "attempt %d gave %f, wanted %f" % [attempt, got, plain[attempt]])
+	# The lowest and the highest the jitter can make of each step: 20 percent less and 20 percent more.
+	var lowest := [0.4, 0.8, 1.6, 3.2, 4.0]
+	var highest := [0.6, 1.2, 2.4, 4.8, 6.0]
+	for index in lowest.size():
+		var low: float = demo.reconnect_delay(index + 1, 0.0)
+		var high: float = demo.reconnect_delay(index + 1, 1.0)
+		expect(name, is_equal_approx(low, lowest[index]), "attempt %d with 0.0 gave %f, wanted %f" % [index + 1, low, lowest[index]])
+		expect(name, is_equal_approx(high, highest[index]), "attempt %d with 1.0 gave %f, wanted %f" % [index + 1, high, highest[index]])
+	expect(name, is_equal_approx(demo.reconnect_delay(100, 0.0), 4.0), "attempt 100 with 0.0")
+	expect(name, is_equal_approx(demo.reconnect_delay(2, 0.25), 0.9), "attempt 2 with 0.25 gave %f" % demo.reconnect_delay(2, 0.25))
+	# A random value outside 0 to 1 is cut to it, and an attempt below 1 counts as the first.
+	expect(name, is_equal_approx(demo.reconnect_delay(1, -3.0), demo.reconnect_delay(1, 0.0)), "a random value below 0")
+	expect(name, is_equal_approx(demo.reconnect_delay(1, 7.0), demo.reconnect_delay(1, 1.0)), "a random value above 1")
+	expect(name, is_equal_approx(demo.reconnect_delay(0, 0.5), 0.5), "attempt 0")
+	expect(name, is_equal_approx(demo.reconnect_delay(-4, 0.5), 0.5), "attempt -4")
+	expect(name, is_equal_approx(demo.reconnect_delay(1000000, 0.5), 5.0), "attempt 1000000")
+	# Later attempts never wait less, for the same random value.
+	for random_value in [0.0, 0.5, 1.0]:
+		for attempt in range(1, 12):
+			var now: float = demo.reconnect_delay(attempt, random_value)
+			var next: float = demo.reconnect_delay(attempt + 1, random_value)
+			expect(name, next >= now - 0.000001, "attempt %d waits %f and attempt %d only %f (random %f)" % [attempt, now, attempt + 1, next, random_value])
+	# Whatever the attempt and the random value, the wait stays between 0.4 and 6 seconds.
+	var out_of_bounds := 0
+	for attempt in range(1, 51):
+		for step in 11:
+			var seconds: float = demo.reconnect_delay(attempt, step / 10.0)
+			if seconds < 0.4 - 0.000001 or seconds > 6.0 + 0.000001:
+				out_of_bounds += 1
+	expect(name, out_of_bounds == 0, "%d waits were outside 0.4 to 6 seconds" % out_of_bounds)
+	# The same arguments give the same answer, and the random value is really used.
+	expect(name, demo.reconnect_delay(3, 0.37) == demo.reconnect_delay(3, 0.37), "two equal calls differ")
+	expect(name, demo.reconnect_delay(3, 0.0) < demo.reconnect_delay(3, 1.0), "the random value changes nothing")
+	finish(name, before)
+
+
+func check_demo_reconnect_text_and_decision() -> void:
+	var name := "demo_reconnect_text_and_decision"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["reconnect_text", "wants_reconnect"]), "the demo script lacks reconnect_text or wants_reconnect"):
+		return
+	var texts := [
+		[0.5, 1, "reconnecting in 1 s (attempt 1)"],
+		[4.2, 3, "reconnecting in 5 s (attempt 3)"],
+		[2.0, 2, "reconnecting in 2 s (attempt 2)"],
+		[0.0, 0, "reconnecting in 1 s (attempt 1)"],
+	]
+	for row in texts:
+		var got: String = demo.reconnect_text(row[0], row[1])
+		expect(name, got == row[2], "reconnect_text(%f, %d) gave '%s', wanted '%s'" % [row[0], row[1], got, row[2]])
+	# Only a connection that fell, when the demo did not ask for it, is worth trying again.
+	for state in [TesseraClient.State.DISCONNECTED, TesseraClient.State.CONNECTING, TesseraClient.State.HANDSHAKING, TesseraClient.State.CONNECTED, TesseraClient.State.REJECTED]:
+		var wanted: bool = state == TesseraClient.State.DISCONNECTED
+		expect(name, demo.wants_reconnect(state, false) == wanted, "wants_reconnect(%d, false) gave %s" % [state, str(demo.wants_reconnect(state, false))])
+		expect(name, demo.wants_reconnect(state, true) == false, "wants_reconnect(%d, true) gave true" % state)
+	finish(name, before)
+
+
+# The wait before a retry is an absolute time taken after the try returns, so a try that blocks (a host name that takes
+# seconds to look up) does not count against the wait. This plays the frames of the demo on a clock of our own.
+func check_demo_retry_deadline_counts_from_the_end_of_the_try() -> void:
+	var name := "demo_retry_deadline_counts_from_the_end_of_the_try"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["retry_deadline", "retry_is_due", "retry_seconds_left"]), "the demo script lacks the retry deadline functions"):
+		return
+	expect(name, demo.retry_deadline(10000, 0.5) == 10500, "retry_deadline(10000, 0.5) gave %d" % demo.retry_deadline(10000, 0.5))
+	expect(name, demo.retry_deadline(0, 4.8) == 4800, "retry_deadline(0, 4.8) gave %d" % demo.retry_deadline(0, 4.8))
+	# Nothing waiting: never due, nothing left.
+	expect(name, not demo.retry_is_due(-1, 1000000), "a retry that is not scheduled is due")
+	expect(name, demo.retry_seconds_left(-1, 1000000) == 0.0, "seconds left for a retry that is not scheduled")
+	# Due exactly at the deadline, not a millisecond before.
+	expect(name, not demo.retry_is_due(9500, 9499) and demo.retry_is_due(9500, 9500) and demo.retry_is_due(9500, 99999), "the edge of the deadline")
+	expect(name, is_equal_approx(demo.retry_seconds_left(9500, 9000), 0.5), "seconds left at 9000: %f" % demo.retry_seconds_left(9500, 9000))
+	expect(name, demo.retry_seconds_left(9500, 9700) == 0.0, "seconds left after the deadline is not 0")
+	# The frames of a try that blocks for 8 s: the try starts at 1000 ms and returns at 9000 ms, and the wait of
+	# 0.5 s is scheduled then. The first frame after it is 16 ms later, with a delta of 8 s that must not count.
+	var now := 9000
+	var retry_at: int = demo.retry_deadline(now, 0.5)
+	var frames := 0
+	while not demo.retry_is_due(retry_at, now) and frames < 1000:
+		now += 16
+		frames += 1
+	expect(name, now - 9000 >= 500 and now - 9000 < 516, "the retry came %d ms after the try ended, wanted 500" % (now - 9000))
+	expect(name, frames > 25, "the retry was due after %d frames" % frames)
+	# A frame that itself takes 3 s (the window froze) is still one retry, not one for every frame it missed.
+	retry_at = demo.retry_deadline(now, 1.0)
+	now += 3000
+	expect(name, demo.retry_is_due(retry_at, now), "not due after a frame of 3 s")
+	finish(name, before)
+
+
+# The port comes from --port=; anything that is not a whole number from 1 to 65535 is an error shown once, and the demo
+# does not try to connect (a port of 0 would be tried for ever).
+func check_demo_port_argument_is_checked() -> void:
+	var name := "demo_port_argument_is_checked"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["parse_port", "apply_arguments", "_try_to_connect"]), "the demo script lacks parse_port or apply_arguments"):
+		return
+	var good := {"1": 1, "7777": 7777, "65535": 65535}
+	for text in good:
+		expect(name, demo.parse_port(text) == good[text], "parse_port('%s') gave %d" % [text, demo.parse_port(text)])
+	for text in ["", "abc", "0", "-5", "65536", "70000", "12x", " 80", "1.5", "99999999999999999999"]:
+		expect(name, demo.parse_port(text) == -1, "parse_port('%s') gave %d" % [text, demo.parse_port(text)])
+	var node: Node3D = demo.new()
+	node.apply_arguments(PackedStringArray(["--host=example.test", "--port=8123"]))
+	expect(name, node.host == "example.test" and node.port == 8123 and node.port_error == "", "good arguments: %s %d '%s'" % [node.host, node.port, node.port_error])
+	node.apply_arguments(PackedStringArray(["--port=abc"]))
+	expect(name, node.port_error.contains("abc"), "the error does not show the value: '%s'" % node.port_error)
+	# No try, no signal and nothing scheduled.
+	node._try_to_connect()
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the client tried to connect with a bad port")
+	expect(name, node.retry_at == -1 and node.attempt == 0, "a retry was scheduled with a bad port: %d, %d" % [node.retry_at, node.attempt])
+	node.free()
+	finish(name, before)
+
+
+# The demo itself, as a node in the tree of the test, so that its handlers run for real. Its _ready reads --port= from the
+# command line of this script, which is the first example server: that server refuses the demo (its schema has a
+# second type), which is the refusal case. Then the node is pointed at the third server, which has the entities the
+# demo draws, and the drop is made the way the extension makes it: the client goes to disconnected and sends the
+# signal (a drop of the real server is checked in the checks above; here the signal is sent by hand so that it comes
+# when this script wants it).
+func check_demo_reconnects_after_a_drop_and_stops_when_it_should() -> void:
+	var name := "demo_reconnects_after_a_drop_and_stops_when_it_should"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null and has_functions(demo, ["_on_disconnected", "_on_rejected", "_try_to_connect", "_leave", "apply_arguments"]), "the demo script lacks its handlers"):
+		return
+	var node: Node3D = demo.new()
+	root.add_child(node)
+	# 1. A server that refuses is not tried again.
+	var refused: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.REJECTED, 10.0)
+	expect(name, refused, "the demo was not refused by the first server (state %d)" % node.client.get_state())
+	expect(name, node.retry_at == -1 and node.attempt == 0, "a retry is waiting after a refusal: %d, %d" % [node.retry_at, node.attempt])
+	node.client.emit_signal("disconnected")  # even a stray signal must not start a wait while the state is refused
+	expect(name, node.retry_at == -1, "a retry was scheduled in the state refused")
+	await pump([], func(): return false, 1.0)
+	expect(name, node.client.get_state() == TesseraClient.State.REJECTED and node.retry_at == -1, "the demo tried again after a refusal")
+	# 2. Connected to a server that takes it.
+	node.port = input_port
+	node._try_to_connect()
+	var joined: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.CONNECTED, 10.0)
+	if not expect(name, joined, "the demo did not connect to the player server (state %d)" % node.client.get_state()):
+		node.free()
+		return
+	expect(name, node.attempt == 0 and node.retry_at == -1, "a wait is left after connecting")
+	# 3. A drop that nobody asked for: the wait is scheduled, the try is not made inside the signal, and the try
+	# comes by itself later.
+	node.client.disconnect_from_server()
+	node.client.emit_signal("disconnected")
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the demo connected from inside the signal (state %d)" % node.client.get_state())
+	expect(name, node.attempt == 1, "attempt %d after the drop" % node.attempt)
+	var left: int = node.retry_at - Time.get_ticks_msec()
+	expect(name, node.retry_at >= 0 and left > 0 and left <= 650, "the first wait is %d ms, wanted 400 to 600" % left)
+	var back: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.CONNECTED, 6.0)
+	expect(name, back, "the demo did not come back (state %d)" % node.client.get_state())
+	expect(name, node.attempt == 0 and node.retry_at == -1, "a wait is left after coming back: %d, %d" % [node.attempt, node.retry_at])
+	# 4. Leaving on purpose: a wait that is already scheduled is dropped, and a later signal does not start one.
+	node.client.disconnect_from_server()
+	node.client.emit_signal("disconnected")
+	expect(name, node.retry_at >= 0, "no wait after the second drop")
+	node.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	expect(name, node.left_on_purpose and node.retry_at == -1, "closing the window left a wait: %d" % node.retry_at)
+	var attempts_before: int = node.attempt
+	node.client.emit_signal("disconnected")
+	expect(name, node.retry_at == -1 and node.attempt == attempts_before, "a wait was scheduled after the demo left on purpose")
+	await pump([], func(): return false, 1.5)
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the demo connected again after it left on purpose (state %d)" % node.client.get_state())
+	node.free()
+	# 5. A try that fails at once (no signal comes with it) still schedules the next one, and the next ones come.
+	var failing: Node3D = demo.new()
+	root.add_child(failing)
+	await pump([], func(): return failing.client.get_state() == TesseraClient.State.REJECTED, 10.0)
+	failing.client.disconnect_from_server()
+	failing.client.schema = TesseraSchema.new()  # connect_to answers an error at once for an empty schema
+	failing._try_to_connect()
+	expect(name, failing.retry_at >= 0 and failing.attempt == 1, "no wait after a try that failed at once: %d, %d" % [failing.retry_at, failing.attempt])
+	await pump([], func(): return failing.attempt >= 2, 4.0)
+	expect(name, failing.attempt >= 2, "the next try did not come: attempt %d" % failing.attempt)
+	failing.free()
+	finish(name, before)
+
+
+# ----- coming back after a drop -----
+# What the demo counts on when it tries again: the same client connects once more after a drop, as a new player,
+# with the interpolation still set and no prediction until the game sets it again.
+
+func check_the_same_client_connects_again_and_again() -> void:
+	var name := "the_same_client_connects_again_and_again"
+	var before := failures
+	var client := make_player_client()
+	var seen := {"connected": 0, "disconnected": 0}
+	client.connected.connect(func(): seen["connected"] += 1)
+	client.disconnected.connect(func(): seen["disconnected"] += 1)
+	# Set once, before the first connection: it has to last through all of them.
+	expect(name, client.set_interpolation() == OK, "set_interpolation failed: " + client.get_last_error())
+	var previous_entity := -1
+	for cycle in 3:
+		var label := "%s (round %d)" % [name, cycle + 1]
+		expect(label, client.connect_to("127.0.0.1", input_port) == OK, "connect_to failed: " + client.get_last_error())
+		expect(label, not client.is_predicting(), "predicting before it was set again")
+		expect(label, client.get_interpolation_stats()["state"] == "waiting", "interpolation: %s" % str(client.get_interpolation_stats()))
+		var ready: bool = await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED and find_own_entity(client) != -1, 10.0)
+		if not expect(label, ready, "state %d, own entity %d" % [client.get_state(), find_own_entity(client)]):
+			client.disconnect_from_server()
+			continue
+		var own := find_own_entity(client)
+		expect(label, client.get_connection_id() >= 0, "connection id %d" % client.get_connection_id())
+		expect(label, client.get_property(own, "owner") == client.get_connection_id(), "the owner of the entity is not this connection")
+		# The number of the connection can be one an earlier connection had; the entity is a new one.
+		expect(label, own != previous_entity, "the entity of the round before came back")
+		previous_entity = own
+		expect(label, not client.is_predicting(), "predicting before set_prediction")
+		if await start_prediction(client, make_rule(), label):
+			var running: bool = await pump([client], func(): return client.get_interpolation_stats()["state"] == "running", 5.0)
+			var stats: Dictionary = client.get_interpolation_stats()
+			expect(label, running, "interpolation: %s" % str(stats))
+			expect(label, stats["delay_ticks"] == 2 and stats["snap_distance"] == 2.5, "interpolation settings: %s" % str(stats))
+		client.disconnect_from_server()
+		expect(label, client.get_entities().size() == 0, "entities after disconnect_from_server")
+		expect(label, client.get_connection_id() == -1, "a connection id after disconnect_from_server")
+		expect(label, not client.is_predicting(), "still predicting after disconnect_from_server")
+		expect(label, client.get_prediction_stats()["state"] == "off", "prediction: %s" % str(client.get_prediction_stats()))
+	expect(name, seen["connected"] == 3, "connected was emitted %d times" % seen["connected"])
+	expect(name, seen["disconnected"] == 0, "disconnected was emitted %d times for drops the game asked for" % seen["disconnected"])
+	finish(name, before)
+
+
+# The client of the check that stopped the second server comes back when the script says START_SERVER (the runner
+# starts a new server on the same port), with the waits of the demo.
+func check_the_same_client_returns_after_the_server_restarts(client: TesseraClient) -> void:
+	var name := "the_same_client_returns_after_the_server_restarts"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null and has_functions(demo, ["reconnect_delay"]), "the demo script is not in the test project"):
+		return
+	if not expect(name, client != null and client.get_state() == TesseraClient.State.DISCONNECTED, "the client of the server that went away is not disconnected"):
+		return
+	var seen := {"connected": 0, "disconnected": 0, "removed": 0}
+	client.connected.connect(func(): seen["connected"] += 1)
+	client.disconnected.connect(func(): seen["disconnected"] += 1)
+	client.entity_removed.connect(func(_id): seen["removed"] += 1)
+	expect(name, client.set_interpolation() == OK, "set_interpolation failed: " + client.get_last_error())
+	print("START_SERVER")
+	var attempt := 1
+	var tries := 0
+	var back := false
+	while attempt <= 4 and not back:
+		await pump([client], func(): return false, demo.reconnect_delay(attempt, 0.5))
+		if not expect(name, client.connect_to("127.0.0.1", doomed_port) == OK, "connect_to failed: " + client.get_last_error()):
+			break
+		tries += 1
+		await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED or client.get_state() == TesseraClient.State.DISCONNECTED, 6.0)
+		back = client.get_state() == TesseraClient.State.CONNECTED
+		if not back:
+			attempt += 1
+	print("the client came back after ", tries, " attempt(s)")
+	if not expect(name, back, "did not come back in 4 attempts"):
+		client.disconnect_from_server()
+		return
+	var arrived: bool = await pump([client], func(): return client.get_entities().size() == ENTITY_COUNT and client.get_interpolation_stats()["state"] == "running", 10.0)
+	expect(name, arrived, "%d entities, interpolation %s" % [client.get_entities().size(), str(client.get_interpolation_stats())])
+	expect(name, seen["connected"] == 1, "connected was emitted %d times" % seen["connected"])
+	expect(name, seen["removed"] == 0, "entity_removed was emitted %d times while coming back" % seen["removed"])
+	# An attempt that fails gives a disconnected signal, which is what the demo waits for to try again.
+	expect(name, seen["disconnected"] <= tries - 1, "disconnected was emitted %d times for %d attempts" % [seen["disconnected"], tries])
+	expect(name, client.get_connection_id() >= 0, "connection id %d" % client.get_connection_id())
+	var stats: Dictionary = client.get_interpolation_stats()
+	expect(name, stats["delay_ticks"] == 2, "interpolation settings: %s" % str(stats))
+	var inside := true
+	for id in client.get_entities():
+		var position = client.get_property(id, "position")
+		inside = inside and position is Vector3 and within_world(position)
+	expect(name, inside, "a value outside the world")
+	client.disconnect_from_server()
 	finish(name, before)
