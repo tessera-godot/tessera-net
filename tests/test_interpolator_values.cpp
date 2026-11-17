@@ -399,11 +399,11 @@ TESSERA_TEST(with_two_position_properties_the_distance_is_the_combined_one) {
         float z2[kPageSlots];
     };
     ReplicationSchema two;
-    two.AddType(0, {PropertyDescriptor::Position(TESSERA_COLUMN(TwoColumns, x), TESSERA_COLUMN(TwoColumns, y),
-                                                 TESSERA_COLUMN(TwoColumns, z), 0.01f, 10000.0f),
-                    PropertyDescriptor::Position(TESSERA_COLUMN(TwoColumns, x2),
-                                                 TESSERA_COLUMN(TwoColumns, y2),
-                                                 TESSERA_COLUMN(TwoColumns, z2), 0.01f, 10000.0f)});
+    two.AddType(0,
+                {PropertyDescriptor::Position(TESSERA_COLUMN(TwoColumns, x), TESSERA_COLUMN(TwoColumns, y),
+                                              TESSERA_COLUMN(TwoColumns, z), 0.01f, 10000.0f),
+                 PropertyDescriptor::Position(TESSERA_COLUMN(TwoColumns, x2), TESSERA_COLUMN(TwoColumns, y2),
+                                              TESSERA_COLUMN(TwoColumns, z2), 0.01f, 10000.0f)});
     const TypeSchema* type = two.Find(0);
     auto make = [&](float first, float second) {
         auto columns = std::make_unique<TwoColumns>();

@@ -28,12 +28,11 @@ constexpr uint32_t kShard = 3; // not 0, so a server that ignored its shard id w
 // The example server and a client of it, with the server on a thread of its own as a real program has it.
 struct Running {
     Running(uint32_t entities, bool walking)
-        : game(entities, walking), transport(Listen()),
-          log(server::LogLevel::Info,
-              [this](const std::string& line) {
-                  std::lock_guard<std::mutex> lock(lines_mutex);
-                  lines.push_back(line);
-              }),
+        : game(entities, walking), transport(Listen()), log(server::LogLevel::Info,
+                                                            [this](const std::string& line) {
+                                                                std::lock_guard<std::mutex> lock(lines_mutex);
+                                                                lines.push_back(line);
+                                                            }),
           host(Config(), game, transport, log, [this] { transport.Flush(); }),
           client_transport(Dial(transport.Port())), client(client_transport, *game.DescribeWorld().schema) {
         runner = std::thread([this] { code = host.Run(); });

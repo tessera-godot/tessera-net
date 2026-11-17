@@ -191,8 +191,8 @@ struct Player {
     World& world;
     ClientReplica& client;
     EntityId entity;
-    std::vector<double> errors;      // the error of each correction since `Settle`
-    std::vector<uint64_t> snapped;   // 1 for each correction that jumped
+    std::vector<double> errors;    // the error of each correction since `Settle`
+    std::vector<uint64_t> snapped; // 1 for each correction that jumped
     uint64_t seen_corrections = 0;
     uint64_t seen_snaps = 0;
     bool ever_above_snap_without_jump = false;

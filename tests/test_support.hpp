@@ -30,17 +30,17 @@ struct Registrar {
     }
 };
 
-}  // namespace tessera_test
+} // namespace tessera_test
 
-#define TESSERA_TEST(test_name)                                                        \
-    static void test_name();                                                           \
-    static const tessera_test::Registrar registrar_##test_name{#test_name, test_name}; \
+#define TESSERA_TEST(test_name)                                                                              \
+    static void test_name();                                                                                 \
+    static const tessera_test::Registrar registrar_##test_name{#test_name, test_name};                       \
     static void test_name()
 
-#define TESSERA_CHECK(condition)                                                 \
-    do {                                                                         \
-        if (!(condition)) {                                                      \
-            std::printf("  FAILED %s:%d: %s\n", __FILE__, __LINE__, #condition); \
-            ++tessera_test::FailureCount();                                      \
-        }                                                                        \
+#define TESSERA_CHECK(condition)                                                                             \
+    do {                                                                                                     \
+        if (!(condition)) {                                                                                  \
+            std::printf("  FAILED %s:%d: %s\n", __FILE__, __LINE__, #condition);                             \
+            ++tessera_test::FailureCount();                                                                  \
+        }                                                                                                    \
     } while (false)

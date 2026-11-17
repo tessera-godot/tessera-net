@@ -187,8 +187,8 @@ TESSERA_TEST(a_state_buffer_confirming_the_inputs_up_to_n_replays_only_the_later
     }
     TESSERA_CHECK(Near(s.X(), 15.0));
     s.seen->calls = 0;
-    s.Server(8.0, 2); // the server used inputs 1 and 2 and stands at 8
-    TESSERA_CHECK(s.seen->calls == 2);          // only 3 and 4 were applied again
+    s.Server(8.0, 2);                            // the server used inputs 1 and 2 and stands at 8
+    TESSERA_CHECK(s.seen->calls == 2);           // only 3 and 4 were applied again
     TESSERA_CHECK(Near(s.X(), 8.0 + 3.0 + 4.0)); // and from the server's state
     TESSERA_CHECK(s.h.client.PredictionPending() == 2);
     TESSERA_CHECK(s.h.client.PredictionInfo().reconciliations == 2);

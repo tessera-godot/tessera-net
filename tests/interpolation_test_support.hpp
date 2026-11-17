@@ -27,8 +27,8 @@ inline constexpr double kTwoPi = 6.283185307179586476925286766559;
 
 /// The words of one quantized state of the mob type.
 inline std::vector<uint32_t> MobState(const ReplicationSchema& schema, double x, double y = 0.0,
-                                      double z = 0.0, float yaw = 0.0f, int32_t health = 0,
-                                      uint8_t state = 0, uint16_t flags = 0) {
+                                      double z = 0.0, float yaw = 0.0f, int32_t health = 0, uint8_t state = 0,
+                                      uint16_t flags = 0) {
     TestColumns columns{};
     columns.x[0] = static_cast<float>(x);
     columns.y[0] = static_cast<float>(y);

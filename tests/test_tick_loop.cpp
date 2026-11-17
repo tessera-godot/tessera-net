@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/tick_loop.hpp"
+#include "test_support.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -6,10 +10,6 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-
-#include "tessera/net/job_system.hpp"
-#include "tessera/net/tick_loop.hpp"
-#include "test_support.hpp"
 
 using tessera::net::ILoadPolicy;
 using tessera::net::Phase;
@@ -40,7 +40,7 @@ public:
     double last_budget_ms = 0.0;
 };
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(phases_run_in_documented_order) {
     ThreadPoolJobSystem jobs(1);
@@ -51,7 +51,7 @@ TESSERA_TEST(phases_run_in_documented_order) {
     }
     loop.RunTick();
     TESSERA_CHECK((order == std::vector<Phase>{Phase::Input, Phase::Simulate, Phase::Structure, Phase::Grid,
-                                                Phase::Network}));
+                                               Phase::Network}));
 }
 
 TESSERA_TEST(phase_without_handler_is_skipped) {
@@ -141,13 +141,13 @@ TESSERA_TEST(run_stops_when_flag_set) {
 
 TESSERA_TEST(overrun_does_not_burst) {
     ThreadPoolJobSystem jobs(1);
-    TickLoop loop(Rate(100.0), jobs);  // 10 ms period
+    TickLoop loop(Rate(100.0), jobs); // 10 ms period
     std::atomic<bool> stop{false};
     std::vector<Clock::time_point> starts;
     loop.SetPhaseHandler(Phase::Input, [&](PhaseContext& context) {
         starts.push_back(Clock::now());
         if (context.tick == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));  // far over the budget
+            std::this_thread::sleep_for(std::chrono::milliseconds(50)); // far over the budget
         }
         if (context.tick == 11) {
             stop.store(true);

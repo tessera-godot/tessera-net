@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "tessera/net/entity_table.hpp"
+#include "test_support.hpp"
+
 #include <cstdint>
 #include <new>
 #include <set>
 #include <stdexcept>
 #include <vector>
-
-#include "tessera/net/entity_table.hpp"
-#include "test_support.hpp"
 
 using tessera::net::EntityId;
 using tessera::net::EntityTable;
@@ -29,7 +29,7 @@ TableConfig SmallConfig(uint32_t max_slots) {
     return config;
 }
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(create_returns_distinct_valid_ids) {
     TestTable table(TableConfig{});
@@ -127,9 +127,9 @@ TESSERA_TEST(slot_is_retired_at_generation_limit) {
         }
     }
     TESSERA_CHECK(table.RetiredSlotCount() == 1);
-    TESSERA_CHECK(id.index() != retired_index);  // the next creation used the other slot
+    TESSERA_CHECK(id.index() != retired_index); // the next creation used the other slot
     const EntityId another = table.Create();
-    TESSERA_CHECK(another.IsNull());  // only one live slot is left in a table limited to 2 slots
+    TESSERA_CHECK(another.IsNull()); // only one live slot is left in a table limited to 2 slots
 }
 
 TESSERA_TEST(retired_slot_does_not_count_as_alive) {
@@ -150,7 +150,7 @@ TESSERA_TEST(mark_dirty_then_consume_visits_each_once) {
     const EntityId c = table.Create();
     table.MarkDirty(a);
     table.MarkDirty(c);
-    table.MarkDirty(c);  // marking twice is the same as once
+    table.MarkDirty(c); // marking twice is the same as once
     (void)b;
     std::vector<uint32_t> visited;
     const size_t count = table.ConsumeDirtyInPage(0, [&](uint32_t slot) { visited.push_back(slot); });
@@ -181,7 +181,7 @@ TESSERA_TEST(per_slot_overhead_is_at_most_eight_bytes) {
     // Everything a page stores besides the user's columns (generation, alive and dirty bits), per slot.
     constexpr size_t overhead = (TestTable::PageBytes() - sizeof(TestColumns)) / kPageSlots;
     static_assert(overhead <= 8);
-    static_assert(overhead >= 4);  // at least the 32-bit generation
+    static_assert(overhead >= 4); // at least the 32-bit generation
     TESSERA_CHECK(overhead == (TestTable::PageBytes() - sizeof(TestColumns)) / kPageSlots);
 }
 
@@ -199,7 +199,7 @@ TESSERA_TEST(invalid_table_config_throws) {
         }
     }
     TESSERA_CHECK(thrown == 2);
-    TableConfig edge;  // the largest valid values are accepted
+    TableConfig edge; // the largest valid values are accepted
     edge.type = EntityId::kMaxType;
     edge.shard = EntityId::kMaxShard;
     TestTable table(edge);
@@ -233,7 +233,7 @@ struct FailingColumns {
     float x[kPageSlots];
 };
 
-}  // namespace
+} // namespace
 
 TESSERA_TEST(failed_page_allocation_leaves_the_table_consistent) {
     EntityTable<FailingColumns> table(TableConfig{});

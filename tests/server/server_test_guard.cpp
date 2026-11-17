@@ -6,10 +6,9 @@
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-
 #include <crtdbg.h>
 #include <cstdlib>
+#include <windows.h>
 
 namespace {
 

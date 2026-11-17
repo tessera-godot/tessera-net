@@ -186,9 +186,9 @@ TESSERA_TEST(identical_outputs_with_1_and_8_workers) {
     TESSERA_CHECK(run(1) == run(8));
 }
 
-// Many entities change in one tick and every one of them has to be marked on every connection that sees it, even
-// when the workers that mark them share the words of bits (the compact ids are scattered, as the relevancy
-// engine hands them out in practice).
+// Many entities change in one tick and every one of them has to be marked on every connection that sees it,
+// even when the workers that mark them share the words of bits (the compact ids are scattered, as the
+// relevancy engine hands them out in practice).
 TESSERA_TEST(marking_from_eight_workers_loses_no_entity) {
     constexpr uint32_t kEntities = 5000;
     constexpr uint32_t kConnections = 2;

@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Integration and property tests: the table, grid, command buffers, jobs and tick loop working together.
+#include "simulation_harness.hpp"
+#include "tessera/net/command_buffer.hpp"
+#include "tessera/net/entity_table.hpp"
+#include "tessera/net/job_system.hpp"
+#include "tessera/net/spatial_grid.hpp"
+#include "tessera/net/tick_loop.hpp"
+#include "test_support.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <random>
@@ -7,22 +15,14 @@
 #include <unordered_set>
 #include <vector>
 
-#include "tessera/net/command_buffer.hpp"
-#include "tessera/net/entity_table.hpp"
-#include "tessera/net/job_system.hpp"
-#include "tessera/net/spatial_grid.hpp"
-#include "tessera/net/tick_loop.hpp"
-#include "simulation_harness.hpp"
-#include "test_support.hpp"
-
 using namespace tessera::net;
 using namespace tessera::net::harness;
 
 TESSERA_TEST(random_operations_match_reference_model) {
     Table table(TableConfig{});
-    std::unordered_set<uint64_t> model;  // raw ids that should be alive
+    std::unordered_set<uint64_t> model; // raw ids that should be alive
     std::vector<EntityId> alive;
-    std::vector<EntityId> history;  // every id ever issued, to probe stale ids
+    std::vector<EntityId> history; // every id ever issued, to probe stale ids
     std::mt19937 rng(12345);
     int mismatches = 0;
     for (int op = 0; op < 200000; ++op) {
@@ -58,7 +58,7 @@ TESSERA_TEST(random_operations_match_reference_model) {
 TESSERA_TEST(tick_pipeline_applies_structural_commands_in_phase_three) {
     Simulation simulation(4);
     simulation.RunTicks(1);
-    TESSERA_CHECK(simulation.alive_end_of_simulate_ == 0);  // queued, not applied yet
+    TESSERA_CHECK(simulation.alive_end_of_simulate_ == 0); // queued, not applied yet
     TESSERA_CHECK(simulation.alive_end_of_structure_ == Simulation::kItemsPerTick);
 }
 

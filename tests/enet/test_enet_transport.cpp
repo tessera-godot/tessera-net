@@ -335,8 +335,8 @@ TESSERA_TEST(enet_connection_ids_are_never_reused) {
         std::vector<TransportEvent> client_events;
         EnetClientTransport client(EnetClientConfig{"127.0.0.1", server.Port(), 5000});
         const size_t first = server_events.size();
-        const bool connected = PumpUntil(
-            server, client, server_events, client_events, std::chrono::seconds(5), [&] {
+        const bool connected =
+            PumpUntil(server, client, server_events, client_events, std::chrono::seconds(5), [&] {
                 return CountKind(client_events, TransportEvent::Kind::Connected) == 1 &&
                        CountKind(server_events, TransportEvent::Kind::Connected) ==
                            static_cast<size_t>(round + 1);

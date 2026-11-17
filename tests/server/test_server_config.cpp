@@ -113,9 +113,9 @@ TESSERA_TEST(config_argument_overrides_file_and_keeps_the_other_keys) {
     ServerConfig from_file = ParseConfigText("port=9000\nmax_players=64\nshard_id=3\n");
     const std::vector<std::string_view> args = {"--port=9100", "--log_level=warn"};
     const ServerConfig config = ParseArguments(args, from_file);
-    TESSERA_CHECK(config.port == 9100);       // the argument wins
-    TESSERA_CHECK(config.max_players == 64);  // the file's, untouched
-    TESSERA_CHECK(config.shard_id == 3);      // the file's, untouched
+    TESSERA_CHECK(config.port == 9100);      // the argument wins
+    TESSERA_CHECK(config.max_players == 64); // the file's, untouched
+    TESSERA_CHECK(config.shard_id == 3);     // the file's, untouched
     TESSERA_CHECK(config.log_level == LogLevel::Warn);
     TESSERA_CHECK(config.tick_rate_hz == 30); // the default, untouched
 }
