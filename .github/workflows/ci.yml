@@ -162,7 +162,7 @@ jobs:
       # A warning in our C++ code fails the build.
       CXXFLAGS: -Werror
       GODOT_VERSION: "4.7.2"
-      GODOT_SHA512: "9aa00f7a605200940bce3027a567b782f49bd8e940dd06ae9e987bd65aee1b1467edd56ed84fcdcbdd44354bf613bdbb4e5d2913e925850368e150c59ed54c65"
+      GODOT_SHA512: "0000000a605200940bce3027a567b782f49bd8e940dd06ae9e987bd65aee1b1467edd56ed84fcdcbdd44354bf613bdbb4e5d2913e925850368e150c59ed54c65"
     steps:
       - uses: actions/checkout@v7
         with:
