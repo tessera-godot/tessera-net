@@ -20,12 +20,37 @@ const INTERPOLATION_DELAY_TICKS := 2
 const INTERPOLATION_SNAP_DISTANCE := 2.5
 const OWN_COLOR := Color(0.2, 0.85, 0.3)
 const OTHER_PLAYER_COLOR := Color(0.95, 0.6, 0.15)
+# When the connection drops, the demo tries again: after 0.5 s, then 1 s, 2 s, 4 s, and every 5 s from then on.
+# Each wait is shifted by up to 20 % either way, so that many clients that dropped together do not all knock at
+# the same moment.
+const RECONNECT_FIRST_DELAY := 0.5
+const RECONNECT_MAX_DELAY := 5.0
+const RECONNECT_JITTER := 0.2
 
 var client := TesseraClient.new()
 var spheres := {}  # entity id -> MeshInstance3D
 var status := Label.new()
 var input_clock := 0.0
 var own_entity := -1  # the entity of this player, once the server has told us about it
+
+
+# How long to wait before attempt number `attempt` (1 is the first try after the connection dropped). The random
+# value comes from the caller, from 0 to 1, so that the same arguments always give the same wait.
+static func reconnect_delay(attempt: int, random_value: float) -> float:
+	var steps := clampi(attempt, 1, 30) - 1
+	var base := minf(RECONNECT_FIRST_DELAY * pow(2.0, steps), RECONNECT_MAX_DELAY)
+	return base * (1.0 + RECONNECT_JITTER * (2.0 * clampf(random_value, 0.0, 1.0) - 1.0))
+
+
+# The first line of the label while the demo waits to try again.
+static func reconnect_text(seconds_left: float, attempt: int) -> String:
+	return "reconnecting in %d s (attempt %d)" % [maxi(ceili(seconds_left), 1), maxi(attempt, 1)]
+
+
+# True if a connection that ended is worth trying again: it dropped, the demo did not ask for it, and the server
+# did not refuse it on purpose.
+static func wants_reconnect(state: int, left_on_purpose: bool) -> bool:
+	return state == TesseraClient.State.DISCONNECTED and not left_on_purpose
 
 
 func _ready() -> void:

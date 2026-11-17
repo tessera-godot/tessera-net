@@ -90,6 +90,8 @@ func run_all() -> void:
 	await check_the_own_entity_is_predicted_not_interpolated()
 	await check_two_clients_interpolate_independently()
 	await check_a_rule_that_calls_interpolation_functions_is_harmless()
+	check_demo_reconnect_delay_follows_the_schedule()
+	check_demo_reconnect_text_and_decision()
 
 
 func ok(check: String) -> void:
@@ -1405,4 +1407,99 @@ func check_a_rule_that_calls_interpolation_functions_is_harmless() -> void:
 		expect(name, a.get_interpolation_stats()["delay_ticks"] == 2, "stats: %s" % str(a.get_interpolation_stats()))
 	a.disconnect_from_server()
 	b.disconnect_from_server()
+	finish(name, before)
+
+
+# ----- the reconnect policy of the demo -----
+# The demo script (examples/godot-client-demo/main.gd) is copied into the test project as demo_main.gd. Only its
+# static functions are called here; the script is never made into a node.
+
+func demo_script() -> GDScript:
+	var script = load("res://demo_main.gd")
+	return script if script is GDScript else null
+
+
+# True if the script has all of these functions. Calling one that is missing stops the whole check with a script
+# error but does not count as a failure, so this is asked first.
+func has_functions(script: GDScript, names: Array) -> bool:
+	var found := []
+	for method in script.get_script_method_list():
+		found.append(method["name"])
+	for wanted in names:
+		if not found.has(wanted):
+			return false
+	return true
+
+
+func check_demo_reconnect_delay_follows_the_schedule() -> void:
+	var name := "demo_reconnect_delay_follows_the_schedule"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["reconnect_delay"]), "the demo script has no reconnect_delay"):
+		return
+	# With 0.5 as the random value the jitter is zero, so these are the plain steps.
+	var plain := {1: 0.5, 2: 1.0, 3: 2.0, 4: 4.0, 5: 5.0, 6: 5.0, 30: 5.0}
+	for attempt in plain:
+		var got: float = demo.reconnect_delay(attempt, 0.5)
+		expect(name, is_equal_approx(got, plain[attempt]), "attempt %d gave %f, wanted %f" % [attempt, got, plain[attempt]])
+	# The lowest and the highest the jitter can make of each step: 20 percent less and 20 percent more.
+	var lowest := [0.4, 0.8, 1.6, 3.2, 4.0]
+	var highest := [0.6, 1.2, 2.4, 4.8, 6.0]
+	for index in lowest.size():
+		var low: float = demo.reconnect_delay(index + 1, 0.0)
+		var high: float = demo.reconnect_delay(index + 1, 1.0)
+		expect(name, is_equal_approx(low, lowest[index]), "attempt %d with 0.0 gave %f, wanted %f" % [index + 1, low, lowest[index]])
+		expect(name, is_equal_approx(high, highest[index]), "attempt %d with 1.0 gave %f, wanted %f" % [index + 1, high, highest[index]])
+	expect(name, is_equal_approx(demo.reconnect_delay(100, 0.0), 4.0), "attempt 100 with 0.0")
+	expect(name, is_equal_approx(demo.reconnect_delay(2, 0.25), 0.9), "attempt 2 with 0.25 gave %f" % demo.reconnect_delay(2, 0.25))
+	# A random value outside 0 to 1 is cut to it, and an attempt below 1 counts as the first.
+	expect(name, is_equal_approx(demo.reconnect_delay(1, -3.0), demo.reconnect_delay(1, 0.0)), "a random value below 0")
+	expect(name, is_equal_approx(demo.reconnect_delay(1, 7.0), demo.reconnect_delay(1, 1.0)), "a random value above 1")
+	expect(name, is_equal_approx(demo.reconnect_delay(0, 0.5), 0.5), "attempt 0")
+	expect(name, is_equal_approx(demo.reconnect_delay(-4, 0.5), 0.5), "attempt -4")
+	expect(name, is_equal_approx(demo.reconnect_delay(1000000, 0.5), 5.0), "attempt 1000000")
+	# Later attempts never wait less, for the same random value.
+	for random_value in [0.0, 0.5, 1.0]:
+		for attempt in range(1, 12):
+			var now: float = demo.reconnect_delay(attempt, random_value)
+			var next: float = demo.reconnect_delay(attempt + 1, random_value)
+			expect(name, next >= now - 0.000001, "attempt %d waits %f and attempt %d only %f (random %f)" % [attempt, now, attempt + 1, next, random_value])
+	# Whatever the attempt and the random value, the wait stays between 0.4 and 6 seconds.
+	var out_of_bounds := 0
+	for attempt in range(1, 51):
+		for step in 11:
+			var seconds: float = demo.reconnect_delay(attempt, step / 10.0)
+			if seconds < 0.4 - 0.000001 or seconds > 6.0 + 0.000001:
+				out_of_bounds += 1
+	expect(name, out_of_bounds == 0, "%d waits were outside 0.4 to 6 seconds" % out_of_bounds)
+	# The same arguments give the same answer, and the random value is really used.
+	expect(name, demo.reconnect_delay(3, 0.37) == demo.reconnect_delay(3, 0.37), "two equal calls differ")
+	expect(name, demo.reconnect_delay(3, 0.0) < demo.reconnect_delay(3, 1.0), "the random value changes nothing")
+	finish(name, before)
+
+
+func check_demo_reconnect_text_and_decision() -> void:
+	var name := "demo_reconnect_text_and_decision"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null, "res://demo_main.gd was not found in the test project"):
+		return
+	if not expect(name, has_functions(demo, ["reconnect_text", "wants_reconnect"]), "the demo script lacks reconnect_text or wants_reconnect"):
+		return
+	var texts := [
+		[0.5, 1, "reconnecting in 1 s (attempt 1)"],
+		[4.2, 3, "reconnecting in 5 s (attempt 3)"],
+		[2.0, 2, "reconnecting in 2 s (attempt 2)"],
+		[0.0, 0, "reconnecting in 1 s (attempt 1)"],
+	]
+	for row in texts:
+		var got: String = demo.reconnect_text(row[0], row[1])
+		expect(name, got == row[2], "reconnect_text(%f, %d) gave '%s', wanted '%s'" % [row[0], row[1], got, row[2]])
+	# Only a connection that fell, when the demo did not ask for it, is worth trying again.
+	for state in [TesseraClient.State.DISCONNECTED, TesseraClient.State.CONNECTING, TesseraClient.State.HANDSHAKING, TesseraClient.State.CONNECTED, TesseraClient.State.REJECTED]:
+		var wanted: bool = state == TesseraClient.State.DISCONNECTED
+		expect(name, demo.wants_reconnect(state, false) == wanted, "wants_reconnect(%d, false) gave %s" % [state, str(demo.wants_reconnect(state, false))])
+		expect(name, demo.wants_reconnect(state, true) == false, "wants_reconnect(%d, true) gave true" % state)
 	finish(name, before)
