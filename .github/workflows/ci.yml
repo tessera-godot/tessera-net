@@ -15,6 +15,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The same check you can run locally (see CONTRIBUTING.md): every C++ file git tracks has to be formatted by the
+  # exact clang-format version in tools/requirements-format.txt. It is installed into a virtual environment, from
+  # the files whose hashes are pinned there.
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install clang-format
+        run: |
+          python3 -m venv "$RUNNER_TEMP/format-venv"
+          "$RUNNER_TEMP/format-venv/bin/python" -m pip install --require-hashes -r tools/requirements-format.txt
+
+      - name: Check the formatting
+        run: CLANG_FORMAT="$RUNNER_TEMP/format-venv/bin/clang-format" python3 -I tools/check_format.py
+
   linux:
     name: Linux, ${{ matrix.compiler }}, ${{ matrix.config }}, ${{ matrix.mode }}
     runs-on: ubuntu-24.04
