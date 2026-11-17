@@ -108,11 +108,11 @@ TESSERA_TEST(check_builds_the_schema_the_core_builds) {
     }
     TESSERA_CHECK(result.hash == result.schema->Hash());
     const tessera::net::TypeSchema* type = result.schema->Find(1);
-    TESSERA_CHECK(type != nullptr && type->properties.size() == 15 && type->words == 28);
+    TESSERA_CHECK(type != nullptr && type->properties.size() == 16 && type->words == 30);
     TESSERA_CHECK(result.schema->Find(255) != nullptr && result.schema->Find(255)->words == 2);
     TESSERA_CHECK(result.schema->Find(0) == nullptr && result.schema->Find(2) == nullptr);
-    TESSERA_CHECK(result.schema->MaxWords() == 28);
-    if (type == nullptr || type->properties.size() != 15) {
+    TESSERA_CHECK(result.schema->MaxWords() == 30);
+    if (type == nullptr || type->properties.size() != 16) {
         return;
     }
     using tessera::net::PropertyKind;
@@ -123,11 +123,12 @@ TESSERA_TEST(check_builds_the_schema_the_core_builds) {
     TESSERA_CHECK(p[5].kind == PropertyKind::Integer && p[5].max_value == 4294967296ll);
     TESSERA_CHECK(p[6].is_signed && p[6].min_value == -128 && p[6].max_value == 127);
     TESSERA_CHECK(p[9].is_signed && p[9].min_value == -2147483649ll && p[9].max_value == 0);
-    TESSERA_CHECK(p[10].kind == PropertyKind::Bits && p[10].bits == 1);
-    TESSERA_CHECK(p[11].kind == PropertyKind::Bits && p[11].bits == 8);
-    TESSERA_CHECK(p[12].kind == PropertyKind::Bits && p[12].bits == 40);
-    TESSERA_CHECK(p[13].kind == PropertyKind::Enum && p[13].enum_count == 5);
-    TESSERA_CHECK(p[14].kind == PropertyKind::Enum && p[14].enum_count == 300);
+    TESSERA_CHECK(p[10].is_signed && p[10].min_value == INT64_MIN && p[10].max_value == INT64_MAX);
+    TESSERA_CHECK(p[11].kind == PropertyKind::Bits && p[11].bits == 1);
+    TESSERA_CHECK(p[12].kind == PropertyKind::Bits && p[12].bits == 8);
+    TESSERA_CHECK(p[13].kind == PropertyKind::Bits && p[13].bits == 40);
+    TESSERA_CHECK(p[14].kind == PropertyKind::Enum && p[14].enum_count == 5);
+    TESSERA_CHECK(p[15].kind == PropertyKind::Enum && p[15].enum_count == 300);
 }
 
 TESSERA_TEST(check_hash_equals_hand_written_example_schema_with_players_and_without) {

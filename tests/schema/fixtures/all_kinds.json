@@ -16,6 +16,7 @@
         {"name": "s16", "kind": "integer", "min": -32768, "max": 32767, "signed": true},
         {"name": "s32", "kind": "integer", "min": -2147483648, "max": 2147483647, "signed": true},
         {"name": "s64", "kind": "integer", "min": -2147483649, "max": 0, "signed": true},
+        {"name": "extreme", "kind": "integer", "min": -9223372036854775808, "max": 9223372036854775807, "signed": true},
         {"name": "alive", "kind": "flag"},
         {"name": "mask8", "kind": "mask", "bits": 8},
         {"name": "mask40", "kind": "mask", "bits": 40, "note": "Forty flags."},

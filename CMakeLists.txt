@@ -63,13 +63,14 @@ endif()
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
 
+# The schema tool comes before the tests and the server, which both use what it makes.
+if(TESSERA_WITH_SCHEMA_TOOL)
+    add_subdirectory(schema)
+endif()
+
 if(TESSERA_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
-endif()
-
-if(TESSERA_WITH_SCHEMA_TOOL)
-    add_subdirectory(schema)
 endif()
 
 if(TESSERA_BUILD_SERVER)
