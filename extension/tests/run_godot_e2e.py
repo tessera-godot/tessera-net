@@ -24,7 +24,7 @@ RUN_LIMIT = 90.0
 SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
 # A run with fewer `OK` lines than this has skipped checks, whatever it printed at the end. Raise it when checks are added.
-MIN_OK_CHECKS = 43
+MIN_OK_CHECKS = 46
 WINDOWS = os.name == "nt"
 
 

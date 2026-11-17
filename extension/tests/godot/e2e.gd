@@ -96,6 +96,7 @@ func run_all() -> void:
 	check_demo_reconnect_text_and_decision()
 	check_demo_retry_deadline_counts_from_the_end_of_the_try()
 	check_demo_port_argument_is_checked()
+	await check_demo_reconnects_after_a_drop_and_stops_when_it_should()
 
 
 func ok(check: String) -> void:
@@ -1571,6 +1572,73 @@ func check_demo_port_argument_is_checked() -> void:
 	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the client tried to connect with a bad port")
 	expect(name, node.retry_at == -1 and node.attempt == 0, "a retry was scheduled with a bad port: %d, %d" % [node.retry_at, node.attempt])
 	node.free()
+	finish(name, before)
+
+
+# The demo itself, as a node in the tree of the test, so that its handlers run for real. Its _ready reads --port= from the
+# command line of this script, which is the first example server: that server refuses the demo (its schema has a
+# second type), which is the refusal case. Then the node is pointed at the third server, which has the entities the
+# demo draws, and the drop is made the way the extension makes it: the client goes to disconnected and sends the
+# signal (a drop of the real server is checked in the checks above; here the signal is sent by hand so that it comes
+# when this script wants it).
+func check_demo_reconnects_after_a_drop_and_stops_when_it_should() -> void:
+	var name := "demo_reconnects_after_a_drop_and_stops_when_it_should"
+	var before := failures
+	var demo := demo_script()
+	if not expect(name, demo != null and has_functions(demo, ["_on_disconnected", "_on_rejected", "_try_to_connect", "_leave", "apply_arguments"]), "the demo script lacks its handlers"):
+		return
+	var node: Node3D = demo.new()
+	root.add_child(node)
+	# 1. A server that refuses is not tried again.
+	var refused: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.REJECTED, 10.0)
+	expect(name, refused, "the demo was not refused by the first server (state %d)" % node.client.get_state())
+	expect(name, node.retry_at == -1 and node.attempt == 0, "a retry is waiting after a refusal: %d, %d" % [node.retry_at, node.attempt])
+	node.client.emit_signal("disconnected")  # even a stray signal must not start a wait while the state is refused
+	expect(name, node.retry_at == -1, "a retry was scheduled in the state refused")
+	await pump([], func(): return false, 1.0)
+	expect(name, node.client.get_state() == TesseraClient.State.REJECTED and node.retry_at == -1, "the demo tried again after a refusal")
+	# 2. Connected to a server that takes it.
+	node.port = input_port
+	node._try_to_connect()
+	var joined: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.CONNECTED, 10.0)
+	if not expect(name, joined, "the demo did not connect to the player server (state %d)" % node.client.get_state()):
+		node.free()
+		return
+	expect(name, node.attempt == 0 and node.retry_at == -1, "a wait is left after connecting")
+	# 3. A drop that nobody asked for: the wait is scheduled, the try is not made inside the signal, and the try
+	# comes by itself later.
+	node.client.disconnect_from_server()
+	node.client.emit_signal("disconnected")
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the demo connected from inside the signal (state %d)" % node.client.get_state())
+	expect(name, node.attempt == 1, "attempt %d after the drop" % node.attempt)
+	var left: int = node.retry_at - Time.get_ticks_msec()
+	expect(name, node.retry_at >= 0 and left > 0 and left <= 650, "the first wait is %d ms, wanted 400 to 600" % left)
+	var back: bool = await pump([], func(): return node.client.get_state() == TesseraClient.State.CONNECTED, 6.0)
+	expect(name, back, "the demo did not come back (state %d)" % node.client.get_state())
+	expect(name, node.attempt == 0 and node.retry_at == -1, "a wait is left after coming back: %d, %d" % [node.attempt, node.retry_at])
+	# 4. Leaving on purpose: a wait that is already scheduled is dropped, and a later signal does not start one.
+	node.client.disconnect_from_server()
+	node.client.emit_signal("disconnected")
+	expect(name, node.retry_at >= 0, "no wait after the second drop")
+	node.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	expect(name, node.left_on_purpose and node.retry_at == -1, "closing the window left a wait: %d" % node.retry_at)
+	var attempts_before: int = node.attempt
+	node.client.emit_signal("disconnected")
+	expect(name, node.retry_at == -1 and node.attempt == attempts_before, "a wait was scheduled after the demo left on purpose")
+	await pump([], func(): return false, 1.5)
+	expect(name, node.client.get_state() == TesseraClient.State.DISCONNECTED, "the demo connected again after it left on purpose (state %d)" % node.client.get_state())
+	node.free()
+	# 5. A try that fails at once (no signal comes with it) still schedules the next one, and the next ones come.
+	var failing: Node3D = demo.new()
+	root.add_child(failing)
+	await pump([], func(): return failing.client.get_state() == TesseraClient.State.REJECTED, 10.0)
+	failing.client.disconnect_from_server()
+	failing.client.schema = TesseraSchema.new()  # connect_to answers an error at once for an empty schema
+	failing._try_to_connect()
+	expect(name, failing.retry_at >= 0 and failing.attempt == 1, "no wait after a try that failed at once: %d, %d" % [failing.retry_at, failing.attempt])
+	await pump([], func(): return failing.attempt >= 2, 4.0)
+	expect(name, failing.attempt >= 2, "the next try did not come: attempt %d" % failing.attempt)
+	failing.free()
 	finish(name, before)
 
 
