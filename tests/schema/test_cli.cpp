@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <span>
 #include <sstream>
 #include <string>
@@ -77,6 +78,9 @@ TESSERA_TEST(unknown_command_and_unknown_option_return_2) {
         {"check", "--bogus"},
         {"hash"},
         {"hash", "--bogus"},
+        // A flag is not a value: --cpp with nothing after it must not take --namespace as the path.
+        {"generate", "--cpp", "--namespace", "x", "schema.json"},
+        {"generate", "--cpp", "out.hpp", "--namespace", "--cpp", "schema.json"},
     };
     for (const std::vector<std::string>& args : wrong) {
         const Outcome result = Call(args);
@@ -89,6 +93,8 @@ TESSERA_TEST(unknown_command_and_unknown_option_return_2) {
     }
     TESSERA_CHECK(Has(Call({"frobnicate"}).err, "unknown command frobnicate"));
     TESSERA_CHECK(Has(Call({"check", "--bogus"}).err, "unknown option --bogus"));
+    TESSERA_CHECK(Has(Call({"generate", "--cpp", "--namespace", "x", "schema.json"}).err, "--cpp needs a value"));
+    TESSERA_CHECK(Has(Call({"generate", "--cpp", "o.hpp", "--namespace", "--cpp", "schema.json"}).err, "--namespace needs a value"));
 }
 
 TESSERA_TEST(check_prints_ok_with_counts_and_hash) {
@@ -253,12 +259,11 @@ TESSERA_TEST(missing_or_unreadable_input_returns_3_with_a_clear_message) {
     const std::string missing = dir.File("nothing_here.json");
     const Outcome absent = Call({"check", missing});
     TESSERA_CHECK(absent.code == 3 && absent.out.empty());
-    TESSERA_CHECK(absent.err ==
-                  missing + ": error: cannot read this file (it is missing, or it is not a file)\n");
+    TESSERA_CHECK(absent.err == missing + ": error: this file does not exist\n");
     // A folder where a file should be.
     fs::create_directories(dir.Path() / "a_folder");
     const Outcome folder = Call({"check", dir.File("a_folder")});
-    TESSERA_CHECK(folder.code == 3 && Has(folder.err, "cannot read this file"));
+    TESSERA_CHECK(folder.code == 3 && Has(folder.err, "is a folder, not a file"));
     // The same for hash and generate, and nothing is written.
     TESSERA_CHECK(Call({"hash", missing}).code == 3);
     const Outcome gen = Call({"generate", "--cpp", dir.File("o.hpp"), missing});
@@ -271,7 +276,46 @@ TESSERA_TEST(missing_or_unreadable_input_returns_3_with_a_clear_message) {
     // An output that cannot be written (a folder is in the way).
     fs::create_directories(dir.Path() / "taken");
     const Outcome blocked = Call({"generate", "--cpp", dir.File("taken"), ExampleFile()});
-    TESSERA_CHECK(blocked.code == 3 && Has(blocked.err, "cannot write this file"));
+    TESSERA_CHECK(blocked.code == 3 && Has(blocked.err, "cannot replace this file"));
+}
+
+TESSERA_TEST(generate_writes_through_a_temporary_file_and_leaves_nothing_behind) {
+    TempDir dir;
+    const std::string out = dir.File("out/example.hpp");
+    TESSERA_CHECK(Call({"generate", "--cpp", out, ExampleFile()}).code == 0);
+    // Only the header is in the folder: the temporary file is gone.
+    size_t files = 0;
+    for (const auto& entry : fs::directory_iterator(dir.Path() / "out")) {
+        (void)entry;
+        ++files;
+    }
+    TESSERA_CHECK(files == 1);
+    // When the file cannot be replaced, the temporary one is removed too, and the old one stays as it was.
+    fs::create_directories(dir.Path() / "taken");
+    TESSERA_CHECK(Call({"generate", "--cpp", dir.File("taken"), ExampleFile()}).code == 3);
+    size_t left = 0;
+    for (const auto& entry : fs::directory_iterator(dir.Path() / "taken")) {
+        (void)entry;
+        ++left;
+    }
+    TESSERA_CHECK(left == 0);
+    size_t beside = 0;
+    for (const auto& entry : fs::directory_iterator(dir.Path())) {
+        (void)entry;
+        ++beside;
+    }
+    TESSERA_CHECK(beside == 2); // "out" and "taken", and no temporary file next to "taken"
+#ifdef _WIN32
+    // A file that something else holds open cannot be replaced on Windows, and must come out unchanged. (Writing straight
+    // into it would have changed it.)
+    const std::string held = dir.Write("held.hpp", "old contents");
+    std::ifstream holder(held, std::ios::binary);
+    TESSERA_CHECK(holder.is_open());
+    const Outcome blocked = Call({"generate", "--cpp", held, ExampleFile()});
+    TESSERA_CHECK(blocked.code == 3);
+    holder.close();
+    TESSERA_CHECK(ReadAll(held) == "old contents");
+#endif
 }
 
 TESSERA_TEST(generate_rejects_a_bad_namespace_with_exit_2) {

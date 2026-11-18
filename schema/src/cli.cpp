@@ -6,11 +6,13 @@
 #include "tessera/schema/schema_check.hpp"
 #include "tessera/schema/schema_file.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <random>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -53,23 +55,30 @@ std::string Hex16(uint64_t value) {
 
 // Reads a whole file. At most one byte more than the reader accepts is read, so that a huge file is refused
 // without being loaded.
-bool ReadFile(const std::filesystem::path& path, std::string& text) {
+// Returns what went wrong, or an empty string.
+std::string ReadFile(const std::filesystem::path& path, std::string& text) {
     std::error_code error;
+    if (!std::filesystem::exists(path, error)) {
+        return "this file does not exist";
+    }
+    if (std::filesystem::is_directory(path, error)) {
+        return "this is a folder, not a file";
+    }
     if (!std::filesystem::is_regular_file(path, error)) {
-        return false;
+        return "this is not a regular file";
     }
     std::ifstream file(path, std::ios::binary);
     if (!file) {
-        return false;
+        return "cannot open this file (maybe you are not allowed to read it)";
     }
     const size_t limit = json::Limits{}.max_bytes + 1;
     text.resize(limit);
     file.read(text.data(), static_cast<std::streamsize>(limit));
     if (file.bad()) {
-        return false;
+        return "cannot read this file";
     }
     text.resize(static_cast<size_t>(file.gcount()));
-    return true;
+    return {};
 }
 
 struct Loaded {
@@ -80,8 +89,9 @@ struct Loaded {
 // Reads and checks the file. Returns the exit code, which is 0 when `loaded` is filled in.
 int Load(const std::string& path, std::optional<Loaded>& loaded, std::ostream& err) {
     std::string text;
-    if (!ReadFile(std::filesystem::path(path), text)) {
-        err << path << ": error: cannot read this file (it is missing, or it is not a file)\n";
+    const std::string problem = ReadFile(std::filesystem::path(path), text);
+    if (!problem.empty()) {
+        err << path << ": error: " << problem << "\n";
         return kCannotUseFile;
     }
     ReadResult read = ReadSchema(text);
@@ -153,12 +163,16 @@ bool SameBytes(const std::filesystem::path& path, const std::string& text) {
     if (!std::filesystem::is_regular_file(path, error)) {
         return false;
     }
+    if (std::filesystem::file_size(path, error) != text.size() || error) {
+        return false; // a file of another size is not the same, and is not read
+    }
     std::ifstream file(path, std::ios::binary);
     if (!file) {
         return false;
     }
-    const std::string existing((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    return existing == text;
+    std::string existing(text.size(), '\0');
+    file.read(existing.data(), static_cast<std::streamsize>(existing.size()));
+    return file.gcount() == static_cast<std::streamsize>(text.size()) && existing == text;
 }
 
 int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostream& err) {
@@ -169,7 +183,7 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
     for (size_t i = 1; i < args.size(); ++i) {
         const std::string& arg = args[i];
         if (arg == "--cpp" || arg == "--namespace") {
-            if (i + 1 >= args.size()) {
+            if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
                 return UsageError(err, arg + " needs a value");
             }
             (arg == "--cpp" ? output : options.ns) = args[++i];
@@ -215,11 +229,27 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
             return kCannotUseFile;
         }
     }
-    std::ofstream file(target, std::ios::binary | std::ios::trunc);
-    file.write(text.data(), static_cast<std::streamsize>(text.size()));
-    file.flush();
-    if (!file) {
-        err << output << ": error: cannot write this file\n";
+    // The text goes to a temporary file next to the target and then takes its place, so that a failure half way never leaves
+    // a header that is cut short where a good one was.
+    static std::atomic<unsigned> counter{0};
+    std::filesystem::path temporary = target;
+    temporary += ".tmp" + std::to_string(counter.fetch_add(1)) + "_" + std::to_string(std::random_device{}());
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        file.flush();
+        if (!file) {
+            file.close();
+            std::filesystem::remove(temporary, error);
+            err << output << ": error: cannot write this file\n";
+            return kCannotUseFile;
+        }
+    }
+    std::filesystem::rename(temporary, target, error);
+    if (error) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        err << output << ": error: cannot replace this file: " << error.message() << "\n";
         return kCannotUseFile;
     }
     out << output << ": written\n";

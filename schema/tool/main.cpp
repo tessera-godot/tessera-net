@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tessera/schema/cli.hpp"
 
+#include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -24,5 +25,10 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         args.emplace_back(argv[i]);
     }
-    return tessera::schema::Run(args, std::cout, std::cerr);
+    try {
+        return tessera::schema::Run(args, std::cout, std::cerr);
+    } catch (const std::exception& problem) {
+        std::cerr << "tessera_schema: unexpected error: " << problem.what() << "\n";
+        return 3;
+    }
 }
