@@ -95,13 +95,26 @@ TESSERA_TEST(names_reject_gdscript_keywords) {
 
 TESSERA_TEST(names_reject_windows_macro_names) {
     const std::vector<std::string>& names = MacroNames();
-    for (const char* name : {"min", "max", "near", "far", "small", "interface", "linux", "unix"}) {
+    for (const char* name : {"min", "max", "near", "far", "small", "interface", "linux", "unix", "errno", "stdin", "stdout",
+                             "stderr", "pascal", "cdecl", "hyper", "math_errhandling", "sched_priority"}) {
         TESSERA_CHECK(Contains(names, name));
         TESSERA_CHECK(Refused(name));
         TESSERA_CHECK(Has(CheckName(name), "macro"));
     }
     for (const std::string& name : names) {
         TESSERA_CHECK(Refused(name));
+    }
+}
+
+TESSERA_TEST(names_reject_the_fixed_width_integer_types_the_columns_use) {
+    for (const char* name : {"int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t"}) {
+        TESSERA_CHECK(Refused(name));
+        TESSERA_CHECK(Has(CheckName(name), "type"));
+    }
+    // Names that look alike but are not types of the columns are fine, and so are the other standard names: the generated
+    // header was compiled with them (see fixtures/risky_names.json and test_generated_header.cpp).
+    for (const char* name : {"int8", "uint", "size_t", "byte", "string", "move", "net", "std", "tessera"}) {
+        TESSERA_CHECK(CheckName(name).empty());
     }
 }
 
