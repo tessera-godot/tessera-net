@@ -28,7 +28,8 @@ and the column, and, when there is an obvious correction, what to change. There 
 **A tool, `tessera_schema`, that checks the file with the code the server uses.** It builds a real `ReplicationSchema`,
 so what `AddType` refuses is refused, with the same words, and the hash it prints is `ReplicationSchema::Hash()`:
 neither the rules nor the hash are written a second time. It has three commands: `check` (says how many types there are
-and the hash), `hash` (prints only the hash) and `generate --cpp <output> [--namespace a::b]`. A schema that does not
+and the hash), `hash` (prints only the hash) and `generate`, which writes the C++ header with `--cpp <output> [--namespace a::b]`
+and the GDScript of the client with `--gdscript <output> [--gdscript-class Name]`. A schema that does not
 check never produces a file, and a file from an earlier run is left alone. Names have to be good identifiers in C++ and in
 GDScript (lowercase, digits and underscores; no keyword of either language, and not `null`), and two names that would make the same C++
 name are an error of the file, not of the compiler.
@@ -57,8 +58,9 @@ server starts, and gets the columns and the registration code for free.
 The format may change before 1.0, which is why the file says its version and the reader refuses a version it does not
 know.
 
-The GDScript side is still written by hand for now: the tool does not generate it yet, so the two descriptions still have
-to agree, and the hash still tells when they do not.
+The GDScript of the client comes from the same file: `generate --gdscript` writes a script with the type constants, the
+hash and a function that builds the `TesseraSchema`. Writing `add_type` by hand is still possible, and the hash still
+tells when two descriptions differ.
 
 Not covered: moving from one version of a schema to another (the hash only says "different"), new kinds of property, and
 entity ids that are unique across processes ([0015](0015-preparing-for-server-meshing.md)).

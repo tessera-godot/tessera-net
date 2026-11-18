@@ -7,6 +7,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- `tessera_schema generate --gdscript <output.gd> [--gdscript-class Name]` writes the GDScript of the client from the same
+  schema file as the C++: a script with a `class_name` (`GameSchema` unless you choose another), a constant
+  `TYPE_<NAME>` for each type, `const HASH: int` (the hash of the file as a signed 64-bit integer, so it can be
+  negative) and `static func create() -> TesseraSchema`, which makes the schema with `add_type` and reports a type
+  that is refused with `push_error`. One call can write both the header and the script. The class name has to be
+  PascalCase and cannot be a name that Godot uses (a list of 1,073 names from Godot 4.7.2 and this extension is built
+  into the tool). Numbers are written as the shortest text that gives the same `float`; the output is the same bytes on
+  every run, and on Windows and Linux. `add_type` by hand still works. See `docs/reference/schema-file.md`.
+- The Godot demo describes its entities with a generated script, `examples/godot-client-demo/example_schema.gd`, made
+  from `server/example/example_schema.json` and kept in the repository. A new test in the `ctest` of every preset that
+  builds the server, `tessera_schema_demo_check`, makes it again and fails if the kept one is out of date.
+- The headless Godot test checks the generated scripts against the extension: for the demo schema and for a test file
+  with one property of every kind (generated in the build, with a negative `HASH`), `create().get_hash()` is the `HASH`
+  of the script; two calls of `create()` give two schemas; and the `TYPE_` constants are the type numbers the example
+  server puts in its entity ids. It has 49 checks (it had 46).
+- Tests: `tessera_schema_tests` has 132 tests (it had 104) and the `ctest` of the presets that build the server has one
+  more test; the other test programs are unchanged (661, 16, 99, 5 on Windows and 8 on Linux, 79). No message, no
+  protocol version (still 3), no hash and nothing in the extension or the server changed.
 - A schema file and a tool that makes the server's C++ from it. The entities can be described once, in a JSON file
   (`format_version`, types, properties; the keys and kinds are the ones `TesseraSchema.add_type` takes), and
   `tessera_schema` has three commands: `check` (reads the file, checks it with `ReplicationSchema` itself and prints the
@@ -16,7 +34,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   The JSON reader is part of the tool (no new dependency) and reads at most 1 MiB, 16 levels deep. The generated header is
   the same bytes on every run (a test generates it twice and compares it with a copy kept in the repository), and a schema
   that does not check never writes a file. See `docs/reference/schema-file.md` and
-  [0020](docs/adr/0020-one-schema-file-and-generated-cpp.md) (Proposed). The GDScript side is still written by hand.
+  [0020](docs/adr/0020-one-schema-file-and-generated-cpp.md) (Proposed).
 - The option `TESSERA_BUILD_SCHEMA_TOOL` (off by default) builds the tool; `TESSERA_BUILD_SERVER=ON` builds it too. The
   default build is unchanged: it still has 661 tests.
 - The example server now takes its entities from `server/example/example_schema.json`: the build makes the header in the
@@ -114,6 +132,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Architecture decision record 0017, "Player input" (Accepted).
 
 ### Changed
+- The Godot demo takes its description of the entities from the generated script `example_schema.gd` instead of two
+  `add_type` calls in `main.gd`. `add_type` by hand is unchanged.
+- Numbers in the generated C++ (`step` and `range`) are written by the same function as the ones in the GDScript, which
+  gives the shortest text for the same `float` the same way in every standard library; for the values that are used
+  (such as `0.01` and `2048.0`) the text did not change, and the sample header kept in the tests is the same.
 - The C++ code was formatted with `clang-format` (the `.clang-format` did not change), in one commit for each of
   `core/include`, `core/src`, `server`, `extension`, `tests` and `bench`: 79 of the 174 files. Nothing else changed in
   those commits: the test counts are the same as before (661, 16, 93, 8 on Linux and 5 on Windows, 79; no message
