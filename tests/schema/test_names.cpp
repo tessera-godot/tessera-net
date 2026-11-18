@@ -86,10 +86,13 @@ TESSERA_TEST(names_reject_gdscript_keywords) {
         TESSERA_CHECK(Has(CheckName(word), "GDScript"));
     }
     for (const char* word :
-         {"func", "class_name", "signal", "var", "extends", "match", "pass", "await", "preload"}) {
+         {"func", "class_name", "signal", "var", "extends", "match", "pass", "await", "preload", "null"}) {
         TESSERA_CHECK(Contains(words, word));
     }
     TESSERA_CHECK(Has(CheckName("func"), "keyword in GDScript"));
+    // `null` is a literal that the tokenizer of GDScript reads outside its table of keywords (as `true` and `false`, which
+    // C++ already refuses); INF, NAN, PI and TAU are constants, and capitals are not allowed in a name anyway.
+    TESSERA_CHECK(Has(CheckName("null"), "GDScript"));
     TESSERA_CHECK(Has(CheckName("class"), "C++ and in GDScript")); // in both lists
 }
 

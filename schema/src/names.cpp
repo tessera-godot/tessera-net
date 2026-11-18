@@ -30,14 +30,15 @@ const std::vector<std::string> kCppReserved = {
     "xor_eq",
 };
 
-// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in
-// modules/gdscript/gdscript_tokenizer.cpp. The four written in capitals (INF, NAN, PI, TAU) are left out: a
-// name cannot have capitals.
+// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in modules/gdscript/gdscript_tokenizer.cpp, and `null`,
+// which the tokenizer reads as a literal outside that table (`true` and `false` are literals too, and C++ refuses them). The
+// four written in capitals (INF, NAN, PI, TAU) are left out: a name cannot have capitals.
 const std::vector<std::string> kGdScriptReserved = {
     "as",       "and",    "assert",    "await", "break",   "breakpoint", "class",   "class_name", "const",
     "continue", "elif",   "else",      "enum",  "extends", "for",        "func",    "if",         "in",
     "is",       "match",  "namespace", "not",   "or",      "pass",       "preload", "return",     "self",
     "signal",   "static", "super",     "trait", "var",     "void",       "while",   "when",       "yield",
+    "null",
 };
 
 // Names that become macros: `far`, `near`, `min`, `max`, `small`, `interface`, `pascal`, `cdecl` and `hyper` in the headers of

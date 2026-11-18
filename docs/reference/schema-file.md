@@ -77,7 +77,7 @@ The size of a column does not change the hash: the hash depends on what the byte
 ### Names
 
 The name of a type or of a property is lowercase letters, digits and underscores, each part starting with a letter
-(`max_health`, `player_one`), up to 48 characters. Names that are keywords in C++ or in GDScript are refused, and so are
+(`max_health`, `player_one`), up to 48 characters. Names that are keywords in C++ or in GDScript (or the GDScript literal `null`) are refused, and so are
 `min`, `max`, `near`, `far`, `small`, `interface`, `linux` and `unix`, which some C++ headers turn into macros. Two names
 that would make the same name in the generated C++ (a property `position` and another called `position_x`, for example)
 are an error of the file, and say where.

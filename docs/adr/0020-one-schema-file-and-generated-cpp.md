@@ -30,7 +30,7 @@ so what `AddType` refuses is refused, with the same words, and the hash it print
 neither the rules nor the hash are written a second time. It has three commands: `check` (says how many types there are
 and the hash), `hash` (prints only the hash) and `generate --cpp <output> [--namespace a::b]`. A schema that does not
 check never produces a file, and a file from an earlier run is left alone. Names have to be good identifiers in C++ and in
-GDScript (lowercase, digits and underscores; no keyword of either language), and two names that would make the same C++
+GDScript (lowercase, digits and underscores; no keyword of either language, and not `null`), and two names that would make the same C++
 name are an error of the file, not of the compiler.
 
 **What the file does not describe:** which entities each player sees, the bandwidth budget and how the client predicts
