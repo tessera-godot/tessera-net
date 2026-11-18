@@ -26,8 +26,10 @@ std::string NoticeName(const std::string& name);
 /// The types of the file in the order of their numbers (the file may list them in any order).
 std::vector<const TypeDecl*> TypesInOrder(const SchemaFile& file);
 
-/// A float as text: as few digits as bring the same float back (at most 9), with `.0` when there would be
-/// neither a point nor an exponent. No suffix, and the locale is never looked at.
+/// A float as text, with the fewest digits that give the same float back (at most 9). An exponent from -4 to
+/// 14 is written out, always with a point (`0.0001`, `2048.0`, `100000000000000.0`); any other one is kept,
+/// as in `1e-05` and `1e+30`. No suffix. The text is the same in every standard library, and the locale is
+/// never looked at.
 std::string FloatText(float value);
 
 /// Builds a text one line at a time. Every line ends with "\n".

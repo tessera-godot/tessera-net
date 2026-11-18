@@ -396,3 +396,20 @@ TESSERA_TEST(gd_output_is_the_same_for_an_input_with_crlf_and_a_bom) {
     TESSERA_CHECK(crlf.find("\r\n") != std::string::npos);
     TESSERA_CHECK(GenerateFrom(ReadFile(crlf)) == GenerateFrom(ReadFile(lf)));
 }
+
+// Where FloatText writes a number out and where it keeps the exponent: an exponent from -4 to 14 is written
+// out, and any other one is written with `e`.
+TESSERA_TEST(gd_float_text_layout_is_fixed_for_every_standard_library) {
+    TESSERA_CHECK(FloatText(1e-4f) == "0.0001");
+    TESSERA_CHECK(FloatText(1e-5f) == "1e-05");
+    TESSERA_CHECK(FloatText(1e14f) == "100000000000000.0");
+    TESSERA_CHECK(FloatText(1e15f) == "1e+15");
+    TESSERA_CHECK(FloatText(100000.0f) == "100000.0");
+    TESSERA_CHECK(FloatText(123456789.0f) == "123456790.0");
+    TESSERA_CHECK(FloatText(-0.0f) == "-0.0");
+    TESSERA_CHECK(FloatText(0.0f) == "0.0");
+    TESSERA_CHECK(FloatText(1e-45f) == "1e-45");
+    TESSERA_CHECK(FloatText(std::numeric_limits<float>::max()) == "3.4028235e+38");
+    TESSERA_CHECK(FloatText(-2.5f) == "-2.5");
+    TESSERA_CHECK(FloatText(0.00123f) == "0.00123");
+}
