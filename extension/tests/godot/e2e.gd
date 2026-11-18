@@ -5,8 +5,6 @@
 # and the port of a third one, started with --players, for the player input checks.
 extends SceneTree
 
-# The hash of the example server's schema (one type with a position of step 0.01 and range 2048).
-const EXAMPLE_SCHEMA_HASH := 1615724867110258213
 const WORLD_SIDE := 200.0
 const STEP := 0.01
 const LIMIT_MS := 70000
@@ -52,6 +50,8 @@ func run_all() -> void:
 	check_classes_exist()
 	check_misuse_before_connect()
 	check_schema_hash()
+	check_generated_schema_with_every_kind()
+	check_generated_create_makes_a_new_schema_each_time()
 	check_schema_errors_name_the_field()
 	check_connect_to_bad_arguments()
 	var main_client: TesseraClient = await check_connects_and_sees_entities()
@@ -76,6 +76,7 @@ func run_all() -> void:
 	await check_two_connections_are_independent()
 	await check_out_of_range_and_short_input_is_cut_and_ignored()
 	await check_leaving_removes_the_player_entity()
+	await check_generated_type_constants_match_the_ids_of_the_server()
 	check_prediction_api_outside_a_connection()
 	await check_predicted_value_moves_before_the_server_answers()
 	await check_predicted_value_settles_to_the_servers()
@@ -135,6 +136,9 @@ func pump(clients: Array, condition: Callable, seconds: float) -> bool:
 	return false
 
 
+# Written by hand on purpose: the step can be changed, to show a server refusing a schema that is not its own, and it
+# has one type, which is what the server started without --players describes. The generated script has the two types
+# of the server with players.
 func make_schema(step: float = STEP) -> TesseraSchema:
 	var schema := TesseraSchema.new()
 	schema.add_type(1, [{"name": "position", "kind": "position", "step": step, "range": 2048.0}])
@@ -182,9 +186,39 @@ func check_misuse_before_connect() -> void:
 func check_schema_hash() -> void:
 	var name := "schema_hash"
 	var before := failures
-	var schema := make_schema()
-	expect(name, schema.is_valid(), "the schema of the demo is not valid: " + schema.get_error())
-	expect(name, schema.get_hash() == EXAMPLE_SCHEMA_HASH, "hash %d, the example server has %d" % [schema.get_hash(), EXAMPLE_SCHEMA_HASH])
+	var schema := ExampleSchema.create()
+	expect(name, schema.is_valid(), "the generated schema of the demo is not valid: " + schema.get_error())
+	expect(name, schema.get_hash() == ExampleSchema.HASH, "hash %d, the generated script says %d" % [schema.get_hash(), ExampleSchema.HASH])
+	expect(name, ExampleSchema.TYPE_ENTITY == 1 and ExampleSchema.TYPE_PLAYER == 2, "the type constants are %d and %d" % [ExampleSchema.TYPE_ENTITY, ExampleSchema.TYPE_PLAYER])
+	finish(name, before)
+
+
+# The script made from the test file with one property of every kind: the tool and the extension have to agree on the
+# hash of all six kinds, including an integer over the whole 64 bits and a mask of 40 flags. The hash of that file is
+# negative as a signed 64-bit integer, which is the case that is easy to get wrong.
+func check_generated_schema_with_every_kind() -> void:
+	var name := "generated_schema_with_every_kind"
+	var before := failures
+	var schema := AllKindsSchema.create()
+	expect(name, schema.is_valid(), "the generated schema is not valid: " + schema.get_error())
+	expect(name, schema.get_error() == "", "get_error() says: " + schema.get_error())
+	expect(name, schema.get_hash() == AllKindsSchema.HASH, "hash %d, the generated script says %d" % [schema.get_hash(), AllKindsSchema.HASH])
+	expect(name, AllKindsSchema.HASH < 0, "the hash of this file should be negative, it is %d" % AllKindsSchema.HASH)
+	expect(name, AllKindsSchema.TYPE_ALL_KINDS == 1 and AllKindsSchema.TYPE_LAST == 255, "the type constants are %d and %d" % [AllKindsSchema.TYPE_ALL_KINDS, AllKindsSchema.TYPE_LAST])
+	finish(name, before)
+
+
+func check_generated_create_makes_a_new_schema_each_time() -> void:
+	var name := "generated_create_makes_a_new_schema_each_time"
+	var before := failures
+	var first := ExampleSchema.create()
+	var second := ExampleSchema.create()
+	expect(name, first != second, "create() gave the same object twice")
+	expect(name, first.get_hash() == second.get_hash(), "the two schemas have different hashes")
+	expect(name, first.add_type(3, [{"name": "on", "kind": "flag"}]) == OK, "a new type was refused: " + first.get_error())
+	expect(name, first.get_hash() != ExampleSchema.HASH, "adding a type did not change the hash of that schema")
+	expect(name, second.get_hash() == ExampleSchema.HASH, "adding a type to one schema changed the other")
+	expect(name, ExampleSchema.create().get_hash() == ExampleSchema.HASH, "create() is not the same after a schema was changed")
 	finish(name, before)
 
 
@@ -590,19 +624,9 @@ func check_works_next_to_godots_own_enet() -> void:
 # -127 to 127). It moves at 8 m/s at the most and stops half a second after the last input. A player starts at
 # (100 + 2 * (id % 16), 100).
 
-func make_player_schema() -> TesseraSchema:
-	var schema := TesseraSchema.new()
-	schema.add_type(1, [{"name": "position", "kind": "position", "step": STEP, "range": 2048.0}])
-	schema.add_type(2, [
-		{"name": "position", "kind": "position", "step": STEP, "range": 2048.0},
-		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
-	])
-	return schema
-
-
 func make_player_client() -> TesseraClient:
 	var client := TesseraClient.new()
-	client.schema = make_player_schema()
+	client.schema = ExampleSchema.create()
 	return client
 
 
@@ -631,6 +655,32 @@ func join_as_player() -> TesseraClient:
 	if not expect("join_as_player", ready, "state %d, own entity %d" % [client.get_state(), find_own_entity(client)]):
 		return null
 	return client
+
+
+# The constants of the generated script are the type numbers the server uses. The type of an entity is in its id: the
+# layout is shard 12 | type 8 | index 28 | generation 16 (core/include/tessera/net/entity_id.hpp), so the type is in
+# bits 44 to 51. Only this check reads it; if the layout changes, it fails on purpose.
+func check_generated_type_constants_match_the_ids_of_the_server() -> void:
+	var name := "generated_type_constants_match_the_ids_of_the_server"
+	var before := failures
+	var client := make_player_client()
+	if not expect(name, client.connect_to("127.0.0.1", input_port) == OK, "connect_to failed: " + client.get_last_error()):
+		return
+	var ready: bool = await pump([client], func(): return client.get_state() == TesseraClient.State.CONNECTED and find_own_entity(client) != -1, 10.0)
+	if expect(name, ready, "state %d, own entity %d" % [client.get_state(), find_own_entity(client)]):
+		var own := find_own_entity(client)
+		var own_type := (own >> 44) & 0xFF
+		expect(name, own_type == ExampleSchema.TYPE_PLAYER, "the entity of the player has type %d, TYPE_PLAYER is %d" % [own_type, ExampleSchema.TYPE_PLAYER])
+		var plain := -1
+		for id in client.get_entities():
+			if client.get_property(id, "owner") == null:
+				plain = id
+				break
+		if expect(name, plain != -1, "the server has no entity without an owner"):
+			var plain_type := (plain >> 44) & 0xFF
+			expect(name, plain_type == ExampleSchema.TYPE_ENTITY, "an entity without an owner has type %d, TYPE_ENTITY is %d" % [plain_type, ExampleSchema.TYPE_ENTITY])
+	client.disconnect_from_server()
+	finish(name, before)
 
 
 func spawn_of(connection_id: int) -> Vector3:
