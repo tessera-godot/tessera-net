@@ -229,6 +229,10 @@ private:
         if (AtEnd()) {
             return UnexpectedHere("a value");
         }
+        if (++values_ > limits_.max_values) {
+            return Fail(Here(), "this file has more than " + std::to_string(limits_.max_values) +
+                                    " values, which is the most this tool reads");
+        }
         const Position where = Here();
         const char c = Peek();
         switch (c) {
@@ -631,6 +635,7 @@ private:
     std::string_view text_;
     const Limits& limits_;
     size_t at_;
+    size_t values_ = 0;
     uint32_t line_ = 1;
     uint32_t column_ = 1;
     std::vector<Open> open_;

@@ -171,6 +171,27 @@ TESSERA_TEST(json_size_limit) {
     TESSERA_CHECK(!Parse("\"" + std::string(1025, 'a') + "\"").value.has_value());
 }
 
+TESSERA_TEST(json_limits_how_many_values_it_reads) {
+    // A file of one mebibyte can hold hundreds of thousands of tiny values; the reader stops at 100,000.
+    const auto list_of = [](size_t count) {
+        std::string text = "[";
+        for (size_t i = 0; i < count; ++i) {
+            text += i == 0 ? "0" : ",0";
+        }
+        return text + "]";
+    };
+    const ParseResult fits = Parse(list_of(99999)); // the list itself is one more value: 100,000 in all
+    TESSERA_CHECK(fits.value.has_value());
+    const ParseResult over = Parse(list_of(100000));
+    TESSERA_CHECK(!over.value.has_value() && over.error.has_value());
+    TESSERA_CHECK(over.error.has_value() && Has(over.error->message, "more than 100000 values"));
+    // Objects count their keys' values too, and the limit can be set.
+    Limits few;
+    few.max_values = 3;
+    TESSERA_CHECK(Parse("{\"a\": 1, \"b\": 2}", few).value.has_value());
+    TESSERA_CHECK(!Parse("{\"a\": 1, \"b\": 2, \"c\": 3}", few).value.has_value());
+}
+
 TESSERA_TEST(json_error_line_and_column_count_crlf_and_tabs) {
     // Line 1 ends with \r\n, line 2 starts with two tabs: the \r\n is one break and a tab is one column.
     ExpectError("{\r\n\t\t\"a\" 1}", 2, 7, "\":\" after the key", nullptr);
