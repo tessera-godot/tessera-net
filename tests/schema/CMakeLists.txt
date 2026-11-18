@@ -18,7 +18,8 @@ tessera_schema_generate_cpp(tessera_risky_names_schema
 
 target_link_libraries(tessera_schema_tests PRIVATE tessera_schema_tool tessera_all_kinds_schema tessera_risky_names_schema)
 target_include_directories(tessera_schema_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
-target_compile_definitions(tessera_schema_tests PRIVATE TESSERA_SCHEMA_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(tessera_schema_tests PRIVATE TESSERA_SCHEMA_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+                           TESSERA_EXAMPLE_SCHEMA_FILE="${PROJECT_SOURCE_DIR}/server/example/example_schema.json")
 
 if(MSVC)
     target_compile_options(tessera_schema_tests PRIVATE /W4 /permissive-)
@@ -32,7 +33,7 @@ add_test(NAME tessera_schema_tests COMMAND tessera_schema_tests)
 add_test(NAME tessera_schema_cli_stable
          COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:tessera_schema>
                  -DSCHEMA=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/all_kinds.json
-                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/stable -P ${CMAKE_CURRENT_SOURCE_DIR}/check_stable.cmake)
+                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/stable/$<CONFIG> -P ${CMAKE_CURRENT_SOURCE_DIR}/check_stable.cmake)
 
 # The schema file of the example server is a good one, and the tool says so.
 add_test(NAME tessera_schema_example_check

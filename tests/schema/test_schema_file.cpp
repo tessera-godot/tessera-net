@@ -2,6 +2,7 @@
 #include "schema_test_support.hpp"
 #include "tessera/schema/schema_file.hpp"
 
+#include <algorithm>
 #include <string>
 
 using namespace tessera::schema;
@@ -355,4 +356,15 @@ TESSERA_TEST(file_messages_that_repeat_the_file_are_short_and_have_no_control_by
     for (const char c : n.diagnostics[0].message) {
         TESSERA_CHECK(static_cast<unsigned char>(c) >= 0x20 && static_cast<unsigned char>(c) < 0x7F);
     }
+}
+
+TESSERA_TEST(fixture_example_is_the_schema_file_of_the_example_server) {
+    // The fixture the tests of the tool use for the example is a copy of the real file, and must stay one.
+    const auto without_cr = [](std::string text) {
+        text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+        return text;
+    };
+    const std::string real = without_cr(schema_test::ReadAll(TESSERA_EXAMPLE_SCHEMA_FILE));
+    TESSERA_CHECK(!real.empty());
+    TESSERA_CHECK(without_cr(schema_test::ReadTestFile("fixtures/example.json")) == real);
 }

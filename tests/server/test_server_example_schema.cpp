@@ -49,10 +49,21 @@ ReplicationSchema HandWrittenSchema(bool players) {
     return schema;
 }
 
+// Where the columns are, and how big their elements are.
+bool SameColumns(const PropertyDescriptor& a, const PropertyDescriptor& b) {
+    for (size_t i = 0; i < 3; ++i) {
+        if (a.source[i].offset != b.source[i].offset || a.source[i].element_bytes != b.source[i].element_bytes) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool SameProperty(const PropertyDescriptor& a, const PropertyDescriptor& b) {
     return a.kind == b.kind && a.step == b.step && a.range == b.range && a.bits == b.bits &&
            a.is_signed == b.is_signed && a.min_value == b.min_value && a.max_value == b.max_value &&
-           a.enum_count == b.enum_count && a.words == b.words && a.word_offset == b.word_offset;
+           a.enum_count == b.enum_count && a.words == b.words && a.word_offset == b.word_offset &&
+           SameColumns(a, b);
 }
 
 bool SameType(const TypeSchema* a, const TypeSchema* b) {
