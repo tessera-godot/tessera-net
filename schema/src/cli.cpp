@@ -2,6 +2,7 @@
 #include "tessera/schema/cli.hpp"
 
 #include "tessera/schema/cpp_generator.hpp"
+#include "tessera/schema/generator_text.hpp"
 #include "tessera/schema/json_reader.hpp"
 #include "tessera/schema/schema_check.hpp"
 #include "tessera/schema/schema_file.hpp"
@@ -45,12 +46,6 @@ int UsageError(std::ostream& err, const std::string& message) {
     err << "tessera_schema: " << message << "\n\n";
     PrintUsage(err);
     return kBadUsage;
-}
-
-std::string Hex16(uint64_t value) {
-    char buffer[32];
-    std::snprintf(buffer, sizeof buffer, "0x%016llx", static_cast<unsigned long long>(value));
-    return buffer;
 }
 
 // Reads a whole file. At most one byte more than the reader accepts is read, so that a huge file is refused

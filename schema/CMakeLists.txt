@@ -9,6 +9,7 @@ add_library(tessera_schema_tool STATIC
     src/names.cpp
     src/columns.cpp
     src/schema_check.cpp
+    src/generator_text.cpp
     src/cpp_generator.cpp)
 
 target_include_directories(tessera_schema_tool PUBLIC include)
