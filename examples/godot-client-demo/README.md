@@ -38,7 +38,8 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    ```
 
    (Opening the folder in the Godot editor does the same.) The import also registers the class `ExampleSchema`, the
-   name `main.gd` uses for the schema script. With Godot 4.7.2 the very first import of a folder with a
+   name `main.gd` uses for the schema script. Import again after you update the project or make `example_schema.gd`
+   again, so that Godot knows the new script. With Godot 4.7.2 the very first import of a folder with a
    new extension ends in a crash (exit code 134 on Linux, 139 on Windows) after the import has finished, and the second
    one finishes cleanly. It is not caused by this extension: an extension that only registers one empty class does the
    same, and one that registers no class does not. If the first import crashes, run the same command again.
@@ -54,7 +55,7 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    reported as an error, once, and the demo does not try to connect.
 
 The label in the corner shows the state of the connection and how many entities the client has. If the server's
-description of the entities and the one in `main.gd` differ, the label says the connection was rejected and why.
+description of the entities and the one in `example_schema.gd` differ, the label says the connection was rejected and why.
 
 ## The schema script
 
@@ -118,7 +119,10 @@ To see it, start the server with `--players`, open the demo, stop the server wit
 ## What has been checked
 
 The script `example_schema.gd` was loaded by a headless Godot 4.7.2 on Windows and on Linux, and the hash of the schema
-it builds was the one written in it and the one the example server expects. Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
+it builds was the one written in it and the one the example server expects. After `main.gd` was changed to use it, the
+demo project was run once in a headless Godot on Windows (built, imported, and started with `--quit-after 240`) against
+the example server started with `--players`: it printed `Connected to the server`, the server logged the player joining,
+and there was no script error. Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
 error, with the connect and disconnect lines in its output. In that kind of run no key is pressed, so the correction
 shown in the label stays at zero, and the sphere has not been moved with the keys. A client in a headless Godot, with
 the same rule, moves its predicted value before the server answers and ends where the server puts the entity, and a

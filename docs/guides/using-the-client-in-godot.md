@@ -592,9 +592,9 @@ of a connection that ended. A client that comes back is a new player, always.
 The client sends input (see [Send input](#send-input)), can predict the player's own entity (see
 [Predict your player](#predict-your-player)) and can show the other entities smoothed, a little in the past (see
 [Smooth the other entities](#smooth-the-other-entities)). It does not extrapolate, does not compensate for the delay of
-the other entities when you aim at them, can generate its description of the entities from the server's schema file (writing it by hand with
-`add_type` still works), has no editor plugin for that, and the server is not a Godot node. It does not reconnect by itself, and a client that comes back is
-a new player: coming back as the same player does not exist yet (see [Reconnecting](#reconnecting)).
+the other entities when you aim at them, and the server is not a Godot node. There is no editor plugin. The description
+of the entities can be generated from the server's schema file (writing it by hand with `add_type` still works). It does
+not reconnect by itself, and a client that comes back is a new player: coming back as the same player does not exist yet (see [Reconnecting](#reconnecting)).
 
 ## Limits to know about
 

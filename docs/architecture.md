@@ -51,11 +51,11 @@ order, in the structure phase, so every other phase can run on many threads with
 
 ## One schema, two sides
 
-Today the client describes its entities in GDScript and the server describes them in C++, and the
-hash in the hello message makes a server refuse a client that differs ([record 0016](adr/0016-the-godot-extension-client-first.md)).
-The goal is that entities and their replicated properties are described once, in the editor. From that description the
-project generates C++ for the server and GDScript bindings for the client, plus the serialization code, so
-the two sides never drift apart.
+The entities and their replicated properties can be described once, in a JSON file
+([schema file reference](reference/schema-file.md)). The tool `tessera_schema` checks it with the code the server uses
+and generates C++ for the server and GDScript for the client, and the hash in the hello message makes a server refuse a
+client that differs ([record 0016](adr/0016-the-godot-extension-client-first.md)). Describing them in the editor, and
+generating the serialization code too, is the goal that is not reached yet.
 
 ## Designed for growth
 
