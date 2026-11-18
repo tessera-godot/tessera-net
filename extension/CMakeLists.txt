@@ -77,7 +77,8 @@ set_target_properties(tessera_net_godot PROPERTIES
 configure_file(tessera_net.gdextension.in "${CMAKE_BINARY_DIR}/extension/tessera_net.gdextension" COPYONLY)
 
 # A small Godot project with the extension in it, put together in the build directory (never in the source tree):
-# what the end-to-end test runs.
+# what the end-to-end test runs. It also gets the two scripts that describe a schema: the one of the demo, as it is
+# kept in the repository, and one that tessera_schema makes now from the test file with every kind of property.
 add_custom_target(tessera_extension_stage ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/extension/stage/e2e/bin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/tests/godot"
@@ -85,11 +86,16 @@ add_custom_target(tessera_extension_stage ALL
     # The script of the demo, so that the test can call its functions that do not need a window.
     COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/examples/godot-client-demo/main.gd"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e/demo_main.gd"
+    COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/examples/godot-client-demo/example_schema.gd"
+            "${CMAKE_BINARY_DIR}/extension/stage/e2e/example_schema.gd"
+    COMMAND $<TARGET_FILE:tessera_schema> generate
+            --gdscript "${CMAKE_BINARY_DIR}/extension/stage/e2e/all_kinds_schema.gd" --gdscript-class AllKindsSchema
+            "${PROJECT_SOURCE_DIR}/tests/schema/fixtures/all_kinds.json"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/extension/tessera_net.gdextension"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e/tessera_net.gdextension"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:tessera_net_godot>"
             "${CMAKE_BINARY_DIR}/extension/stage/e2e/bin/"
-    DEPENDS tessera_net_godot
+    DEPENDS tessera_net_godot tessera_schema
     COMMENT "Putting together the test project for the extension")
 
 # The demo project with the library next to it, put together in the build directory: open
