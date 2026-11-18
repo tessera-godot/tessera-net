@@ -204,6 +204,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Relevancy reference](docs/reference/relevancy.md)
 - [Replicated state reference](docs/reference/replicated-state.md)
 - [Networking reference](docs/reference/networking.md)
+- [Schema file reference](docs/reference/schema-file.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

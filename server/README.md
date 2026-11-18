@@ -84,3 +84,8 @@ properties are replicated and who sees what, `OnStart` makes the tables and enti
 changes to `Refresh`; `OnPlayerInput` receives what a client sent with `SendInput`, in order and once, and the bytes are
 not to be trusted: check their size and their range, as the example does). Put `context.shard_id` in the `TableConfig` of each of your tables. And keep the shape of `main`:
 `ResolveConfig`, a transport, a `ServerHost` around your game, `Run()`. Callbacks must not throw.
+
+The example does not write its replicated properties by hand: they are in `example/example_schema.json`, and the build
+makes `example_schema.hpp` from that file (the columns, the constants, and the functions that add the types and make the
+tables) with the `tessera_schema` tool, which the server build also builds. To do the same in your game, see the
+[schema file reference](../docs/reference/schema-file.md).
