@@ -113,7 +113,9 @@ tessera_schema generate [--cpp <output.hpp> [--namespace a::b]]
   with `--gdscript`; see "The name of the class" below. The tool checks the schema first, and writes nothing when it is
   wrong; files from an earlier run stay as they were. It makes the folders of an output when they are missing, and does
   not write a file again when the bytes would be the same, so the build does not recompile what includes it for nothing.
-  It refuses to write over the schema file itself, and to write the header and the script to one path.
+  It refuses to write over the schema file itself, and to write the header and the script to one path, and an option
+  given twice. The header is written first and then the script: if the script cannot be written, the header already
+  has been.
 
 The exit code is 0 when all went well, 1 when the file or the schema is wrong, 2 when the command line is wrong, and 3 when
 a file could not be read or written.
@@ -226,13 +228,14 @@ static func _add_type(schema: TesseraSchema, type_id: int, type_name: String, pr
   (`0xd10fff505e92ddd4` for that file).
 - `create()` makes a new `TesseraSchema` each time and calls `add_type` for every type, with the same dictionaries you
   would have written. If `add_type` refuses a type, the script reports it with `push_error` (the class, the type and the
-  reason) and still returns the schema, so the mistake shows where it was made. A script that is older than the extension
-  it runs on, with a kind or a key the extension does not know, is the way that can happen.
+  reason) and still returns the schema, so the mistake shows where it was made. A script made by a newer tool than the
+  extension it runs on, with a kind or a key that the extension does not know, is the way that can happen.
 - The notes of properties are comments at the end of their line (`# In meters.`). They are never keys, because
   `add_type` refuses a key it does not know.
 
-`step` and `range` are written as the shortest text that gives the same `float`, which is what the extension turns the
-number into: `0.01`, `2048.0`, `100000.0`, and `1e+30` for a very large one. Integers are written as integers, and the
+`step` and `range` are written as the text with the fewest digits that gives the same `float`, which is what the extension turns the
+number into. A number from `0.0001` up to `100000000000000.0` is written out (`0.01`, `2048.0`, `100000.0`), and a smaller
+or larger one keeps its exponent (`1e-05`, `1e+30`). Integers are written as integers, and the
 lowest 64-bit integer as `(-9223372036854775807 - 1)`. The same file always gives the same bytes, in the same way as the
 header: lines end in LF, indentation is tabs, and there is no date and no path.
 
@@ -250,9 +253,10 @@ The script was loaded by Godot 4.7.2, headless, on Windows and on Linux: the has
 
 The class name is a capital letter followed by letters and digits, with at least one lowercase letter (`GameSchema`,
 `World2`; not `game_schema`, `GAME` or `PI`), up to 48 characters. It cannot be a name Godot already uses, because
-Godot refuses a `class_name` that hides a class, a built-in type or a keyword: the tool knows the 1,073 names of the
-classes, built-in types and singletons of Godot 4.7.2, and the two classes of this extension, `TesseraSchema` and
-`TesseraClient`. When you choose `Node`, it says so and suggests `NodeSchema`.
+Godot refuses a `class_name` that hides a class, a built-in type or a keyword: the tool knows 1,075 names: the classes,
+built-in types and singletons of Godot 4.7.2 (1,071), `Variant`, `GDScriptFunctionState` (a class Godot registers for
+itself), and the two classes of this extension, `TesseraSchema` and `TesseraClient`. `Nil` is among them: the tool
+refuses it, though Godot may not. When you choose `Node`, it says so and suggests `NodeSchema`.
 
 The list is the one of Godot 4.7.2: a newer Godot may add classes, and a class or an autoload of your own project with
 the same name is not known to the tool. Godot has the last word, and it reports the clash when it loads the script.

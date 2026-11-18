@@ -12,8 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `TYPE_<NAME>` for each type, `const HASH: int` (the hash of the file as a signed 64-bit integer, so it can be
   negative) and `static func create() -> TesseraSchema`, which makes the schema with `add_type` and reports a type
   that is refused with `push_error`. One call can write both the header and the script. The class name has to be
-  PascalCase and cannot be a name that Godot uses (a list of 1,073 names from Godot 4.7.2 and this extension is built
-  into the tool). Numbers are written as the shortest text that gives the same `float`; the output is the same bytes on
+  PascalCase and cannot be a name that Godot uses (a list of 1,075 names from Godot 4.7.2 and this extension is built
+  into the tool). Numbers are written as the text with the fewest digits that gives the same `float`; the output is the same bytes on
   every run, and on Windows and Linux. `add_type` by hand still works. See `docs/reference/schema-file.md`.
 - The Godot demo describes its entities with a generated script, `examples/godot-client-demo/example_schema.gd`, made
   from `server/example/example_schema.json` and kept in the repository. A new test in the `ctest` of every preset that
@@ -22,9 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   with one property of every kind (generated in the build, with a negative `HASH`), `create().get_hash()` is the `HASH`
   of the script; two calls of `create()` give two schemas; and the `TYPE_` constants are the type numbers the example
   server puts in its entity ids. It has 49 checks (it had 46).
-- Tests: `tessera_schema_tests` has 132 tests (it had 104) and the `ctest` of the presets that build the server has one
+- Tests: `tessera_schema_tests` has 134 tests (it had 104) and the `ctest` of the presets that build the server has one
   more test; the other test programs are unchanged (661, 16, 99, 5 on Windows and 8 on Linux, 79). No message, no
-  protocol version (still 3), no hash and nothing in the extension or the server changed.
+  protocol version (still 3), no hash and nothing in the extension library or the server changed.
 - A schema file and a tool that makes the server's C++ from it. The entities can be described once, in a JSON file
   (`format_version`, types, properties; the keys and kinds are the ones `TesseraSchema.add_type` takes), and
   `tessera_schema` has three commands: `check` (reads the file, checks it with `ReplicationSchema` itself and prints the
@@ -135,7 +135,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The Godot demo takes its description of the entities from the generated script `example_schema.gd` instead of two
   `add_type` calls in `main.gd`. `add_type` by hand is unchanged.
 - Numbers in the generated C++ (`step` and `range`) are written by the same function as the ones in the GDScript, which
-  gives the shortest text for the same `float` the same way in every standard library; for the values that are used
+  gives the text with the fewest digits for the same `float` the same way in every standard library; for the values that are used
   (such as `0.01` and `2048.0`) the text did not change, and the sample header kept in the tests is the same.
 - The C++ code was formatted with `clang-format` (the `.clang-format` did not change), in one commit for each of
   `core/include`, `core/src`, `server`, `extension`, `tests` and `bench`: 79 of the 174 files. Nothing else changed in
