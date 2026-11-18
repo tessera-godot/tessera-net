@@ -174,6 +174,49 @@ bool SameBytes(const std::filesystem::path& path, const std::string& text) {
     return file.gcount() == static_cast<std::streamsize>(text.size()) && existing == text;
 }
 
+// Writes `text` to `output`, unless the file already has exactly these bytes. Returns 0, or 3 when the file
+// cannot be written.
+int WriteIfChanged(const std::string& output, const std::string& text, std::ostream& out, std::ostream& err) {
+    std::error_code error;
+    const std::filesystem::path target(output);
+    if (SameBytes(target, text)) {
+        out << output << ": already up to date\n";
+        return kOk;
+    }
+    if (target.has_parent_path()) {
+        std::filesystem::create_directories(target.parent_path(), error);
+        if (error) {
+            err << output << ": error: cannot make the folder: " << error.message() << "\n";
+            return kCannotUseFile;
+        }
+    }
+    // The text goes to a temporary file next to the target and then takes its place, so that a failure half
+    // way never leaves a header that is cut short where a good one was.
+    static std::atomic<unsigned> counter{0};
+    std::filesystem::path temporary = target;
+    temporary += ".tmp" + std::to_string(counter.fetch_add(1)) + "_" + std::to_string(std::random_device{}());
+    {
+        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        file.flush();
+        if (!file) {
+            file.close();
+            std::filesystem::remove(temporary, error);
+            err << output << ": error: cannot write this file\n";
+            return kCannotUseFile;
+        }
+    }
+    std::filesystem::rename(temporary, target, error);
+    if (error) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        err << output << ": error: cannot replace this file: " << error.message() << "\n";
+        return kCannotUseFile;
+    }
+    out << output << ": written\n";
+    return kOk;
+}
+
 int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostream& err) {
     std::string output;
     std::string input;
@@ -216,43 +259,7 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
     }
     options.source_name = std::filesystem::path(input).filename().string();
     const std::string text = GenerateCpp(loaded->file, loaded->check.hash, options);
-    const std::filesystem::path target(output);
-    if (SameBytes(target, text)) {
-        out << output << ": already up to date\n";
-        return kOk;
-    }
-    if (target.has_parent_path()) {
-        std::filesystem::create_directories(target.parent_path(), error);
-        if (error) {
-            err << output << ": error: cannot make the folder: " << error.message() << "\n";
-            return kCannotUseFile;
-        }
-    }
-    // The text goes to a temporary file next to the target and then takes its place, so that a failure half
-    // way never leaves a header that is cut short where a good one was.
-    static std::atomic<unsigned> counter{0};
-    std::filesystem::path temporary = target;
-    temporary += ".tmp" + std::to_string(counter.fetch_add(1)) + "_" + std::to_string(std::random_device{}());
-    {
-        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-        file.write(text.data(), static_cast<std::streamsize>(text.size()));
-        file.flush();
-        if (!file) {
-            file.close();
-            std::filesystem::remove(temporary, error);
-            err << output << ": error: cannot write this file\n";
-            return kCannotUseFile;
-        }
-    }
-    std::filesystem::rename(temporary, target, error);
-    if (error) {
-        std::error_code ignored;
-        std::filesystem::remove(temporary, ignored);
-        err << output << ": error: cannot replace this file: " << error.message() << "\n";
-        return kCannotUseFile;
-    }
-    out << output << ": written\n";
-    return kOk;
+    return WriteIfChanged(output, text, out, err);
 }
 
 } // namespace
