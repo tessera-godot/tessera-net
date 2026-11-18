@@ -12,7 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `tessera_schema` has three commands: `check` (reads the file, checks it with `ReplicationSchema` itself and prints the
   hash it computes), `hash`, and `generate --cpp <output> [--namespace a::b]`, which writes a header with the column
   structs, the constants, `AddGeneratedTypes`, a function that makes the table of each type with the shard and the type in
-  its ids, and the hash of the file as `kSchemaHash`. Errors say the file, the line and the column, and how to fix them.
+  its ids, and the hash of the file as `kSchemaHash`. Errors say the file, the line and the column, and, where there is an obvious one, how to fix them.
   The JSON reader is part of the tool (no new dependency) and reads at most 1 MiB, 16 levels deep. The generated header is
   the same bytes on every run (a test generates it twice and compares it with a copy kept in the repository), and a schema
   that does not check never writes a file. See `docs/reference/schema-file.md` and
@@ -24,8 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   hash of its schema is the same as before (`339718250426401488` with players, `1615724867110258213` for the entity type
   alone), tests pin both numbers and compare the schema with a copy of the one that was written by hand, and no message
   and no behavior changed: the protocol stays at version 3, and the extension and the demo are as they were.
-- Tests: `tessera_schema_tests` (92 tests, new) run in the jobs that build the server, and the ctest of those builds has
-  two more tests that run the real tool (`tessera_schema_cli_stable`, `tessera_schema_example_check`). `tessera_server_tests`
+- Tests: `tessera_schema_tests` (104 tests, new) are built and run by every preset that builds the server, and the ctest of
+  those presets has two more tests that run the real tool (`tessera_schema_cli_stable`, `tessera_schema_example_check`). `tessera_server_tests`
   has 99 tests (it had 93).
 - A format check. `tools/check_format.py` checks, or with `--fix` rewrites, every C++ file that git tracks with
   `clang-format` 18.1.8, the version pinned (with the hashes of its files) in `tools/requirements-format.txt`; it

@@ -61,6 +61,9 @@ have, and a value of the wrong sort (text where a number goes, `1.0` where a who
 plain ASCII, on one line, up to 200 characters, with no backslash (it would join the next line of the generated code to the comment). These are the same keys and the same kind names that `add_type` takes in
 GDScript.
 
+A `step` or a `range` too large for a `float` (above about 3.4e38) or too small to be one (below about 1e-45) is
+refused, like any other that the replication code refuses.
+
 The six kinds and the C++ column each one gets:
 
 | Kind | What it holds | C++ column |
@@ -102,7 +105,7 @@ tessera_schema generate --cpp <output.hpp> [--namespace a::b] <schema.json>
   `server/example/example_schema.json: OK, 2 types, hash 0x04b6ebf2e86202d0`.
 - `hash` prints only that hash, `0x04b6ebf2e86202d0`.
 - `generate --cpp` writes the C++ header. The namespace of everything in it is `--namespace` (`game_schema` when left
-  out). The tool checks the schema first, and writes nothing when it is wrong; a file from an earlier run stays as it was.
+  out; it is made of valid C++ names, and not `std`, a keyword, a macro such as `linux`, or a name with two underscores). The tool checks the schema first, and writes nothing when it is wrong; a file from an earlier run stays as it was.
   It makes the folders of the output when they are missing, and does not write the file again when the bytes would be the
   same, so the build does not recompile what includes it for nothing. It refuses to write over the schema file itself.
 

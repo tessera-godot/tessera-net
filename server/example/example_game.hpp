@@ -2,8 +2,7 @@
 // A small game for the example server: entities that walk around a square and bounce off its edges. Copy it
 // as the starting point for your own game. What it shows:
 //   - the schema: which properties each entity type replicates is written once, in example_schema.json, and
-//   the
-//     columns and the functions that register the types are generated from it while the project is built;
+//     the columns and the functions that register the types are generated from it while the project is built;
 //   - `DescribeWorld`: who can see what;
 //   - `OnStart`: making the tables and the first entities, with the shard id in every id;
 //   - `OnTick`: moving the entities, telling the grid, and handing the changes to the replication layer;
