@@ -49,7 +49,8 @@ TESSERA_TEST(json_keeps_member_order_and_positions) {
     TESSERA_CHECK(root.Members().size() == 2);
     TESSERA_CHECK(root.Members()[0].key == "first" && root.Members()[1].key == "second");
     TESSERA_CHECK(root.Members()[0].key_position.line == 2 && root.Members()[0].key_position.column == 3);
-    TESSERA_CHECK(root.Members()[0].value.position.line == 2 && root.Members()[0].value.position.column == 12);
+    TESSERA_CHECK(root.Members()[0].value.position.line == 2 &&
+                  root.Members()[0].value.position.column == 12);
     TESSERA_CHECK(root.Members()[1].key_position.line == 3 && root.Members()[1].key_position.column == 5);
     const Value& list = root.Members()[1].value;
     TESSERA_CHECK(list.position.line == 3 && list.position.column == 15);

@@ -30,7 +30,8 @@ void PrintUsage(std::ostream& stream) {
            << "  tessera_schema hash <schema.json>\n"
            << "  tessera_schema generate --cpp <output.hpp> [--namespace a::b] <schema.json>\n"
            << "\n"
-           << "check     reads the file, checks it as the server does, and says how many types it has and its hash.\n"
+           << "check     reads the file, checks it as the server does, and says how many types it has and "
+              "its hash.\n"
            << "hash      prints the hash of the schema and nothing else.\n"
            << "generate  writes the C++ header of the schema. Nothing is written when the schema is wrong.\n"
            << "\n"
@@ -127,8 +128,8 @@ int RunCheck(std::span<const std::string> args, std::ostream& out, std::ostream&
         return code;
     }
     const size_t types = loaded->file.types.size();
-    out << path << ": OK, " << types << (types == 1 ? " type" : " types") << ", hash " << Hex16(loaded->check.hash)
-        << "\n";
+    out << path << ": OK, " << types << (types == 1 ? " type" : " types") << ", hash "
+        << Hex16(loaded->check.hash) << "\n";
     return kOk;
 }
 

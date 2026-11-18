@@ -129,7 +129,8 @@ void AppendUtf8(std::string& out, uint32_t code_point) {
 
 class Parser {
 public:
-    Parser(std::string_view text, const Limits& limits, size_t start) : text_(text), limits_(limits), at_(start) {}
+    Parser(std::string_view text, const Limits& limits, size_t start)
+        : text_(text), limits_(limits), at_(start) {}
 
     ParseResult Run() {
         Value value;
@@ -319,7 +320,8 @@ private:
             Advance();
             SkipSpace();
             if (!AtEnd() && Peek() == ']') {
-                return Fail(comma, "there is a comma after the last item", "remove the comma before the \"]\"");
+                return Fail(comma, "there is a comma after the last item",
+                            "remove the comma before the \"]\"");
             }
         }
     }
@@ -371,7 +373,8 @@ private:
             const auto [place, inserted] = seen.emplace(key, key_position);
             if (!inserted) {
                 return Fail(key_position,
-                            "the key \"" + key + "\" appears twice in this object, the first one is on line " +
+                            "the key \"" + key +
+                                "\" appears twice in this object, the first one is on line " +
                                 std::to_string(place->second.line),
                             "remove one of the two");
             }
@@ -402,7 +405,8 @@ private:
             Advance();
             SkipSpace();
             if (!AtEnd() && Peek() == '}') {
-                return Fail(comma, "there is a comma after the last member", "remove the comma before the \"}\"");
+                return Fail(comma, "there is a comma after the last member",
+                            "remove the comma before the \"}\"");
             }
         }
     }
@@ -459,7 +463,8 @@ private:
                 Advance();
             }
             if (out.size() > limits_.max_string) {
-                return Fail(start, "this string is longer than " + std::to_string(limits_.max_string) + " bytes");
+                return Fail(start,
+                            "this string is longer than " + std::to_string(limits_.max_string) + " bytes");
             }
         }
     }
@@ -540,14 +545,16 @@ private:
             Advance();
             if (AtEnd() || !IsDigit(Peek())) {
                 return Fail(where, "a minus sign must be followed by digits",
-                            AtEnd() || (Peek() != 'I' && Peek() != 'N') ? "write the number after the minus sign"
-                                                                       : "use a finite number");
+                            AtEnd() || (Peek() != 'I' && Peek() != 'N')
+                                ? "write the number after the minus sign"
+                                : "use a finite number");
             }
         }
         if (Peek() == '0') {
             Advance();
             if (!AtEnd() && IsDigit(Peek())) {
-                return Fail(where, "a number cannot have a leading zero", "remove the zeros before the first digit");
+                return Fail(where, "a number cannot have a leading zero",
+                            "remove the zeros before the first digit");
             }
             if (!AtEnd() && (Peek() == 'x' || Peek() == 'X')) {
                 return Fail(where, "hexadecimal numbers are not allowed", "write the number in decimal");
@@ -575,7 +582,8 @@ private:
                 Advance();
             }
             if (AtEnd() || !IsDigit(Peek())) {
-                return Fail(where, "an exponent must have digits", "add the digits of the exponent, or remove the e");
+                return Fail(where, "an exponent must have digits",
+                            "add the digits of the exponent, or remove the e");
             }
             while (!AtEnd() && IsDigit(Peek())) {
                 Advance();
@@ -615,7 +623,8 @@ private:
             }
             magnitude = magnitude * 10 + digit;
         }
-        out = Value::MakeInteger(where, negative ? static_cast<int64_t>(~magnitude + 1) : static_cast<int64_t>(magnitude));
+        out = Value::MakeInteger(where, negative ? static_cast<int64_t>(~magnitude + 1)
+                                                 : static_cast<int64_t>(magnitude));
         return true;
     }
 
@@ -633,8 +642,9 @@ private:
 ParseResult Parse(std::string_view text, const Limits& limits) {
     if (text.size() > limits.max_bytes) {
         ParseResult result;
-        result.error = Error{Position{1, 1}, "the file is larger than " + std::to_string(limits.max_bytes) +
-                                                 " bytes, which is the most this tool reads",
+        result.error = Error{Position{1, 1},
+                             "the file is larger than " + std::to_string(limits.max_bytes) +
+                                 " bytes, which is the most this tool reads",
                              {}};
         return result;
     }

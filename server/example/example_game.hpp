@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // A small game for the example server: entities that walk around a square and bounce off its edges. Copy it
 // as the starting point for your own game. What it shows:
-//   - the schema: which properties each entity type replicates is written once, in example_schema.json, and the
+//   - the schema: which properties each entity type replicates is written once, in example_schema.json, and
+//   the
 //     columns and the functions that register the types are generated from it while the project is built;
 //   - `DescribeWorld`: who can see what;
 //   - `OnStart`: making the tables and the first entities, with the shard id in every id;
@@ -57,7 +58,8 @@ public:
     explicit ExampleGame(uint32_t entity_count = 100, bool walking = true, bool players = false)
         : entity_count_(entity_count), walking_(walking), players_(players) {
         std::string error;
-        if (!schema::AddEntityType(schema_, &error) || (players_ && !schema::AddPlayerType(schema_, &error))) {
+        if (!schema::AddEntityType(schema_, &error) ||
+            (players_ && !schema::AddPlayerType(schema_, &error))) {
             throw std::logic_error("example game: the schema does not build: " + error);
         }
     }

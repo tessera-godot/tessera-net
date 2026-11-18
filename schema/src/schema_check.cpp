@@ -13,8 +13,8 @@ namespace tessera::schema {
 
 namespace {
 
-// A double that does not fit a float becomes an infinity, which the replication code refuses. (A plain cast of
-// such a value is not defined.)
+// A double that does not fit a float becomes an infinity, which the replication code refuses. (A plain cast
+// of such a value is not defined.)
 float ToFloat(double value) {
     constexpr double kLargest = std::numeric_limits<float>::max();
     if (value > kLargest) {
@@ -30,15 +30,18 @@ std::string Quoted(const std::string& text) {
     return "\"" + text + "\"";
 }
 
-// What to change when a property of this kind is refused by itself. The limits are the ones of the replication code.
+// What to change when a property of this kind is refused by itself. The limits are the ones of the
+// replication code.
 std::string FixForProperty(const PropertyDecl& p) {
     switch (p.kind) {
     case Kind::Position:
-        return "\"step\" and \"range\" are numbers above 0, and 2 x \"range\" / \"step\" must be at most 2147483647";
+        return "\"step\" and \"range\" are numbers above 0, and 2 x \"range\" / \"step\" must be at most "
+               "2147483647";
     case Kind::Angle:
         return "\"bits\" is a whole number from 1 to 16";
     case Kind::Integer:
-        return "\"min\" must not be above \"max\", both must fit the column, and with \"signed\" false \"min\" cannot be "
+        return "\"min\" must not be above \"max\", both must fit the column, and with \"signed\" false "
+               "\"min\" cannot be "
                "below 0";
     case Kind::Mask:
         return "\"bits\" is a whole number from 1 to 64";
@@ -59,8 +62,8 @@ std::vector<net::PropertyDescriptor> Descriptors(const TypeDecl& type, size_t co
     return descriptors;
 }
 
-// The place and the correction for a type the replication code refused. It is found without reading the message: the
-// first number of properties that is refused points at the property that made it so.
+// The place and the correction for a type the replication code refused. It is found without reading the
+// message: the first number of properties that is refused points at the property that made it so.
 Diagnostic Explain(const TypeDecl& type, const std::string& core_message) {
     const std::string prefix = "type " + Quoted(type.name) + " (" + std::to_string(type.type) + "): ";
     Diagnostic diagnostic{type.where.position, prefix + core_message, {}};
@@ -75,13 +78,15 @@ Diagnostic Explain(const TypeDecl& type, const std::string& core_message) {
         if (!alone.AddType(type.type, {MakeDescriptor(culprit)})) {
             diagnostic.fix = FixForProperty(culprit);
         } else if (k > net::ReplicationSchema::kMaxPropertiesPerType) {
-            diagnostic.fix = "a type has at most " + std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
+            diagnostic.fix = "a type has at most " +
+                             std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
                              " properties; remove this one";
         } else {
-            diagnostic.fix = "the replicated state of a type takes at most " +
-                             std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
-                             " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
-                             "or shrink a property";
+            diagnostic.fix =
+                "the replicated state of a type takes at most " +
+                std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
+                " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
+                "or shrink a property";
         }
         break;
     }
@@ -98,11 +103,13 @@ net::PropertyDescriptor MakeDescriptor(const PropertyDecl& property) {
     const net::ColumnRef ref{0, column.bytes};
     switch (property.kind) {
     case Kind::Position:
-        return net::PropertyDescriptor::Position(ref, ref, ref, ToFloat(property.step), ToFloat(property.range));
+        return net::PropertyDescriptor::Position(ref, ref, ref, ToFloat(property.step),
+                                                 ToFloat(property.range));
     case Kind::Angle:
         return net::PropertyDescriptor::Angle(ref, property.bits);
     case Kind::Integer:
-        return net::PropertyDescriptor::Integer(ref, property.is_signed, property.min_value, property.max_value);
+        return net::PropertyDescriptor::Integer(ref, property.is_signed, property.min_value,
+                                                property.max_value);
     case Kind::Flag:
         return net::PropertyDescriptor::Bits(ref, 1);
     case Kind::Mask:
@@ -129,10 +136,11 @@ CheckResult Check(const SchemaFile& file) {
             result.diagnostics.push_back(Explain(*type, message));
         }
     }
-    std::stable_sort(result.diagnostics.begin(), result.diagnostics.end(), [](const Diagnostic& a, const Diagnostic& b) {
-        return a.position.line != b.position.line ? a.position.line < b.position.line
-                                                  : a.position.column < b.position.column;
-    });
+    std::stable_sort(result.diagnostics.begin(), result.diagnostics.end(),
+                     [](const Diagnostic& a, const Diagnostic& b) {
+                         return a.position.line != b.position.line ? a.position.line < b.position.line
+                                                                   : a.position.column < b.position.column;
+                     });
     if (result.diagnostics.empty()) {
         result.hash = schema->Hash();
         result.schema = std::move(schema);

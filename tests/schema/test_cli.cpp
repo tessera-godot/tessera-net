@@ -98,8 +98,9 @@ TESSERA_TEST(check_prints_ok_with_counts_and_hash) {
     TESSERA_CHECK(result.err.empty());
     // A single type is "1 type".
     TempDir dir;
-    const std::string one = dir.Write("one.json", "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", "
-                                                   "\"properties\": [{\"name\": \"alive\", \"kind\": \"flag\"}]}]}");
+    const std::string one =
+        dir.Write("one.json", "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", "
+                              "\"properties\": [{\"name\": \"alive\", \"kind\": \"flag\"}]}]}");
     const Outcome single = Call({"check", one});
     TESSERA_CHECK(single.code == 0 && Has(single.out, ": OK, 1 type, hash 0x"));
 }
@@ -115,12 +116,16 @@ TESSERA_TEST(check_prints_every_diagnostic_with_file_line_column_and_fix) {
         return path + ":" + std::to_string(place.line) + ":" + std::to_string(place.column) + ": error: ";
     };
     const std::string expected =
-        at("\"Bad\"") + "\"Bad\" is not a valid name\n"
-        "  fix: use lowercase letters, digits and underscores, and start each part with a letter, for example "
+        at("\"Bad\"") +
+        "\"Bad\" is not a valid name\n"
+        "  fix: use lowercase letters, digits and underscores, and start each part with a letter, for "
+        "example "
         "\"max_health\"\n" +
-        at("\"bits\"") + "the key \"bits\" does not belong to the kind \"flag\"\n"
+        at("\"bits\"") +
+        "the key \"bits\" does not belong to the kind \"flag\"\n"
         "  fix: remove it; a \"flag\" property takes no keys besides \"name\" and \"note\"\n" +
-        at("{\"name\": \"b\"") + "a property of the kind \"mask\" needs the key \"bits\"\n"
+        at("{\"name\": \"b\"") +
+        "a property of the kind \"mask\" needs the key \"bits\"\n"
         "  fix: add \"bits\": a whole number\n";
     TESSERA_CHECK(result.err == expected);
     if (result.err != expected) {
@@ -132,13 +137,17 @@ TESSERA_TEST(check_returns_1_and_prints_nothing_on_stdout_for_a_bad_schema) {
     TempDir dir;
     const Outcome broken = Call({"check", dir.Write("broken.json", "{\"format_version\": 1,}")});
     TESSERA_CHECK(broken.code == 1 && broken.out.empty());
-    TESSERA_CHECK(Has(broken.err, "broken.json:1:21: error: there is a comma after the last member\n  fix: remove the comma"));
+    TESSERA_CHECK(
+        Has(broken.err,
+            "broken.json:1:21: error: there is a comma after the last member\n  fix: remove the comma"));
     // What the replication code refuses is refused with its words, and a place.
-    const std::string text = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"entity\", \"properties\": [\n"
-                             "{\"name\": \"position\", \"kind\": \"position\", \"step\": 0, \"range\": 10}]}]}";
+    const std::string text =
+        "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"entity\", \"properties\": [\n"
+        "{\"name\": \"position\", \"kind\": \"position\", \"step\": 0, \"range\": 10}]}]}";
     const Outcome core = Call({"check", dir.Write("core.json", text)});
     TESSERA_CHECK(core.code == 1 && core.out.empty());
-    TESSERA_CHECK(Has(core.err, "core.json:2:1: error: type \"entity\" (1): property 0: position step must be a positive, finite number"));
+    TESSERA_CHECK(Has(core.err, "core.json:2:1: error: type \"entity\" (1): property 0: position step must "
+                                "be a positive, finite number"));
 }
 
 static_assert(339718250426401488ull == 0x04b6ebf2e86202d0ull, "the hex of the hash of the example");
@@ -152,7 +161,8 @@ TESSERA_TEST(hash_prints_only_the_hash_in_hex) {
     TESSERA_CHECK(read.file.has_value());
     if (read.file) {
         char buffer[32];
-        std::snprintf(buffer, sizeof buffer, "0x%016llx\n", static_cast<unsigned long long>(Check(*read.file).schema->Hash()));
+        std::snprintf(buffer, sizeof buffer, "0x%016llx\n",
+                      static_cast<unsigned long long>(Check(*read.file).schema->Hash()));
         TESSERA_CHECK(result.out == buffer);
     }
     TempDir dir;
@@ -174,7 +184,8 @@ TESSERA_TEST(generate_writes_the_file_and_creates_missing_folders) {
     const Outcome plain = Call({"generate", "--cpp", dir.File("plain.hpp"), ExampleFile()});
     TESSERA_CHECK(plain.code == 0 && Has(ReadAll(dir.File("plain.hpp")), "\nnamespace game_schema {\n"));
     // The options may come in any order.
-    const Outcome reordered = Call({"generate", ExampleFile(), "--namespace", "x", "--cpp", dir.File("x.hpp")});
+    const Outcome reordered =
+        Call({"generate", ExampleFile(), "--namespace", "x", "--cpp", dir.File("x.hpp")});
     TESSERA_CHECK(reordered.code == 0 && Has(ReadAll(dir.File("x.hpp")), "\nnamespace x {\n"));
 }
 
@@ -194,8 +205,9 @@ TESSERA_TEST(generate_with_invalid_schema_writes_nothing_and_keeps_an_older_file
     TESSERA_CHECK(again.code == 1);
     TESSERA_CHECK(ReadAll(out) == before);
     // The same for a schema the replication code refuses (not only one the reading refuses).
-    const std::string zero_step = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": ["
-                                  "{\"name\": \"p\", \"kind\": \"position\", \"step\": 0, \"range\": 1}]}]}";
+    const std::string zero_step =
+        "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": ["
+        "{\"name\": \"p\", \"kind\": \"position\", \"step\": 0, \"range\": 1}]}]}";
     TESSERA_CHECK(Call({"generate", "--cpp", out, dir.Write("zero.json", zero_step)}).code == 1);
     TESSERA_CHECK(ReadAll(out) == before);
 }
@@ -241,7 +253,8 @@ TESSERA_TEST(missing_or_unreadable_input_returns_3_with_a_clear_message) {
     const std::string missing = dir.File("nothing_here.json");
     const Outcome absent = Call({"check", missing});
     TESSERA_CHECK(absent.code == 3 && absent.out.empty());
-    TESSERA_CHECK(absent.err == missing + ": error: cannot read this file (it is missing, or it is not a file)\n");
+    TESSERA_CHECK(absent.err ==
+                  missing + ": error: cannot read this file (it is missing, or it is not a file)\n");
     // A folder where a file should be.
     fs::create_directories(dir.Path() / "a_folder");
     const Outcome folder = Call({"check", dir.File("a_folder")});
@@ -264,10 +277,13 @@ TESSERA_TEST(missing_or_unreadable_input_returns_3_with_a_clear_message) {
 TESSERA_TEST(generate_rejects_a_bad_namespace_with_exit_2) {
     TempDir dir;
     for (const char* bad : {"class", "1a", "a::", "::a", ""}) {
-        const Outcome result = Call({"generate", "--cpp", dir.File("o.hpp"), "--namespace", bad, ExampleFile()});
+        const Outcome result =
+            Call({"generate", "--cpp", dir.File("o.hpp"), "--namespace", bad, ExampleFile()});
         TESSERA_CHECK(result.code == 2);
         TESSERA_CHECK(Has(result.err, "bad --namespace:"));
         TESSERA_CHECK(!fs::exists(dir.Path() / "o.hpp"));
     }
-    TESSERA_CHECK(Has(Call({"generate", "--cpp", dir.File("o.hpp"), "--namespace", "class", ExampleFile()}).err, "C++ keyword"));
+    TESSERA_CHECK(
+        Has(Call({"generate", "--cpp", dir.File("o.hpp"), "--namespace", "class", ExampleFile()}).err,
+            "C++ keyword"));
 }

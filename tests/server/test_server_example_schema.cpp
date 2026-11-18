@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// The schema of the example game: its fingerprint is pinned, and a copy of how it used to be written by hand is
-// kept here to compare the real one with.
+// The schema of the example game: its fingerprint is pinned, and a copy of how it used to be written by hand
+// is kept here to compare the real one with.
 #include "example_game.hpp"
 #include "example_schema.hpp"
 #include "tessera/net/entity_table.hpp"
@@ -17,8 +17,8 @@ namespace generated = tessera::server::example::schema;
 
 namespace {
 
-// The columns and the schema of the example, written by hand as the example once did. They stay here so that the
-// schema the example gets from its schema file can be compared with them.
+// The columns and the schema of the example, written by hand as the example once did. They stay here so that
+// the schema the example gets from its schema file can be compared with them.
 struct HandWrittenEntityColumns {
     float x[kPageSlots];
     float y[kPageSlots];
@@ -34,15 +34,17 @@ struct HandWrittenPlayerColumns {
 
 ReplicationSchema HandWrittenSchema(bool players) {
     ReplicationSchema schema;
-    schema.AddType(1, {PropertyDescriptor::Position(
-                          TESSERA_COLUMN(HandWrittenEntityColumns, x), TESSERA_COLUMN(HandWrittenEntityColumns, y),
-                          TESSERA_COLUMN(HandWrittenEntityColumns, z), 0.01f, 2048.0f)});
+    schema.AddType(
+        1, {PropertyDescriptor::Position(TESSERA_COLUMN(HandWrittenEntityColumns, x),
+                                         TESSERA_COLUMN(HandWrittenEntityColumns, y),
+                                         TESSERA_COLUMN(HandWrittenEntityColumns, z), 0.01f, 2048.0f)});
     if (players) {
         schema.AddType(
-            2, {PropertyDescriptor::Position(
-                    TESSERA_COLUMN(HandWrittenPlayerColumns, x), TESSERA_COLUMN(HandWrittenPlayerColumns, y),
-                    TESSERA_COLUMN(HandWrittenPlayerColumns, z), 0.01f, 2048.0f),
-                PropertyDescriptor::Integer(TESSERA_COLUMN(HandWrittenPlayerColumns, owner), false, 0, 65535)});
+            2,
+            {PropertyDescriptor::Position(TESSERA_COLUMN(HandWrittenPlayerColumns, x),
+                                          TESSERA_COLUMN(HandWrittenPlayerColumns, y),
+                                          TESSERA_COLUMN(HandWrittenPlayerColumns, z), 0.01f, 2048.0f),
+             PropertyDescriptor::Integer(TESSERA_COLUMN(HandWrittenPlayerColumns, owner), false, 0, 65535)});
     }
     return schema;
 }
@@ -68,8 +70,8 @@ bool SameType(const TypeSchema* a, const TypeSchema* b) {
     return true;
 }
 
-// Compares two values in a way that is not a constant expression, so that a check of two constants does not draw a
-// warning.
+// Compares two values in a way that is not a constant expression, so that a check of two constants does not
+// draw a warning.
 template <class A, class B> bool Same(const A& a, const B& b) {
     return a == b;
 }

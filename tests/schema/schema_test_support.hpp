@@ -17,7 +17,8 @@
 namespace schema_test {
 
 /// Where the first (or `nth`) `needle` starts in `text`, as a line and a column.
-inline tessera::schema::json::Position At(const std::string& text, const std::string& needle, size_t nth = 0) {
+inline tessera::schema::json::Position At(const std::string& text, const std::string& needle,
+                                          size_t nth = 0) {
     size_t from = 0;
     size_t found = std::string::npos;
     for (size_t i = 0; i <= nth; ++i) {
@@ -40,9 +41,12 @@ inline tessera::schema::json::Position At(const std::string& text, const std::st
     return position;
 }
 
-/// A whole schema file with one type, whose properties are the text between the brackets (one per line, from line 2).
-inline std::string OneType(const std::string& properties, const std::string& type_fields = "\"type\": 1, \"name\": \"entity\"") {
-    return "{\"format_version\": 1, \"types\": [{" + type_fields + ", \"properties\": [\n" + properties + "\n]}]}";
+/// A whole schema file with one type, whose properties are the text between the brackets (one per line, from
+/// line 2).
+inline std::string OneType(const std::string& properties,
+                           const std::string& type_fields = "\"type\": 1, \"name\": \"entity\"") {
+    return "{\"format_version\": 1, \"types\": [{" + type_fields + ", \"properties\": [\n" + properties +
+           "\n]}]}";
 }
 
 /// The bytes of a file of tests/schema (a fixture or a golden file).
@@ -54,12 +58,14 @@ inline std::string ReadTestFile(const std::string& relative_path) {
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-/// A folder made for one test, in the temporary folder of the system, and removed (with what is in it) at the end.
+/// A folder made for one test, in the temporary folder of the system, and removed (with what is in it) at the
+/// end.
 class TempDir {
 public:
     TempDir() {
         std::random_device random;
-        path_ = std::filesystem::temp_directory_path() / ("tessera_schema_test_" + std::to_string(random()) + "_" + std::to_string(random()));
+        path_ = std::filesystem::temp_directory_path() /
+                ("tessera_schema_test_" + std::to_string(random()) + "_" + std::to_string(random()));
         std::filesystem::create_directories(path_);
     }
     ~TempDir() {
@@ -99,8 +105,8 @@ inline bool Has(const std::string& text, const std::string& part) {
     return text.find(part) != std::string::npos;
 }
 
-/// Checks that diagnostic `index` is at `where`, has `message_part` in its message and `fix_part` in its correction
-/// (an empty `fix_part` is not looked at, and "-" means that there must be no correction).
+/// Checks that diagnostic `index` is at `where`, has `message_part` in its message and `fix_part` in its
+/// correction (an empty `fix_part` is not looked at, and "-" means that there must be no correction).
 inline void ExpectDiagnostic(const std::vector<tessera::schema::Diagnostic>& all, size_t index,
                              tessera::schema::json::Position where, const std::string& message_part,
                              const std::string& fix_part) {
@@ -110,12 +116,13 @@ inline void ExpectDiagnostic(const std::vector<tessera::schema::Diagnostic>& all
     }
     const tessera::schema::Diagnostic& d = all[index];
     const bool ok = d.position.line == where.line && d.position.column == where.column &&
-                    Has(d.message, message_part) && (fix_part.empty() || (fix_part == "-" ? d.fix.empty() : Has(d.fix, fix_part)));
+                    Has(d.message, message_part) &&
+                    (fix_part.empty() || (fix_part == "-" ? d.fix.empty() : Has(d.fix, fix_part)));
     TESSERA_CHECK(ok);
     if (!ok) {
-        std::printf("    wanted %u:%u \"%s\" fix \"%s\"\n    got    %u:%u \"%s\" fix \"%s\"\n", where.line, where.column,
-                    message_part.c_str(), fix_part.c_str(), d.position.line, d.position.column, d.message.c_str(),
-                    d.fix.c_str());
+        std::printf("    wanted %u:%u \"%s\" fix \"%s\"\n    got    %u:%u \"%s\" fix \"%s\"\n", where.line,
+                    where.column, message_part.c_str(), fix_part.c_str(), d.position.line, d.position.column,
+                    d.message.c_str(), d.fix.c_str());
     }
 }
 

@@ -48,7 +48,7 @@ struct KeyName {
 };
 
 const KeyName kKeyNames[] = {
-    {kStep, "step"}, {kRange, "range"},   {kBits, "bits"},  {kMin, "min"},
+    {kStep, "step"}, {kRange, "range"},   {kBits, "bits"},   {kMin, "min"},
     {kMax, "max"},   {kSigned, "signed"}, {kCount, "count"},
 };
 
@@ -119,7 +119,8 @@ public:
 
     void ReadRoot(const json::Value& root, SchemaFile& file) {
         if (root.GetType() != json::Type::Object) {
-            Add(root.position, "the file must hold one JSON object, like { \"format_version\": 1, \"types\": [ ... ] }");
+            Add(root.position,
+                "the file must hold one JSON object, like { \"format_version\": 1, \"types\": [ ... ] }");
             return;
         }
         bool has_version = false;
@@ -140,15 +141,17 @@ public:
             Add(root.position, "the file needs a \"format_version\"", "add \"format_version\": 1");
         }
         if (!has_types) {
-            Add(root.position, "the file needs a list of \"types\"", "add \"types\": [ ... ] with at least one type");
+            Add(root.position, "the file needs a list of \"types\"",
+                "add \"types\": [ ... ] with at least one type");
         }
     }
 
     void Finish() {
-        std::stable_sort(diagnostics_.begin(), diagnostics_.end(), [](const Diagnostic& a, const Diagnostic& b) {
-            return a.position.line != b.position.line ? a.position.line < b.position.line
-                                                      : a.position.column < b.position.column;
-        });
+        std::stable_sort(
+            diagnostics_.begin(), diagnostics_.end(), [](const Diagnostic& a, const Diagnostic& b) {
+                return a.position.line != b.position.line ? a.position.line < b.position.line
+                                                          : a.position.column < b.position.column;
+            });
     }
 
 private:
@@ -165,18 +168,21 @@ private:
                 file.format_version = 1;
             } else {
                 Add(value.position,
-                    "this tool reads format version 1, and the file says " + std::to_string(value.AsInteger()),
+                    "this tool reads format version 1, and the file says " +
+                        std::to_string(value.AsInteger()),
                     "set \"format_version\" to 1, or use a version of the tool that reads that format");
             }
             return;
         case json::Type::String:
-            Add(value.position, "\"format_version\" is a number, and here it is text", "write 1 without quotes");
+            Add(value.position, "\"format_version\" is a number, and here it is text",
+                "write 1 without quotes");
             return;
         case json::Type::Number:
             Add(value.position, "\"format_version\" must be a whole number, not a decimal one", "write 1");
             return;
         default:
-            Add(value.position, "\"format_version\" must be the whole number 1", "write \"format_version\": 1");
+            Add(value.position, "\"format_version\" must be the whole number 1",
+                "write \"format_version\": 1");
             return;
         }
     }
@@ -200,7 +206,8 @@ private:
         TypeDecl type;
         type.where.position = item.position;
         if (item.GetType() != json::Type::Object) {
-            Add(item.position, "a type must be an object, like { \"type\": 1, \"name\": \"entity\", \"properties\": [ ... ] }");
+            Add(item.position, "a type must be an object, like { \"type\": 1, \"name\": \"entity\", "
+                               "\"properties\": [ ... ] }");
             return type;
         }
         bool has_number = false;
@@ -224,10 +231,12 @@ private:
             }
         }
         if (!has_number) {
-            Add(item.position, "a type needs a \"type\" number", "add \"type\": a whole number from 0 to 255");
+            Add(item.position, "a type needs a \"type\" number",
+                "add \"type\": a whole number from 0 to 255");
         }
         if (!has_name) {
-            Add(item.position, "a type needs a \"name\"", "add \"name\": \"entity\", or another name in lowercase");
+            Add(item.position, "a type needs a \"name\"",
+                "add \"name\": \"entity\", or another name in lowercase");
         }
         if (!has_properties) {
             Add(item.position, "a type needs a list of \"properties\"", "add \"properties\": [ ... ]");
@@ -238,30 +247,33 @@ private:
     void ReadTypeNumber(const json::Value& value, TypeDecl& type) {
         const std::string fix = "use a whole number from 0 to " + std::to_string(net::EntityId::kMaxType);
         if (!value.IsInteger()) {
-            Add(value.position, "the type number must be a whole number from 0 to " +
-                                    std::to_string(net::EntityId::kMaxType),
+            Add(value.position,
+                "the type number must be a whole number from 0 to " + std::to_string(net::EntityId::kMaxType),
                 fix);
             return;
         }
         const int64_t number = value.AsInteger();
         if (number < 0 || number > static_cast<int64_t>(net::EntityId::kMaxType)) {
-            Add(value.position, "the type number " + std::to_string(number) + " is out of range, it must be from 0 to " +
-                                    std::to_string(net::EntityId::kMaxType),
+            Add(value.position,
+                "the type number " + std::to_string(number) + " is out of range, it must be from 0 to " +
+                    std::to_string(net::EntityId::kMaxType),
                 fix);
             return;
         }
         type.type = static_cast<uint32_t>(number);
         const auto [place, inserted] = type_numbers_.emplace(type.type, value.position);
         if (!inserted) {
-            Add(value.position, "the type number " + std::to_string(number) + " is already used on line " +
-                                    std::to_string(place->second.line),
+            Add(value.position,
+                "the type number " + std::to_string(number) + " is already used on line " +
+                    std::to_string(place->second.line),
                 "give each type its own number");
         }
     }
 
     void ReadTypeName(const json::Value& value, TypeDecl& type) {
         if (value.GetType() != json::Type::String) {
-            Add(value.position, "the name of a type must be text", "write it in double quotes, like \"entity\"");
+            Add(value.position, "the name of a type must be text",
+                "write it in double quotes, like \"entity\"");
             return;
         }
         type.name = value.AsString();
@@ -269,8 +281,9 @@ private:
         CheckNameAt(value);
         const auto [place, inserted] = type_names_.emplace(type.name, value.position);
         if (!inserted) {
-            Add(value.position, "the type name " + Quoted(type.name) + " is already used on line " +
-                                    std::to_string(place->second.line),
+            Add(value.position,
+                "the type name " + Quoted(type.name) + " is already used on line " +
+                    std::to_string(place->second.line),
                 "give each type its own name");
         }
     }
@@ -293,14 +306,17 @@ private:
         for (const char c : text) {
             const auto byte = static_cast<unsigned char>(c);
             if (byte < 0x20 || byte > 0x7E) {
-                Add(value.position, "a note can only hold plain ASCII text on one line (letters, digits, punctuation and spaces)",
+                Add(value.position,
+                    "a note can only hold plain ASCII text on one line (letters, digits, punctuation and "
+                    "spaces)",
                     "remove the other characters, or write them in plain ASCII");
                 return;
             }
         }
         if (text.size() > kMaxNoteLength) {
-            Add(value.position, "a note can have at most " + std::to_string(kMaxNoteLength) + " characters, and this one has " +
-                                    std::to_string(text.size()),
+            Add(value.position,
+                "a note can have at most " + std::to_string(kMaxNoteLength) +
+                    " characters, and this one has " + std::to_string(text.size()),
                 "make it shorter");
             return;
         }
@@ -322,7 +338,8 @@ private:
         PropertyDecl property;
         property.where.position = item.position;
         if (item.GetType() != json::Type::Object) {
-            Add(item.position, "a property must be an object, like { \"name\": \"position\", \"kind\": \"position\", ... }");
+            Add(item.position,
+                "a property must be an object, like { \"name\": \"position\", \"kind\": \"position\", ... }");
             return property;
         }
         const KindKeys* kind = nullptr;
@@ -358,7 +375,8 @@ private:
             } else if (kind != nullptr) {
                 if (((kind->required | kind->optional) & bit) == 0) {
                     Add(member.key_position,
-                        "the key " + Quoted(member.key) + " does not belong to the kind " + Quoted(kind->name),
+                        "the key " + Quoted(member.key) + " does not belong to the kind " +
+                            Quoted(kind->name),
                         KeysOfKind(*kind));
                 } else {
                     seen |= bit;
@@ -367,13 +385,16 @@ private:
             }
         }
         if (!has_name) {
-            Add(item.position, "a property needs a \"name\"", "add \"name\": a name in lowercase, like \"position\"");
+            Add(item.position, "a property needs a \"name\"",
+                "add \"name\": a name in lowercase, like \"position\"");
         }
         if (kind != nullptr) {
             for (const KeyName& key : kKeyNames) {
                 if ((kind->required & key.bit) != 0 && (seen & key.bit) == 0) {
-                    Add(item.position, "a property of the kind " + Quoted(kind->name) + " needs the key " + Quoted(key.name),
-                        "add " + Quoted(key.name) + ": " + (IsNumberKey(key.bit) ? "a number" : "a whole number"));
+                    Add(item.position,
+                        "a property of the kind " + Quoted(kind->name) + " needs the key " + Quoted(key.name),
+                        "add " + Quoted(key.name) + ": " +
+                            (IsNumberKey(key.bit) ? "a number" : "a whole number"));
                 }
             }
         }
@@ -434,7 +455,8 @@ private:
     void ReadPropertyName(const json::Value& value, PropertyDecl& property,
                           std::map<std::string, json::Position>& names) {
         if (value.GetType() != json::Type::String) {
-            Add(value.position, "the name of a property must be text", "write it in double quotes, like \"position\"");
+            Add(value.position, "the name of a property must be text",
+                "write it in double quotes, like \"position\"");
             return;
         }
         property.name = value.AsString();
@@ -442,8 +464,9 @@ private:
         CheckNameAt(value);
         const auto [place, inserted] = names.emplace(property.name, value.position);
         if (!inserted) {
-            Add(value.position, "the property name " + Quoted(property.name) + " is already used on line " +
-                                    std::to_string(place->second.line) + " in this type",
+            Add(value.position,
+                "the property name " + Quoted(property.name) + " is already used on line " +
+                    std::to_string(place->second.line) + " in this type",
                 "give each property of a type its own name");
         }
     }
@@ -454,14 +477,16 @@ private:
         case kStep:
         case kRange:
             if (!value.IsNumeric()) {
-                Add(value.position, "the key " + Quoted(key) + " must be a number", "write a number without quotes, like 0.01");
+                Add(value.position, "the key " + Quoted(key) + " must be a number",
+                    "write a number without quotes, like 0.01");
                 return;
             }
             (bit == kStep ? property.step : property.range) = value.AsNumber();
             return;
         case kSigned:
             if (value.GetType() != json::Type::Bool) {
-                Add(value.position, "the key \"signed\" must be true or false", "write true or false without quotes");
+                Add(value.position, "the key \"signed\" must be true or false",
+                    "write true or false without quotes");
                 return;
             }
             property.is_signed = value.AsBool();
@@ -469,7 +494,8 @@ private:
         case kMin:
         case kMax:
             if (!value.IsInteger()) {
-                Add(value.position, "the key " + Quoted(key) + " must be a whole number", "write a whole number without quotes or a decimal point");
+                Add(value.position, "the key " + Quoted(key) + " must be a whole number",
+                    "write a whole number without quotes or a decimal point");
                 return;
             }
             (bit == kMin ? property.min_value : property.max_value) = value.AsInteger();
@@ -506,7 +532,8 @@ ReadResult ReadSchema(std::string_view text) {
     ReadResult result;
     const json::ParseResult parsed = json::Parse(text);
     if (parsed.error) {
-        result.diagnostics.push_back(Diagnostic{parsed.error->position, parsed.error->message, parsed.error->fix});
+        result.diagnostics.push_back(
+            Diagnostic{parsed.error->position, parsed.error->message, parsed.error->fix});
         return result;
     }
     SchemaFile file;

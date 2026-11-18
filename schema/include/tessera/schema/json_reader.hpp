@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// A small, strict JSON reader. It reads the standard (RFC 8259) and nothing more: no comments, no trailing commas,
-// no single quotes, no NaN or Infinity, no repeated keys. Every error says where it is and, when there is an obvious
-// correction, what to change. The size of the text, how deep it nests and how long a string may be are limited, so a
-// hostile or broken file ends in an error and never in a crash.
+// A small, strict JSON reader. It reads the standard (RFC 8259) and nothing more: no comments, no trailing
+// commas, no single quotes, no NaN or Infinity, no repeated keys. Every error says where it is and, when
+// there is an obvious correction, what to change. The size of the text, how deep it nests and how long a
+// string may be are limited, so a hostile or broken file ends in an error and never in a crash.
 #pragma once
 
 #include <cstddef>

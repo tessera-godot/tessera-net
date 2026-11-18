@@ -12,8 +12,8 @@
 #include <vector>
 
 using namespace tessera::schema;
-using schema_test::Has;
 using schema_test::HandWrittenSchema;
+using schema_test::Has;
 using schema_test::ReadTestFile;
 
 namespace {
@@ -64,8 +64,8 @@ PropertyDecl Integer(const std::string& name, int64_t min, int64_t max, bool is_
     return p;
 }
 
-// A file with one type, 1 "entity", and these properties. Each property gets a place of its own (line 10 + its
-// number), so that a diagnostic can be traced back to it.
+// A file with one type, 1 "entity", and these properties. Each property gets a place of its own (line 10 +
+// its number), so that a diagnostic can be traced back to it.
 SchemaFile OneTypeFile(std::vector<PropertyDecl> properties) {
     SchemaFile file;
     file.format_version = 1;
@@ -119,7 +119,8 @@ TESSERA_TEST(check_builds_the_schema_the_core_builds) {
     const auto& p = type->properties;
     TESSERA_CHECK(p[0].kind == PropertyKind::Position && p[0].step == 0.01f && p[0].range == 2048.0f);
     TESSERA_CHECK(p[1].kind == PropertyKind::Angle && p[1].bits == 12);
-    TESSERA_CHECK(p[2].kind == PropertyKind::Integer && !p[2].is_signed && p[2].min_value == 0 && p[2].max_value == 255);
+    TESSERA_CHECK(p[2].kind == PropertyKind::Integer && !p[2].is_signed && p[2].min_value == 0 &&
+                  p[2].max_value == 255);
     TESSERA_CHECK(p[5].kind == PropertyKind::Integer && p[5].max_value == 4294967296ll);
     TESSERA_CHECK(p[6].is_signed && p[6].min_value == -128 && p[6].max_value == 127);
     TESSERA_CHECK(p[9].is_signed && p[9].min_value == -2147483649ll && p[9].max_value == 0);
@@ -169,7 +170,8 @@ TESSERA_TEST(check_hash_follows_every_parameter) {
     TESSERA_CHECK(changed([](TypeDecl& t) { t.type = 2; }));
     TESSERA_CHECK(changed([](TypeDecl& t) { std::swap(t.properties[1], t.properties[5]); }));
     TESSERA_CHECK(changed([](TypeDecl& t) { t.properties.pop_back(); }));
-    // A flag is a mask of one bit, on the wire and in the hash: that is not a parameter that changes anything.
+    // A flag is a mask of one bit, on the wire and in the hash: that is not a parameter that changes
+    // anything.
     TESSERA_CHECK(!changed([](TypeDecl& t) { t.properties[3] = Mask("alive", 1); }));
 }
 
@@ -181,7 +183,8 @@ TESSERA_TEST(check_passes_the_core_message_for_a_bad_property_with_file_position
     }
     const Diagnostic& d = result.diagnostics[0];
     TESSERA_CHECK(d.position.line == 11 && d.position.column == 7); // the second property
-    TESSERA_CHECK(d.message == "type \"entity\" (1): property 1: position step must be a positive, finite number");
+    TESSERA_CHECK(d.message ==
+                  "type \"entity\" (1): property 1: position step must be a positive, finite number");
     TESSERA_CHECK(Has(d.fix, "\"step\" and \"range\" are numbers above 0"));
 }
 
@@ -211,17 +214,19 @@ TESSERA_TEST(check_points_at_the_first_property_the_core_refuses) {
 }
 
 TESSERA_TEST(check_refuses_what_add_type_refuses_boundaries) {
-    // Each limit is accepted on one side and refused on the other, and the text of the correction names the limit
-    // that was just seen.
+    // Each limit is accepted on one side and refused on the other, and the text of the correction names the
+    // limit that was just seen.
     const auto fix_of = [](const PropertyDecl& p) {
         const CheckResult result = Check(OneTypeFile({p}));
         return result.diagnostics.empty() ? std::string() : result.diagnostics[0].fix;
     };
     // angle: 1 to 16
-    TESSERA_CHECK(!Accepts(Angle("a", 0)) && Accepts(Angle("a", 1)) && Accepts(Angle("a", 16)) && !Accepts(Angle("a", 17)));
+    TESSERA_CHECK(!Accepts(Angle("a", 0)) && Accepts(Angle("a", 1)) && Accepts(Angle("a", 16)) &&
+                  !Accepts(Angle("a", 17)));
     TESSERA_CHECK(Has(fix_of(Angle("a", 0)), "from 1 to 16") && Has(fix_of(Angle("a", 17)), "from 1 to 16"));
     // mask: 1 to 64 (the column grows with the bits asked for, up to 64)
-    TESSERA_CHECK(!Accepts(Mask("m", 0)) && Accepts(Mask("m", 1)) && Accepts(Mask("m", 64)) && !Accepts(Mask("m", 65)));
+    TESSERA_CHECK(!Accepts(Mask("m", 0)) && Accepts(Mask("m", 1)) && Accepts(Mask("m", 64)) &&
+                  !Accepts(Mask("m", 65)));
     TESSERA_CHECK(Has(fix_of(Mask("m", 0)), "from 1 to 64") && Has(fix_of(Mask("m", 65)), "from 1 to 64"));
     // choice: at least 2 values
     TESSERA_CHECK(!Accepts(Choice("c", 0)) && !Accepts(Choice("c", 1)) && Accepts(Choice("c", 2)));
@@ -236,7 +241,8 @@ TESSERA_TEST(check_refuses_what_add_type_refuses_boundaries) {
     TESSERA_CHECK(!Accepts(Integer("i", -1, 5, false)) && Accepts(Integer("i", -1, 5, true)));
     TESSERA_CHECK(Accepts(Integer("i", 0, 255, false)) && Accepts(Integer("i", 0, 256, false)));
     TESSERA_CHECK(Accepts(Integer("i", -128, 127, true)) && Accepts(Integer("i", -129, 127, true)));
-    TESSERA_CHECK(Accepts(Integer("i", std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max(), true)));
+    TESSERA_CHECK(Accepts(
+        Integer("i", std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max(), true)));
     TESSERA_CHECK(Accepts(Integer("i", 0, std::numeric_limits<int64_t>::max(), false)));
     TESSERA_CHECK(Has(fix_of(Integer("i", 5, 4, false)), "\"min\" must not be above \"max\""));
 }
@@ -251,8 +257,8 @@ TESSERA_TEST(check_more_than_64_properties) {
     if (result.diagnostics.empty()) {
         return;
     }
-    // The core says "at most 64"; but 32 words is the lower limit (an angle takes one), so the check points at the
-    // property that passes it, the 33rd, which is the one to remove.
+    // The core says "at most 64"; but 32 words is the lower limit (an angle takes one), so the check points
+    // at the property that passes it, the 33rd, which is the one to remove.
     TESSERA_CHECK(Has(result.diagnostics[0].message, "a type can have at most 64 properties"));
     TESSERA_CHECK(result.diagnostics[0].position.line == 10 + 32);
     TESSERA_CHECK(Has(result.diagnostics[0].fix, "at most 32 words"));
@@ -273,7 +279,7 @@ TESSERA_TEST(check_more_than_32_words) {
         TESSERA_CHECK(Has(result.diagnostics[0].message, "takes 33 words, the limit is 32"));
         TESSERA_CHECK(Has(result.diagnostics[0].fix, "at most 32 words"));
     }
-    properties.pop_back(); // 30 words
+    properties.pop_back();                              // 30 words
     properties.push_back(Integer("hp", 0, 100, false)); // 32 words exactly
     TESSERA_CHECK(Check(OneTypeFile(properties)).schema != nullptr);
     properties.push_back(Angle("yaw", 8));
@@ -281,13 +287,16 @@ TESSERA_TEST(check_more_than_32_words) {
 }
 
 TESSERA_TEST(check_float_numbers_are_converted_like_the_core_expects) {
-    // A step too small for a float becomes zero, and a range too large becomes infinite: the core refuses both.
+    // A step too small for a float becomes zero, and a range too large becomes infinite: the core refuses
+    // both.
     CheckResult tiny = Check(OneTypeFile({Position("p", 1e-50, 100.0)}));
     TESSERA_CHECK(tiny.schema == nullptr && tiny.diagnostics.size() == 1);
-    TESSERA_CHECK(!tiny.diagnostics.empty() && Has(tiny.diagnostics[0].message, "position step must be a positive, finite number"));
+    TESSERA_CHECK(!tiny.diagnostics.empty() &&
+                  Has(tiny.diagnostics[0].message, "position step must be a positive, finite number"));
     CheckResult huge = Check(OneTypeFile({Position("p", 0.01, 1e50)}));
     TESSERA_CHECK(huge.schema == nullptr && huge.diagnostics.size() == 1);
-    TESSERA_CHECK(!huge.diagnostics.empty() && Has(huge.diagnostics[0].message, "position range must be a positive, finite number"));
+    TESSERA_CHECK(!huge.diagnostics.empty() &&
+                  Has(huge.diagnostics[0].message, "position range must be a positive, finite number"));
     CheckResult negative_huge = Check(OneTypeFile({Position("p", -1e300, 100.0)}));
     TESSERA_CHECK(negative_huge.schema == nullptr);
     // 0.01 is the float 0.01f, and the hash is the one the core gives for that float.
@@ -295,8 +304,8 @@ TESSERA_TEST(check_float_numbers_are_converted_like_the_core_expects) {
     TESSERA_CHECK(fine.schema != nullptr);
     tessera::net::ReplicationSchema by_hand;
     by_hand.AddType(1, {tessera::net::PropertyDescriptor::Position(
-                           tessera::net::ColumnRef{0, 4}, tessera::net::ColumnRef{0, 4}, tessera::net::ColumnRef{0, 4},
-                           0.01f, 2048.0f)});
+                           tessera::net::ColumnRef{0, 4}, tessera::net::ColumnRef{0, 4},
+                           tessera::net::ColumnRef{0, 4}, 0.01f, 2048.0f)});
     TESSERA_CHECK(fine.hash == by_hand.Hash());
 }
 

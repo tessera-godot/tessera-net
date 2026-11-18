@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The schema file: what is in it and how it is read. Reading only checks what the file itself can get wrong (the
-// JSON, the fields, the kinds of the values, the names, the repeated numbers). Whether the properties make a schema
-// the replication code accepts is decided by `Check`, with the replication code itself.
+// The schema file: what is in it and how it is read. Reading only checks what the file itself can get wrong
+// (the JSON, the fields, the kinds of the values, the names, the repeated numbers). Whether the properties
+// make a schema the replication code accepts is decided by `Check`, with the replication code itself.
 #pragma once
 
 #include "tessera/schema/json_reader.hpp"
@@ -25,10 +25,10 @@ struct Source {
 struct PropertyDecl {
     std::string name;
     Kind kind = Kind::Flag;
-    double step = 0;  ///< Position
-    double range = 0; ///< Position
-    uint32_t bits = 0;  ///< Angle and mask
-    uint32_t count = 0; ///< Choice
+    double step = 0;        ///< Position
+    double range = 0;       ///< Position
+    uint32_t bits = 0;      ///< Angle and mask
+    uint32_t count = 0;     ///< Choice
     bool is_signed = false; ///< Integer
     int64_t min_value = 0;  ///< Integer
     int64_t max_value = 0;  ///< Integer
@@ -66,12 +66,12 @@ struct ReadResult {
 /// The most diagnostics one reading collects.
 inline constexpr size_t kMaxDiagnostics = 20;
 
-/// Reads the text of a schema file. A JSON error ends the reading (after it, positions cannot be trusted); problems
-/// of the schema itself are all collected, in the order they are in the file.
+/// Reads the text of a schema file. A JSON error ends the reading (after it, positions cannot be trusted);
+/// problems of the schema itself are all collected, in the order they are in the file.
 ReadResult ReadSchema(std::string_view text);
 
-/// `name:line:column: error: message`, then, when there is a correction, a line `  fix: ...` (no line break at the
-/// end).
+/// `name:line:column: error: message`, then, when there is a correction, a line `  fix: ...` (no line break
+/// at the end).
 std::string Format(std::string_view file_name, const Diagnostic& diagnostic);
 
 /// The names of the six kinds, in the order of `Kind`.

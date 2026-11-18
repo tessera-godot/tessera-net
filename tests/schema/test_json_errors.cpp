@@ -14,8 +14,8 @@ bool Has(const std::string& text, const char* part) {
     return text.find(part) != std::string::npos;
 }
 
-// Checks that `text` is refused at this line and column, with a message that has `message_part`, and a correction that
-// has `fix_part` (or no correction when it is null).
+// Checks that `text` is refused at this line and column, with a message that has `message_part`, and a
+// correction that has `fix_part` (or no correction when it is null).
 void ExpectError(const std::string& text, uint32_t line, uint32_t column, const char* message_part,
                  const char* fix_part) {
     const ParseResult result = Parse(text);
@@ -126,7 +126,9 @@ TESSERA_TEST(json_unterminated_string_and_array_report_where_they_start) {
 }
 
 TESSERA_TEST(json_depth_limit) {
-    const auto nested = [](int depth) { return std::string(static_cast<size_t>(depth), '[') + std::string(static_cast<size_t>(depth), ']'); };
+    const auto nested = [](int depth) {
+        return std::string(static_cast<size_t>(depth), '[') + std::string(static_cast<size_t>(depth), ']');
+    };
     TESSERA_CHECK(Parse(nested(16)).value.has_value());
     const ParseResult too_deep = Parse(nested(17));
     TESSERA_CHECK(!too_deep.value.has_value() && too_deep.error.has_value());
@@ -153,7 +155,8 @@ TESSERA_TEST(json_size_limit) {
     const ParseResult over = Parse(fits + " ", limits);
     TESSERA_CHECK(!over.value.has_value() && over.error.has_value());
     TESSERA_CHECK(over.error.has_value() && Has(over.error->message, "larger than 20 bytes"));
-    TESSERA_CHECK(over.error.has_value() && over.error->position.line == 1 && over.error->position.column == 1);
+    TESSERA_CHECK(over.error.has_value() && over.error->position.line == 1 &&
+                  over.error->position.column == 1);
     // The default is one mebibyte.
     const std::string big = "[" + std::string((1u << 20) - 2, ' ') + "]";
     TESSERA_CHECK(Parse(big).value.has_value());
@@ -177,14 +180,17 @@ TESSERA_TEST(json_error_line_and_column_count_crlf_and_tabs) {
 }
 
 TESSERA_TEST(json_never_overruns_on_truncated_input) {
-    const std::string document =
-        "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"entity\", \"note\": \"A \\u00e9 \\ud83d\\ude00 note\", "
-        "\"properties\": [{\"name\": \"position\", \"kind\": \"position\", \"step\": 0.01, \"range\": 2048.0}, "
-        "{\"name\": \"owner\", \"kind\": \"integer\", \"min\": -5, \"max\": 65535, \"signed\": true, \"extra\": [null, true, false, "
-        "1e-7, \"x\"]}]}, {\"type\": 2, \"name\": \"b\", \"properties\": []}]}";
+    const std::string document = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"entity\", "
+                                 "\"note\": \"A \\u00e9 \\ud83d\\ude00 note\", "
+                                 "\"properties\": [{\"name\": \"position\", \"kind\": \"position\", "
+                                 "\"step\": 0.01, \"range\": 2048.0}, "
+                                 "{\"name\": \"owner\", \"kind\": \"integer\", \"min\": -5, \"max\": 65535, "
+                                 "\"signed\": true, \"extra\": [null, true, false, "
+                                 "1e-7, \"x\"]}]}, {\"type\": 2, \"name\": \"b\", \"properties\": []}]}";
     TESSERA_CHECK(Parse(document).value.has_value());
     for (size_t length = 0; length < document.size(); ++length) {
-        // Each prefix is a copy of exactly that size, so that a read past the end is a read outside the allocation.
+        // Each prefix is a copy of exactly that size, so that a read past the end is a read outside the
+        // allocation.
         const std::string prefix(document.data(), length);
         const ParseResult result = Parse(prefix);
         TESSERA_CHECK(!result.value.has_value() || result.error.has_value() == false);

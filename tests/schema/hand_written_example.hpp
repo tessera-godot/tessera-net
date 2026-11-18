@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The schema of the example game as it was written by hand, before it came from a schema file. It is kept here, as
-// a copy of the one in tests/server/test_server_example_schema.cpp, to compare what the tool builds with it.
+// The schema of the example game as it was written by hand, before it came from a schema file. It is kept
+// here, as a copy of the one in tests/server/test_server_example_schema.cpp, to compare what the tool builds
+// with it.
 #pragma once
 
 #include "tessera/net/entity_table.hpp"
@@ -27,15 +28,17 @@ struct HandWrittenPlayerColumns {
 inline tessera::net::ReplicationSchema HandWrittenSchema(bool players) {
     using tessera::net::PropertyDescriptor;
     tessera::net::ReplicationSchema schema;
-    schema.AddType(1, {PropertyDescriptor::Position(
-                          TESSERA_COLUMN(HandWrittenEntityColumns, x), TESSERA_COLUMN(HandWrittenEntityColumns, y),
-                          TESSERA_COLUMN(HandWrittenEntityColumns, z), 0.01f, 2048.0f)});
+    schema.AddType(
+        1, {PropertyDescriptor::Position(TESSERA_COLUMN(HandWrittenEntityColumns, x),
+                                         TESSERA_COLUMN(HandWrittenEntityColumns, y),
+                                         TESSERA_COLUMN(HandWrittenEntityColumns, z), 0.01f, 2048.0f)});
     if (players) {
         schema.AddType(
-            2, {PropertyDescriptor::Position(
-                    TESSERA_COLUMN(HandWrittenPlayerColumns, x), TESSERA_COLUMN(HandWrittenPlayerColumns, y),
-                    TESSERA_COLUMN(HandWrittenPlayerColumns, z), 0.01f, 2048.0f),
-                PropertyDescriptor::Integer(TESSERA_COLUMN(HandWrittenPlayerColumns, owner), false, 0, 65535)});
+            2,
+            {PropertyDescriptor::Position(TESSERA_COLUMN(HandWrittenPlayerColumns, x),
+                                          TESSERA_COLUMN(HandWrittenPlayerColumns, y),
+                                          TESSERA_COLUMN(HandWrittenPlayerColumns, z), 0.01f, 2048.0f),
+             PropertyDescriptor::Integer(TESSERA_COLUMN(HandWrittenPlayerColumns, owner), false, 0, 65535)});
     }
     return schema;
 }

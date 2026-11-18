@@ -69,8 +69,11 @@ TESSERA_TEST(file_reads_every_kind_with_its_numbers) {
 }
 
 TESSERA_TEST(file_requires_format_version_1) {
-    const std::string types = "\"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": [" + kPosition + "]}]";
-    const auto first = [&](const std::string& version_field) { return ReadSchema("{" + version_field + types + "}"); };
+    const std::string types =
+        "\"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": [" + kPosition + "]}]";
+    const auto first = [&](const std::string& version_field) {
+        return ReadSchema("{" + version_field + types + "}");
+    };
     // Missing.
     ReadResult r = first("");
     TESSERA_CHECK(!r.file && r.diagnostics.size() == 1);
@@ -84,43 +87,54 @@ TESSERA_TEST(file_requires_format_version_1) {
     // Text, and a decimal number.
     const std::string as_text = "\"format_version\": \"1\", ";
     r = first(as_text);
-    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_text, "\"1\""), "is a number, and here it is text", "without quotes");
+    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_text, "\"1\""), "is a number, and here it is text",
+                     "without quotes");
     const std::string as_decimal = "\"format_version\": 1.0, ";
     r = first(as_decimal);
-    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_decimal, "1.0"), "whole number, not a decimal one", "write 1");
+    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_decimal, "1.0"), "whole number, not a decimal one",
+                     "write 1");
     const std::string as_list = "\"format_version\": [1], ";
     r = first(as_list);
-    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_list, "[1]"), "must be the whole number 1", "\"format_version\": 1");
+    ExpectDiagnostic(r.diagnostics, 0, At("{" + as_list, "[1]"), "must be the whole number 1",
+                     "\"format_version\": 1");
 }
 
 TESSERA_TEST(file_rejects_unknown_top_level_field) {
     const std::string text = "{\"format_version\": 1,\n \"typs\": [], \"extra\": 1}";
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file);
-    // "typs" is close to "types" and gets the hint; "extra" is not close to anything. The list is missing too.
+    // "typs" is close to "types" and gets the hint; "extra" is not close to anything. The list is missing
+    // too.
     ExpectDiagnostic(r.diagnostics, 0, {1, 1}, "needs a list of \"types\"", "");
-    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"typs\""), "unknown field \"typs\" in the file", "did you mean \"types\"?");
+    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"typs\""), "unknown field \"typs\" in the file",
+                     "did you mean \"types\"?");
     ExpectDiagnostic(r.diagnostics, 2, At(text, "\"extra\""), "unknown field \"extra\"", "-");
 }
 
 TESSERA_TEST(file_rejects_unknown_type_field) {
-    const std::string text = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", \"propertis\": [], \"colour\": 3}]}";
+    const std::string text = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", "
+                             "\"propertis\": [], \"colour\": 3}]}";
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file);
     ExpectDiagnostic(r.diagnostics, 0, At(text, "{\"type\""), "needs a list of \"properties\"", "");
-    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"propertis\""), "unknown field \"propertis\" in a type", "did you mean \"properties\"?");
+    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"propertis\""), "unknown field \"propertis\" in a type",
+                     "did you mean \"properties\"?");
     ExpectDiagnostic(r.diagnostics, 2, At(text, "\"colour\""), "unknown field \"colour\" in a type", "-");
 }
 
 TESSERA_TEST(file_rejects_unknown_property_field_and_suggests_the_close_one) {
-    const std::string text = OneType(R"({"name": "p", "kind": "position", "stp": 0.01, "range": 2, "colour": 1})");
+    const std::string text =
+        OneType(R"({"name": "p", "kind": "position", "stp": 0.01, "range": 2, "colour": 1})");
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file);
-    ExpectDiagnostic(r.diagnostics, 0, At(text, "{\"name\": \"p\""), "needs the key \"step\"", "add \"step\": a number");
-    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"stp\""), "unknown field \"stp\" in a property", "did you mean \"step\"?");
+    ExpectDiagnostic(r.diagnostics, 0, At(text, "{\"name\": \"p\""), "needs the key \"step\"",
+                     "add \"step\": a number");
+    ExpectDiagnostic(r.diagnostics, 1, At(text, "\"stp\""), "unknown field \"stp\" in a property",
+                     "did you mean \"step\"?");
     ExpectDiagnostic(r.diagnostics, 2, At(text, "\"colour\""), "unknown field \"colour\"", "-");
     // The hint only looks at the keys that this kind uses: "bits" is not one of a position's.
-    const std::string other = OneType(R"({"name": "p", "kind": "position", "step": 1, "range": 2, "bitz": 3})");
+    const std::string other =
+        OneType(R"({"name": "p", "kind": "position", "step": 1, "range": 2, "bitz": 3})");
     const ReadResult s = ReadSchema(other);
     ExpectDiagnostic(s.diagnostics, 0, At(other, "\"bitz\""), "unknown field \"bitz\"", "-");
 }
@@ -133,7 +147,8 @@ TESSERA_TEST(file_rejects_a_key_that_belongs_to_another_kind) {
                      "takes no keys besides");
     const std::string text2 = OneType(R"({"name": "a", "kind": "mask", "bits": 3, "min": 0})");
     const ReadResult r2 = ReadSchema(text2);
-    ExpectDiagnostic(r2.diagnostics, 0, At(text2, "\"min\""), "does not belong to the kind \"mask\"", "uses \"bits\"");
+    ExpectDiagnostic(r2.diagnostics, 0, At(text2, "\"min\""), "does not belong to the kind \"mask\"",
+                     "uses \"bits\"");
 }
 
 TESSERA_TEST(file_rejects_a_missing_key_for_the_kind) {
@@ -146,39 +161,47 @@ TESSERA_TEST(file_rejects_a_missing_key_for_the_kind) {
     const std::string text2 = OneType(R"({"kind": "position", "step": 1})");
     const ReadResult r2 = ReadSchema(text2);
     TESSERA_CHECK(r2.diagnostics.size() == 2);
-    ExpectDiagnostic(r2.diagnostics, 0, At(text2, "{\"kind\""), "a property needs a \"name\"", "add \"name\"");
+    ExpectDiagnostic(r2.diagnostics, 0, At(text2, "{\"kind\""), "a property needs a \"name\"",
+                     "add \"name\"");
     ExpectDiagnostic(r2.diagnostics, 1, At(text2, "{\"kind\""), "needs the key \"range\"", "a number");
     const std::string text3 = OneType(R"({"name": "a"})");
-    ExpectDiagnostic(ReadSchema(text3).diagnostics, 0, At(text3, "{\"name\""), "needs a \"kind\"", "one of position, angle");
+    ExpectDiagnostic(ReadSchema(text3).diagnostics, 0, At(text3, "{\"name\""), "needs a \"kind\"",
+                     "one of position, angle");
     const std::string text4 = OneType(R"({"name": "a", "kind": "positon"})");
-    ExpectDiagnostic(ReadSchema(text4).diagnostics, 0, At(text4, "\"positon\""), "unknown kind \"positon\"", "did you mean \"position\"?");
+    ExpectDiagnostic(ReadSchema(text4).diagnostics, 0, At(text4, "\"positon\""), "unknown kind \"positon\"",
+                     "did you mean \"position\"?");
 }
 
 TESSERA_TEST(file_rejects_wrong_value_types) {
     const auto first = [](const std::string& property) { return ReadSchema(OneType(property)).diagnostics; };
     std::string text = OneType(R"({"name": "p", "kind": "position", "step": "0.01", "range": 2})");
-    ExpectDiagnostic(first(R"({"name": "p", "kind": "position", "step": "0.01", "range": 2})"), 0, At(text, "\"0.01\""),
-                     "\"step\" must be a number", "without quotes");
+    ExpectDiagnostic(first(R"({"name": "p", "kind": "position", "step": "0.01", "range": 2})"), 0,
+                     At(text, "\"0.01\""), "\"step\" must be a number", "without quotes");
     text = OneType(R"({"name": "a", "kind": "angle", "bits": 12.0})");
     ExpectDiagnostic(first(R"({"name": "a", "kind": "angle", "bits": 12.0})"), 0, At(text, "12.0"),
                      "\"bits\" must be a whole number", "decimal point");
     text = OneType(R"({"name": "a", "kind": "integer", "min": 0, "max": 9, "signed": 1})");
-    ExpectDiagnostic(first(R"({"name": "a", "kind": "integer", "min": 0, "max": 9, "signed": 1})"), 0, At(text, "1}"),
-                     "\"signed\" must be true or false", "");
+    ExpectDiagnostic(first(R"({"name": "a", "kind": "integer", "min": 0, "max": 9, "signed": 1})"), 0,
+                     At(text, "1}"), "\"signed\" must be true or false", "");
     text = OneType(R"({"name": "a", "kind": "choice", "count": -2})");
     ExpectDiagnostic(first(R"({"name": "a", "kind": "choice", "count": -2})"), 0, At(text, "-2"),
                      "\"count\" must be a whole number from 0 to 4294967295", "");
     text = OneType(R"({"name": 5, "kind": "flag"})");
-    ExpectDiagnostic(first(R"({"name": 5, "kind": "flag"})"), 0, At(text, "5"), "name of a property must be text", "");
+    ExpectDiagnostic(first(R"({"name": 5, "kind": "flag"})"), 0, At(text, "5"),
+                     "name of a property must be text", "");
     text = OneType(R"({"name": "a", "kind": 3})");
     ExpectDiagnostic(first(R"({"name": "a", "kind": 3})"), 0, At(text, "3"), "\"kind\" must be text", "");
     // Where a list or an object belongs.
     const std::string not_a_list = "{\"format_version\": 1, \"types\": {\"type\": 1}}";
-    ExpectDiagnostic(ReadSchema(not_a_list).diagnostics, 0, At(not_a_list, "{\"type\""), "\"types\" must be a list", "");
+    ExpectDiagnostic(ReadSchema(not_a_list).diagnostics, 0, At(not_a_list, "{\"type\""),
+                     "\"types\" must be a list", "");
     const std::string not_an_object = "{\"format_version\": 1, \"types\": [3]}";
-    ExpectDiagnostic(ReadSchema(not_an_object).diagnostics, 0, At(not_an_object, "3"), "a type must be an object", "");
-    const std::string properties_not_a_list = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": {}}]}";
-    ExpectDiagnostic(ReadSchema(properties_not_a_list).diagnostics, 0, At(properties_not_a_list, "{}"), "\"properties\" must be a list", "");
+    ExpectDiagnostic(ReadSchema(not_an_object).diagnostics, 0, At(not_an_object, "3"),
+                     "a type must be an object", "");
+    const std::string properties_not_a_list =
+        "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"e\", \"properties\": {}}]}";
+    ExpectDiagnostic(ReadSchema(properties_not_a_list).diagnostics, 0, At(properties_not_a_list, "{}"),
+                     "\"properties\" must be a list", "");
     ExpectDiagnostic(ReadSchema("[]").diagnostics, 0, {1, 1}, "must hold one JSON object", "");
 }
 
@@ -191,38 +214,52 @@ TESSERA_TEST(file_type_number_must_be_0_to_255) {
         ExpectDiagnostic(r.diagnostics, 0, At(text, bad), "type number", "from 0 to 255");
     }
     for (const char* good : {"0", "255"}) {
-        const ReadResult r = ReadSchema(OneType(kPosition, std::string("\"type\": ") + good + ", \"name\": \"e\""));
+        const ReadResult r =
+            ReadSchema(OneType(kPosition, std::string("\"type\": ") + good + ", \"name\": \"e\""));
         TESSERA_CHECK(r.file.has_value());
     }
 }
 
 TESSERA_TEST(file_rejects_repeated_type_number) {
     const std::string text = "{\"format_version\": 1, \"types\": [\n"
-                             "{\"type\": 1, \"name\": \"a\", \"properties\": [" + kPosition + "]},\n"
-                             "{\"type\": 1, \"name\": \"b\", \"properties\": [" + kPosition + "]}]}";
+                             "{\"type\": 1, \"name\": \"a\", \"properties\": [" +
+                             kPosition +
+                             "]},\n"
+                             "{\"type\": 1, \"name\": \"b\", \"properties\": [" +
+                             kPosition + "]}]}";
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file && r.diagnostics.size() == 1);
-    ExpectDiagnostic(r.diagnostics, 0, At(text, "1, \"name\": \"b\""), "the type number 1 is already used on line 2", "its own number");
+    ExpectDiagnostic(r.diagnostics, 0, At(text, "1, \"name\": \"b\""),
+                     "the type number 1 is already used on line 2", "its own number");
 }
 
 TESSERA_TEST(file_rejects_repeated_type_name) {
     const std::string text = "{\"format_version\": 1, \"types\": [\n"
-                             "{\"type\": 1, \"name\": \"a\", \"properties\": [" + kPosition + "]},\n"
-                             "{\"type\": 2, \"name\": \"a\", \"properties\": [" + kPosition + "]}]}";
+                             "{\"type\": 1, \"name\": \"a\", \"properties\": [" +
+                             kPosition +
+                             "]},\n"
+                             "{\"type\": 2, \"name\": \"a\", \"properties\": [" +
+                             kPosition + "]}]}";
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file && r.diagnostics.size() == 1);
-    ExpectDiagnostic(r.diagnostics, 0, At(text, "\"a\"", 1), "type name \"a\" is already used on line 2", "its own name");
+    ExpectDiagnostic(r.diagnostics, 0, At(text, "\"a\"", 1), "type name \"a\" is already used on line 2",
+                     "its own name");
 }
 
 TESSERA_TEST(file_rejects_repeated_property_name) {
-    const std::string text = OneType("{\"name\": \"a\", \"kind\": \"flag\"},\n{\"name\": \"a\", \"kind\": \"flag\"}");
+    const std::string text =
+        OneType("{\"name\": \"a\", \"kind\": \"flag\"},\n{\"name\": \"a\", \"kind\": \"flag\"}");
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(!r.file && r.diagnostics.size() == 1);
-    ExpectDiagnostic(r.diagnostics, 0, At(text, "\"a\"", 1), "property name \"a\" is already used on line 2 in this type", "its own name");
+    ExpectDiagnostic(r.diagnostics, 0, At(text, "\"a\"", 1),
+                     "property name \"a\" is already used on line 2 in this type", "its own name");
     // The same name in two types is fine.
     const std::string two = "{\"format_version\": 1, \"types\": [\n"
-                            "{\"type\": 1, \"name\": \"a\", \"properties\": [" + kPosition + "]},\n"
-                            "{\"type\": 2, \"name\": \"b\", \"properties\": [" + kPosition + "]}]}";
+                            "{\"type\": 1, \"name\": \"a\", \"properties\": [" +
+                            kPosition +
+                            "]},\n"
+                            "{\"type\": 2, \"name\": \"b\", \"properties\": [" +
+                            kPosition + "]}]}";
     TESSERA_CHECK(ReadSchema(two).file.has_value());
 }
 
@@ -233,15 +270,18 @@ TESSERA_TEST(file_notes_are_plain_ascii_and_bounded) {
     TESSERA_CHECK(ReadSchema(with_note("Plain, with punctuation: 1 + 2 = 3.")).file.has_value());
     TESSERA_CHECK(ReadSchema(with_note(std::string(200, 'x'))).file.has_value());
     std::string text = with_note("caf\xC3\xA9");
-    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"caf"), "plain ASCII", "write them in plain ASCII");
+    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"caf"), "plain ASCII",
+                     "write them in plain ASCII");
     text = with_note("caf\\u00e9");
     ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"caf"), "plain ASCII", "");
     text = with_note("two\\nlines");
     ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"two"), "plain ASCII", "");
     text = with_note(std::string(201, 'x'));
-    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"xxx"), "at most 200 characters, and this one has 201", "shorter");
+    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"xxx"),
+                     "at most 200 characters, and this one has 201", "shorter");
     const std::string note_of_type = OneType(kPosition, "\"type\": 1, \"name\": \"e\", \"note\": 7");
-    ExpectDiagnostic(ReadSchema(note_of_type).diagnostics, 0, At(note_of_type, "7"), "\"note\" must be text", "");
+    ExpectDiagnostic(ReadSchema(note_of_type).diagnostics, 0, At(note_of_type, "7"), "\"note\" must be text",
+                     "");
 }
 
 TESSERA_TEST(file_needs_at_least_one_type) {
@@ -265,7 +305,8 @@ TESSERA_TEST(file_collects_several_problems_in_one_pass) {
     // And there is a limit to how many are collected.
     std::string many = "{\"format_version\": 1, \"types\": [{\"type\": 1, \"name\": \"a\", \"properties\": [";
     for (int i = 0; i < 40; ++i) {
-        many += std::string(i == 0 ? "" : ",") + "{\"name\": \"n" + std::to_string(i) + "\", \"kind\": \"flag\", \"x\": 1}";
+        many += std::string(i == 0 ? "" : ",") + "{\"name\": \"n" + std::to_string(i) +
+                "\", \"kind\": \"flag\", \"x\": 1}";
     }
     many += "]}]}";
     TESSERA_CHECK(ReadSchema(many).diagnostics.size() == kMaxDiagnostics);

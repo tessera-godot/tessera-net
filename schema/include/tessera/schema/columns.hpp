@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The C++ type of the column that holds each property. One table, used by the check (which gives the replication
-// code columns of these sizes) and by the generator (which writes columns of these types), so that what was
-// checked is what is generated.
+// The C++ type of the column that holds each property. One table, used by the check (which gives the
+// replication code columns of these sizes) and by the generator (which writes columns of these types), so
+// that what was checked is what is generated.
 #pragma once
 
 #include "tessera/schema/schema_file.hpp"

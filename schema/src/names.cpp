@@ -11,38 +11,41 @@ namespace tessera::schema {
 
 namespace {
 
-// The keywords of C++20, with the alternative operator names. `final`, `override`, `import` and `module` are left
-// out: they only mean something in some places, and `int final = 0;` compiles with MSVC, GCC and Clang.
+// The keywords of C++20, with the alternative operator names. `final`, `override`, `import` and `module` are
+// left out: they only mean something in some places, and `int final = 0;` compiles with MSVC, GCC and Clang.
 const std::vector<std::string> kCppReserved = {
-    "alignas",      "alignof",    "and",         "and_eq",        "asm",         "auto",          "bitand",
-    "bitor",        "bool",       "break",       "case",          "catch",       "char",          "char16_t",
-    "char32_t",     "char8_t",    "class",       "co_await",      "co_return",   "co_yield",      "compl",
-    "concept",      "const",      "const_cast",  "consteval",     "constexpr",   "constinit",     "continue",
-    "decltype",     "default",    "delete",      "do",            "double",      "dynamic_cast",  "else",
-    "enum",         "explicit",   "export",      "extern",        "false",       "float",         "for",
-    "friend",       "goto",       "if",          "inline",        "int",         "long",          "mutable",
-    "namespace",    "new",        "noexcept",    "not",           "not_eq",      "nullptr",       "operator",
-    "or",           "or_eq",      "private",     "protected",     "public",      "register",      "reinterpret_cast",
-    "requires",     "return",     "short",       "signed",        "sizeof",      "static",        "static_assert",
-    "static_cast",  "struct",     "switch",      "template",      "this",        "thread_local",  "throw",
-    "true",         "try",        "typedef",     "typeid",        "typename",    "union",         "unsigned",
-    "using",        "virtual",    "void",        "volatile",      "wchar_t",     "while",         "xor",
+    "alignas",     "alignof",  "and",        "and_eq",    "asm",       "auto",         "bitand",
+    "bitor",       "bool",     "break",      "case",      "catch",     "char",         "char16_t",
+    "char32_t",    "char8_t",  "class",      "co_await",  "co_return", "co_yield",     "compl",
+    "concept",     "const",    "const_cast", "consteval", "constexpr", "constinit",    "continue",
+    "decltype",    "default",  "delete",     "do",        "double",    "dynamic_cast", "else",
+    "enum",        "explicit", "export",     "extern",    "false",     "float",        "for",
+    "friend",      "goto",     "if",         "inline",    "int",       "long",         "mutable",
+    "namespace",   "new",      "noexcept",   "not",       "not_eq",    "nullptr",      "operator",
+    "or",          "or_eq",    "private",    "protected", "public",    "register",     "reinterpret_cast",
+    "requires",    "return",   "short",      "signed",    "sizeof",    "static",       "static_assert",
+    "static_cast", "struct",   "switch",     "template",  "this",      "thread_local", "throw",
+    "true",        "try",      "typedef",    "typeid",    "typename",  "union",        "unsigned",
+    "using",       "virtual",  "void",       "volatile",  "wchar_t",   "while",        "xor",
     "xor_eq",
 };
 
-// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in modules/gdscript/gdscript_tokenizer.cpp. The
-// four written in capitals (INF, NAN, PI, TAU) are left out: a name cannot have capitals.
+// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in
+// modules/gdscript/gdscript_tokenizer.cpp. The four written in capitals (INF, NAN, PI, TAU) are left out: a
+// name cannot have capitals.
 const std::vector<std::string> kGdScriptReserved = {
-    "as",     "and",      "assert",     "await",   "break",  "breakpoint", "class",  "class_name", "const",
-    "continue", "elif",   "else",       "enum",    "extends", "for",       "func",   "if",         "in",
-    "is",     "match",    "namespace",  "not",     "or",     "pass",       "preload", "return",    "self",
-    "signal", "static",   "super",      "trait",   "var",    "void",       "while",  "when",       "yield",
+    "as",       "and",    "assert",    "await", "break",   "breakpoint", "class",   "class_name", "const",
+    "continue", "elif",   "else",      "enum",  "extends", "for",        "func",    "if",         "in",
+    "is",       "match",  "namespace", "not",   "or",      "pass",       "preload", "return",     "self",
+    "signal",   "static", "super",     "trait", "var",     "void",       "while",   "when",       "yield",
 };
 
-// Names that become macros: `far`, `near`, `min`, `max`, `small` and `interface` in the headers of the Windows SDK
-// (minwindef.h, ntdef.h, rpcndr.h, combaseapi.h), `linux` and `unix` in GCC and Clang when the language is the GNU
-// one. `min` and `max` are macros that take arguments, so only a use like `min(` is caught.
-const std::vector<std::string> kMacroNames = {"far", "interface", "linux", "max", "min", "near", "small", "unix"};
+// Names that become macros: `far`, `near`, `min`, `max`, `small` and `interface` in the headers of the
+// Windows SDK (minwindef.h, ntdef.h, rpcndr.h, combaseapi.h), `linux` and `unix` in GCC and Clang when the
+// language is the GNU one. `min` and `max` are macros that take arguments, so only a use like `min(` is
+// caught.
+const std::vector<std::string> kMacroNames = {"far", "interface", "linux", "max",
+                                              "min", "near",      "small", "unix"};
 
 bool Contains(const std::vector<std::string>& list, std::string_view name) {
     return std::find(list.begin(), list.end(), name) != list.end();
@@ -105,23 +108,30 @@ std::string CheckName(std::string_view name, std::string* fix) {
     }
     if (name.size() > kMaxNameLength) {
         set_fix("use at most " + std::to_string(kMaxNameLength) + " characters");
-        return "the name " + Quoted(name) + " has " + std::to_string(name.size()) + " characters, and the limit is " +
-               std::to_string(kMaxNameLength);
+        return "the name " + Quoted(name) + " has " + std::to_string(name.size()) +
+               " characters, and the limit is " + std::to_string(kMaxNameLength);
     }
     if (!HasValidShape(name)) {
-        set_fix("use lowercase letters, digits and underscores, and start each part with a letter, for example "
-                "\"max_health\"");
+        set_fix(
+            "use lowercase letters, digits and underscores, and start each part with a letter, for example "
+            "\"max_health\"");
         return Quoted(name) + " is not a valid name";
     }
     const bool cpp = Contains(kCppReserved, name);
     const bool gdscript = Contains(kGdScriptReserved, name);
     if (cpp || gdscript) {
-        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_id") + ", works");
-        return Quoted(name) + " is a keyword in " + (cpp && gdscript ? "C++ and in GDScript" : cpp ? "C++" : "GDScript");
+        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_id") +
+                ", works");
+        return Quoted(name) + " is a keyword in " +
+               (cpp && gdscript ? "C++ and in GDScript"
+                : cpp           ? "C++"
+                                : "GDScript");
     }
     if (Contains(kMacroNames, name)) {
-        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_value") + ", works");
-        return Quoted(name) + " is a macro in some C++ headers (Windows, or GCC in its GNU mode) and would break the code that is generated";
+        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_value") +
+                ", works");
+        return Quoted(name) + " is a macro in some C++ headers (Windows, or GCC in its GNU mode) and would "
+                              "break the code that is generated";
     }
     return {};
 }
@@ -219,7 +229,8 @@ std::vector<Diagnostic> FindCollisions(const SchemaFile& file) {
                 const auto [place, inserted] = members.emplace(member, property.name_where.position);
                 if (!inserted) {
                     found.push_back(Diagnostic{property.name_where.position,
-                                               "the column " + Quoted(member) + " of this property is also made by the property on line " +
+                                               "the column " + Quoted(member) +
+                                                   " of this property is also made by the property on line " +
                                                    std::to_string(place->second.line),
                                                "rename one of the two properties"});
                 }
@@ -235,7 +246,9 @@ std::vector<Diagnostic> FindCollisions(const SchemaFile& file) {
             if (place.line == 0 || !reported.insert({place.line, place.column}).second) {
                 continue;
             }
-            found.push_back(Diagnostic{place, "this name makes " + Quoted(name) + " in the generated C++, and another name makes it too",
+            found.push_back(Diagnostic{place,
+                                       "this name makes " + Quoted(name) +
+                                           " in the generated C++, and another name makes it too",
                                        "rename one of the names that make it"});
         }
     }

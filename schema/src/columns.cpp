@@ -42,7 +42,8 @@ ColumnSpec IntegerColumn(const PropertyDecl& p) {
         if (p.min_value >= -32768 && p.max_value <= 32767) {
             return Signed(2);
         }
-        if (p.min_value >= std::numeric_limits<int32_t>::min() && p.max_value <= std::numeric_limits<int32_t>::max()) {
+        if (p.min_value >= std::numeric_limits<int32_t>::min() &&
+            p.max_value <= std::numeric_limits<int32_t>::max()) {
             return Signed(4);
         }
         return Signed(8);
