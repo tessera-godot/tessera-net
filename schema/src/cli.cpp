@@ -12,8 +12,8 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
-#include <random>
 #include <ostream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -100,8 +100,8 @@ int Load(const std::string& path, std::optional<Loaded>& loaded, std::ostream& e
             err << Format(path, diagnostic) << "\n";
         }
         if (read.omitted > 0) {
-            err << path << ": and " << read.omitted << " more problem" << (read.omitted == 1 ? " is" : "s are")
-                << " not shown\n";
+            err << path << ": and " << read.omitted << " more problem"
+                << (read.omitted == 1 ? " is" : "s are") << " not shown\n";
         }
         return kBadFile;
     }
@@ -233,8 +233,8 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
             return kCannotUseFile;
         }
     }
-    // The text goes to a temporary file next to the target and then takes its place, so that a failure half way never leaves
-    // a header that is cut short where a good one was.
+    // The text goes to a temporary file next to the target and then takes its place, so that a failure half
+    // way never leaves a header that is cut short where a good one was.
     static std::atomic<unsigned> counter{0};
     std::filesystem::path temporary = target;
     temporary += ".tmp" + std::to_string(counter.fetch_add(1)) + "_" + std::to_string(std::random_device{}());

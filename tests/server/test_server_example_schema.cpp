@@ -52,7 +52,8 @@ ReplicationSchema HandWrittenSchema(bool players) {
 // Where the columns are, and how big their elements are.
 bool SameColumns(const PropertyDescriptor& a, const PropertyDescriptor& b) {
     for (size_t i = 0; i < 3; ++i) {
-        if (a.source[i].offset != b.source[i].offset || a.source[i].element_bytes != b.source[i].element_bytes) {
+        if (a.source[i].offset != b.source[i].offset ||
+            a.source[i].element_bytes != b.source[i].element_bytes) {
             return false;
         }
     }

@@ -90,16 +90,18 @@ TESSERA_TEST(names_reject_gdscript_keywords) {
         TESSERA_CHECK(Contains(words, word));
     }
     TESSERA_CHECK(Has(CheckName("func"), "keyword in GDScript"));
-    // `null` is a literal that the tokenizer of GDScript reads outside its table of keywords (as `true` and `false`, which
-    // C++ already refuses); INF, NAN, PI and TAU are constants, and capitals are not allowed in a name anyway.
+    // `null` is a literal that the tokenizer of GDScript reads outside its table of keywords (as `true` and
+    // `false`, which C++ already refuses); INF, NAN, PI and TAU are constants, and capitals are not allowed
+    // in a name anyway.
     TESSERA_CHECK(Has(CheckName("null"), "GDScript"));
     TESSERA_CHECK(Has(CheckName("class"), "C++ and in GDScript")); // in both lists
 }
 
 TESSERA_TEST(names_reject_windows_macro_names) {
     const std::vector<std::string>& names = MacroNames();
-    for (const char* name : {"min", "max", "near", "far", "small", "interface", "linux", "unix", "errno", "stdin", "stdout",
-                             "stderr", "pascal", "cdecl", "hyper", "math_errhandling", "sched_priority"}) {
+    for (const char* name :
+         {"min", "max", "near", "far", "small", "interface", "linux", "unix", "errno", "stdin", "stdout",
+          "stderr", "pascal", "cdecl", "hyper", "math_errhandling", "sched_priority"}) {
         TESSERA_CHECK(Contains(names, name));
         TESSERA_CHECK(Refused(name));
         TESSERA_CHECK(Has(CheckName(name), "macro"));
@@ -110,12 +112,14 @@ TESSERA_TEST(names_reject_windows_macro_names) {
 }
 
 TESSERA_TEST(names_reject_the_fixed_width_integer_types_the_columns_use) {
-    for (const char* name : {"int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t"}) {
+    for (const char* name :
+         {"int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t"}) {
         TESSERA_CHECK(Refused(name));
         TESSERA_CHECK(Has(CheckName(name), "type"));
     }
-    // Names that look alike but are not types of the columns are fine, and so are the other standard names: the generated
-    // header was compiled with them (see fixtures/risky_names.json and test_generated_header.cpp).
+    // Names that look alike but are not types of the columns are fine, and so are the other standard names:
+    // the generated header was compiled with them (see fixtures/risky_names.json and
+    // test_generated_header.cpp).
     for (const char* name : {"int8", "uint", "size_t", "byte", "string", "move", "net", "std", "tessera"}) {
         TESSERA_CHECK(CheckName(name).empty());
     }

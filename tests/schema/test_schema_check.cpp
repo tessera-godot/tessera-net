@@ -214,8 +214,9 @@ TESSERA_TEST(check_points_at_the_first_property_the_core_refuses) {
 }
 
 TESSERA_TEST(check_points_at_a_property_that_is_bad_by_itself_before_the_word_limit) {
-    // 20 flags are too many (2 words each, the limit is 32), and the 19th is also a mask of 65 bits. The property that is
-    // wrong on its own is the one to show: the limit of words only matters once the properties are right.
+    // 20 flags are too many (2 words each, the limit is 32), and the 19th is also a mask of 65 bits. The
+    // property that is wrong on its own is the one to show: the limit of words only matters once the
+    // properties are right.
     std::vector<PropertyDecl> properties;
     for (int i = 0; i < 20; ++i) {
         properties.push_back(i == 18 ? Mask("wide", 65) : Prop("f" + std::to_string(i), Kind::Flag));

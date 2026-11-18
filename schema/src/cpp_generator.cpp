@@ -199,17 +199,22 @@ bool IsValidNamespace(std::string_view name, std::string* why) {
             return refuse("\"" + std::string(part) + "\" is a C++ keyword and cannot be a namespace");
         }
         const std::string quoted = "\"" + std::string(part) + "\"";
-        if (part.find("__") != std::string_view::npos || (part[0] == '_' && part.size() > 1 && part[1] >= 'A' && part[1] <= 'Z')) {
-            return refuse(quoted + " is a name that C++ keeps for the compiler and the library (two underscores in a row, or an "
-                                   "underscore and a capital letter at the start)");
+        if (part.find("__") != std::string_view::npos ||
+            (part[0] == '_' && part.size() > 1 && part[1] >= 'A' && part[1] <= 'Z')) {
+            return refuse(
+                quoted +
+                " is a name that C++ keeps for the compiler and the library (two underscores in a row, or an "
+                "underscore and a capital letter at the start)");
         }
         const auto& macros = MacroNames();
         if (std::find(macros.begin(), macros.end(), part) != macros.end()) {
             return refuse(quoted + " is a macro in some C++ headers and cannot be a namespace");
         }
         if (part == "std") {
-            return refuse(quoted + " would hide the standard library from the code of the core library that is generated into "
-                                   "it");
+            return refuse(
+                quoted +
+                " would hide the standard library from the code of the core library that is generated into "
+                "it");
         }
         if (end == std::string_view::npos) {
             break;
@@ -220,7 +225,8 @@ bool IsValidNamespace(std::string_view name, std::string* why) {
 }
 
 std::string FormatFloat(float value) {
-    // std::to_chars gives the shortest text that reads back as the same float, and it never looks at the locale.
+    // std::to_chars gives the shortest text that reads back as the same float, and it never looks at the
+    // locale.
     char buffer[64];
     const auto result = std::to_chars(buffer, buffer + sizeof buffer, value);
     std::string text(buffer, result.ptr);
@@ -232,8 +238,8 @@ std::string FormatFloat(float value) {
 
 namespace {
 
-// The name of the schema file goes into a comment, so it has to be plain ASCII on one line, and without a backslash (which
-// would join the next line to the comment). Another name is replaced by a neutral one.
+// The name of the schema file goes into a comment, so it has to be plain ASCII on one line, and without a
+// backslash (which would join the next line to the comment). Another name is replaced by a neutral one.
 std::string NoticeName(const std::string& name) {
     const auto plain = [](char c) {
         const auto byte = static_cast<unsigned char>(c);

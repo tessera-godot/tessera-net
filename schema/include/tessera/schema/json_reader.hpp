@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// A small, strict JSON reader. It reads standard JSON (RFC 8259) and refuses what that leaves out: comments, trailing commas,
-// single quotes, NaN and Infinity, repeated keys, text after the value. It does not check that the bytes inside a string are
-// valid UTF-8 (they are kept as they are) and it accepts the escape `\u0000`; whoever uses a string checks what it needs (the
-// schema reader accepts only plain ASCII in names and notes). Every error says where it is and, when there is an obvious
-// correction, what to change. The size of the text, how deep it nests, how long a string may be and how many values there are
-// are limited, so a broken or hostile file ends in an error and not in a crash.
+// A small, strict JSON reader. It reads standard JSON (RFC 8259) and refuses what that leaves out: comments,
+// trailing commas, single quotes, NaN and Infinity, repeated keys, text after the value. It does not check
+// that the bytes inside a string are valid UTF-8 (they are kept as they are) and it accepts the escape
+// `\u0000`; whoever uses a string checks what it needs (the schema reader accepts only plain ASCII in names
+// and notes). Every error says where it is and, when there is an obvious correction, what to change. The size
+// of the text, how deep it nests, how long a string may be and how many values there are are limited, so a
+// broken or hostile file ends in an error and not in a crash.
 #pragma once
 
 #include <cstddef>
@@ -102,7 +103,7 @@ struct Limits {
     size_t max_bytes = size_t{1} << 20; ///< Size of the whole text.
     uint32_t max_depth = 16;            ///< How many arrays and objects may be open at once.
     size_t max_string = 1024;           ///< Bytes of one string, after the escapes are read.
-    size_t max_values = 100000;        ///< Values in all: every number, string, array and object counts as one.
+    size_t max_values = 100000; ///< Values in all: every number, string, array and object counts as one.
 };
 
 struct Error {

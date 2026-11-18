@@ -62,10 +62,10 @@ std::vector<net::PropertyDescriptor> Descriptors(const TypeDecl& type, size_t co
     return descriptors;
 }
 
-// The place and the correction for a type the replication code refused, found without reading the message. A property that
-// the replication code refuses on its own comes first (the first of them). Only when every property is fine by itself is the
-// problem how they add up (too many words, too many properties), and then the first number of properties that is refused
-// points at the property that makes it so.
+// The place and the correction for a type the replication code refused, found without reading the message. A
+// property that the replication code refuses on its own comes first (the first of them). Only when every
+// property is fine by itself is the problem how they add up (too many words, too many properties), and then
+// the first number of properties that is refused points at the property that makes it so.
 Diagnostic Explain(const TypeDecl& type, const std::string& core_message) {
     const std::string prefix = "type " + Quoted(type.name) + " (" + std::to_string(type.type) + "): ";
     Diagnostic diagnostic{type.where.position, prefix + core_message, {}};
@@ -88,13 +88,15 @@ Diagnostic Explain(const TypeDecl& type, const std::string& core_message) {
         }
         diagnostic.position = type.properties[k - 1].where.position;
         if (k > net::ReplicationSchema::kMaxPropertiesPerType) {
-            diagnostic.fix = "a type has at most " + std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
+            diagnostic.fix = "a type has at most " +
+                             std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
                              " properties; remove this one";
         } else {
-            diagnostic.fix = "the replicated state of a type takes at most " +
-                             std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
-                             " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
-                             "or shrink a property";
+            diagnostic.fix =
+                "the replicated state of a type takes at most " +
+                std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
+                " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
+                "or shrink a property";
         }
         break;
     }

@@ -64,8 +64,9 @@ struct ReadResult {
     size_t omitted = 0; ///< How many more problems there were than the `kMaxDiagnostics` kept.
 };
 
-/// How text from the file is shown in a message: cut to 40 characters (with `...`), and a byte that is not a printable ASCII
-/// character written as `\xNN`, so that a message is short and cannot carry a control byte to the terminal.
+/// How text from the file is shown in a message: cut to 40 characters (with `...`), and a byte that is not a
+/// printable ASCII character written as `\xNN`, so that a message is short and cannot carry a control byte to
+/// the terminal.
 std::string EchoText(std::string_view text);
 
 /// The most diagnostics one reading keeps (the first ones in the file; the rest are counted in `omitted`).

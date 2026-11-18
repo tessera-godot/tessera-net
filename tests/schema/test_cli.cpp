@@ -93,8 +93,10 @@ TESSERA_TEST(unknown_command_and_unknown_option_return_2) {
     }
     TESSERA_CHECK(Has(Call({"frobnicate"}).err, "unknown command frobnicate"));
     TESSERA_CHECK(Has(Call({"check", "--bogus"}).err, "unknown option --bogus"));
-    TESSERA_CHECK(Has(Call({"generate", "--cpp", "--namespace", "x", "schema.json"}).err, "--cpp needs a value"));
-    TESSERA_CHECK(Has(Call({"generate", "--cpp", "o.hpp", "--namespace", "--cpp", "schema.json"}).err, "--namespace needs a value"));
+    TESSERA_CHECK(
+        Has(Call({"generate", "--cpp", "--namespace", "x", "schema.json"}).err, "--cpp needs a value"));
+    TESSERA_CHECK(Has(Call({"generate", "--cpp", "o.hpp", "--namespace", "--cpp", "schema.json"}).err,
+                      "--namespace needs a value"));
 }
 
 TESSERA_TEST(check_prints_ok_with_counts_and_hash) {
@@ -325,8 +327,8 @@ TESSERA_TEST(generate_writes_through_a_temporary_file_and_leaves_nothing_behind)
     }
     TESSERA_CHECK(beside == 2); // "out" and "taken", and no temporary file next to "taken"
 #ifdef _WIN32
-    // A file that something else holds open cannot be replaced on Windows, and must come out unchanged. (Writing straight
-    // into it would have changed it.)
+    // A file that something else holds open cannot be replaced on Windows, and must come out unchanged.
+    // (Writing straight into it would have changed it.)
     const std::string held = dir.Write("held.hpp", "old contents");
     std::ifstream holder(held, std::ios::binary);
     TESSERA_CHECK(holder.is_open());

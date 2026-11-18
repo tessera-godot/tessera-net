@@ -137,8 +137,9 @@ TESSERA_TEST(generated_header_can_be_included_in_two_translation_units) {
 }
 
 TESSERA_TEST(generated_header_compiles_with_the_names_of_standard_things) {
-    // Properties called size_t, std, tessera, net, byte, string, move and so on: they are columns of a struct, and what is
-    // generated has to keep working with them (this file compiling is the test, and a few uses make sure they are there).
+    // Properties called size_t, std, tessera, net, byte, string, move and so on: they are columns of a
+    // struct, and what is generated has to keep working with them (this file compiling is the test, and a few
+    // uses make sure they are there).
     rk::RiskyColumns columns{};
     columns.size_t[0] = 1;
     columns.std[1] = 1;
@@ -147,7 +148,8 @@ TESSERA_TEST(generated_header_compiles_with_the_names_of_standard_things) {
     columns.string[4] = 1;
     columns.move[5] = 1;
     columns.position_x[6] = 1.0f;
-    TESSERA_CHECK(columns.size_t[0] == 1 && columns.std[1] == 1 && columns.string[4] == 1 && columns.position_x[6] == 1.0f);
+    TESSERA_CHECK(columns.size_t[0] == 1 && columns.std[1] == 1 && columns.string[4] == 1 &&
+                  columns.position_x[6] == 1.0f);
     tessera::net::ReplicationSchema schema;
     std::string error;
     TESSERA_CHECK(rk::AddGeneratedTypes(schema, &error));

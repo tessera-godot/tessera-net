@@ -30,29 +30,32 @@ const std::vector<std::string> kCppReserved = {
     "xor_eq",
 };
 
-// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in modules/gdscript/gdscript_tokenizer.cpp, and `null`,
-// which the tokenizer reads as a literal outside that table (`true` and `false` are literals too, and C++ refuses them). The
-// four written in capitals (INF, NAN, PI, TAU) are left out: a name cannot have capitals.
+// The keywords of GDScript in Godot 4.7.2, from the table KEYWORDS in
+// modules/gdscript/gdscript_tokenizer.cpp, and `null`, which the tokenizer reads as a literal outside that
+// table (`true` and `false` are literals too, and C++ refuses them). The four written in capitals (INF, NAN,
+// PI, TAU) are left out: a name cannot have capitals.
 const std::vector<std::string> kGdScriptReserved = {
-    "as",       "and",    "assert",    "await", "break",   "breakpoint", "class",   "class_name", "const",
-    "continue", "elif",   "else",      "enum",  "extends", "for",        "func",    "if",         "in",
-    "is",       "match",  "namespace", "not",   "or",      "pass",       "preload", "return",     "self",
-    "signal",   "static", "super",     "trait", "var",     "void",       "while",   "when",       "yield",
-    "null",
+    "as",      "and",      "assert", "await",  "break",     "breakpoint", "class", "class_name",
+    "const",   "continue", "elif",   "else",   "enum",      "extends",    "for",   "func",
+    "if",      "in",       "is",     "match",  "namespace", "not",        "or",    "pass",
+    "preload", "return",   "self",   "signal", "static",    "super",      "trait", "var",
+    "void",    "while",    "when",   "yield",  "null",
 };
 
-// Names that become macros: `far`, `near`, `min`, `max`, `small`, `interface`, `pascal`, `cdecl` and `hyper` in the headers of
-// the Windows SDK (minwindef.h, ntdef.h, rpcndr.h, combaseapi.h, basetyps.h), `errno`, `stdin`, `stdout` and `stderr` in the C
-// library of Windows (and `errno`, `math_errhandling`, `sched_priority` in glibc), `linux` and `unix` in GCC and Clang when the
-// language is the GNU one. `min` and `max` are macros that take arguments, so only a use like `min(` is caught. Found by
-// reading the SDK headers and by listing the macros of the standard headers the generated code includes.
-const std::vector<std::string> kMacroNames = {"cdecl",  "errno", "far",   "hyper",  "interface",        "linux",
-                                              "math_errhandling", "max",   "min",   "near",   "pascal",
-                                              "sched_priority",   "small", "stderr", "stdin", "stdout", "unix"};
+// Names that become macros: `far`, `near`, `min`, `max`, `small`, `interface`, `pascal`, `cdecl` and `hyper`
+// in the headers of the Windows SDK (minwindef.h, ntdef.h, rpcndr.h, combaseapi.h, basetyps.h), `errno`,
+// `stdin`, `stdout` and `stderr` in the C library of Windows (and `errno`, `math_errhandling`,
+// `sched_priority` in glibc), `linux` and `unix` in GCC and Clang when the language is the GNU one. `min` and
+// `max` are macros that take arguments, so only a use like `min(` is caught. Found by reading the SDK headers
+// and by listing the macros of the standard headers the generated code includes.
+const std::vector<std::string> kMacroNames = {
+    "cdecl", "errno",  "far",  "hyper",  "interface",      "linux", "math_errhandling",
+    "max",   "min",    "near", "pascal", "sched_priority", "small", "stderr",
+    "stdin", "stdout", "unix"};
 
-// The types the generated columns are made of. A property with one of these names would hide the type from the columns that
-// come after it.
-const std::vector<std::string> kColumnTypeNames = {"int16_t", "int32_t", "int64_t", "int8_t",
+// The types the generated columns are made of. A property with one of these names would hide the type from
+// the columns that come after it.
+const std::vector<std::string> kColumnTypeNames = {"int16_t",  "int32_t",  "int64_t",  "int8_t",
                                                    "uint16_t", "uint32_t", "uint64_t", "uint8_t"};
 
 bool Contains(const std::vector<std::string>& list, std::string_view name) {
@@ -136,7 +139,8 @@ std::string CheckName(std::string_view name, std::string* fix) {
                                 : "GDScript");
     }
     if (Contains(kColumnTypeNames, name)) {
-        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_value") + ", works");
+        set_fix("use another name; adding a word to it, as in " + Quoted(std::string(name) + "_value") +
+                ", works");
         return Quoted(name) + " is the name of a type that the columns of the generated code are made of";
     }
     if (Contains(kMacroNames, name)) {

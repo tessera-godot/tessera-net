@@ -4,8 +4,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <memory>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 using namespace tessera::schema::json;
@@ -214,7 +214,8 @@ TESSERA_TEST(json_never_overruns_on_truncated_input) {
     for (size_t length = 0; length < document.size(); ++length) {
         // Each prefix is a copy of exactly that size, so that a read past the end is a read outside the
         // allocation.
-        // (A std::string would have a terminator after the text and hide such a read, so the copy is a plain array.)
+        // (A std::string would have a terminator after the text and hide such a read, so the copy is a plain
+        // array.)
         const std::unique_ptr<char[]> prefix(new char[length == 0 ? 1 : length]);
         std::copy_n(document.data(), length, prefix.get());
         const ParseResult result = Parse(std::string_view(prefix.get(), length));

@@ -305,7 +305,8 @@ private:
             const auto byte = static_cast<unsigned char>(c);
             if (c == '\\') {
                 Add(value.position,
-                    "a note cannot hold a backslash: at the end of a line it would join the next line of the generated code "
+                    "a note cannot hold a backslash: at the end of a line it would join the next line of the "
+                    "generated code "
                     "to the comment",
                     "remove the backslash");
                 return;
@@ -570,10 +571,13 @@ ReadResult ReadSchema(std::string_view text) {
         // Names that are good one by one can still make the same C++ name together.
         result.diagnostics = FindCollisions(file);
     }
-    // The problems are put in the order of the file first, and only then cut, so that the ones kept are the first ones.
-    std::stable_sort(result.diagnostics.begin(), result.diagnostics.end(), [](const Diagnostic& a, const Diagnostic& b) {
-        return a.position.line != b.position.line ? a.position.line < b.position.line : a.position.column < b.position.column;
-    });
+    // The problems are put in the order of the file first, and only then cut, so that the ones kept are the
+    // first ones.
+    std::stable_sort(result.diagnostics.begin(), result.diagnostics.end(),
+                     [](const Diagnostic& a, const Diagnostic& b) {
+                         return a.position.line != b.position.line ? a.position.line < b.position.line
+                                                                   : a.position.column < b.position.column;
+                     });
     if (result.diagnostics.size() > kMaxDiagnostics) {
         result.omitted = result.diagnostics.size() - kMaxDiagnostics;
         result.diagnostics.resize(kMaxDiagnostics);

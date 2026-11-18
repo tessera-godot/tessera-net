@@ -320,8 +320,9 @@ TESSERA_TEST(file_collects_several_problems_in_one_pass) {
 }
 
 TESSERA_TEST(file_orders_problems_before_it_cuts_the_list_and_says_how_many_were_left_out) {
-    // The property is wrong in many places after the missing key, which is reported at the start of the property: that one
-    // comes first in the file, so it is one of the 20 shown, whatever order the reading found them in.
+    // The property is wrong in many places after the missing key, which is reported at the start of the
+    // property: that one comes first in the file, so it is one of the 20 shown, whatever order the reading
+    // found them in.
     std::string property = "{\"name\": \"p\", \"kind\": \"position\", \"step\": 1";
     for (int i = 0; i < 30; ++i) {
         property += ", \"extra" + std::to_string(i) + "_key\": 1";
@@ -338,7 +339,8 @@ TESSERA_TEST(file_orders_problems_before_it_cuts_the_list_and_says_how_many_were
 
 TESSERA_TEST(file_messages_that_repeat_the_file_are_short_and_have_no_control_bytes) {
     const std::string long_key(500, 'k');
-    const std::string text = OneType("{\"name\": \"p\", \"kind\": \"flag\", \"" + long_key + "\": 1, \"a\\u0001b\\u00e9\": 2}");
+    const std::string text =
+        OneType("{\"name\": \"p\", \"kind\": \"flag\", \"" + long_key + "\": 1, \"a\\u0001b\\u00e9\": 2}");
     const ReadResult r = ReadSchema(text);
     TESSERA_CHECK(r.diagnostics.size() == 2);
     for (const Diagnostic& d : r.diagnostics) {
@@ -347,7 +349,8 @@ TESSERA_TEST(file_messages_that_repeat_the_file_are_short_and_have_no_control_by
             TESSERA_CHECK(static_cast<unsigned char>(c) >= 0x20 && static_cast<unsigned char>(c) < 0x7F);
         }
     }
-    TESSERA_CHECK(r.diagnostics.size() == 2 && Has(r.diagnostics[0].message, "kkkk...") && !Has(r.diagnostics[0].message, std::string(100, 'k')));
+    TESSERA_CHECK(r.diagnostics.size() == 2 && Has(r.diagnostics[0].message, "kkkk...") &&
+                  !Has(r.diagnostics[0].message, std::string(100, 'k')));
     TESSERA_CHECK(r.diagnostics.size() == 2 && Has(r.diagnostics[1].message, "\\x01"));
     // A name with a control byte in it, from the check of names.
     const std::string name_text = OneType("{\"name\": \"bad\\u0002name\", \"kind\": \"flag\"}");
