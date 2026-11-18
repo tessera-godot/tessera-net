@@ -2,8 +2,10 @@
 #include "tessera/schema/cli.hpp"
 
 #include "tessera/schema/cpp_generator.hpp"
+#include "tessera/schema/gdscript_generator.hpp"
 #include "tessera/schema/generator_text.hpp"
 #include "tessera/schema/json_reader.hpp"
+#include "tessera/schema/names.hpp"
 #include "tessera/schema/schema_check.hpp"
 #include "tessera/schema/schema_file.hpp"
 
@@ -28,18 +30,25 @@ constexpr int kBadUsage = 2;
 constexpr int kCannotUseFile = 3;
 
 void PrintUsage(std::ostream& stream) {
-    stream << "Usage:\n"
-           << "  tessera_schema check <schema.json>\n"
-           << "  tessera_schema hash <schema.json>\n"
-           << "  tessera_schema generate --cpp <output.hpp> [--namespace a::b] <schema.json>\n"
-           << "\n"
-           << "check     reads the file, checks it as the server does, and says how many types it has and "
-              "its hash.\n"
-           << "hash      prints the hash of the schema and nothing else.\n"
-           << "generate  writes the C++ header of the schema. Nothing is written when the schema is wrong.\n"
-           << "\n"
-           << "Exit codes: 0 done, 1 the file or the schema is wrong, 2 the command line is wrong, 3 a file\n"
-           << "could not be read or written.\n";
+    stream
+        << "Usage:\n"
+        << "  tessera_schema check <schema.json>\n"
+        << "  tessera_schema hash <schema.json>\n"
+        << "  tessera_schema generate [--cpp <output.hpp> [--namespace a::b]]\n"
+        << "                          [--gdscript <output.gd> [--gdscript-class Name]] <schema.json>\n"
+        << "\n"
+        << "check     reads the file, checks it as the server does, and says how many types it has and "
+           "its hash.\n"
+        << "hash      prints the hash of the schema and nothing else.\n"
+        << "generate  writes the C++ header (--cpp) and the GDScript (--gdscript) of the schema; give one or "
+           "both.\n"
+        << "          Nothing is written when the schema is wrong.\n"
+        << "\n"
+        << "--namespace        the namespace of the C++ header (default game_schema).\n"
+        << "--gdscript-class   the class_name of the script (default GameSchema).\n"
+        << "\n"
+        << "Exit codes: 0 done, 1 the file or the schema is wrong, 2 the command line is wrong, 3 a file\n"
+        << "could not be read or written.\n";
 }
 
 int UsageError(std::ostream& err, const std::string& message) {
@@ -217,19 +226,48 @@ int WriteIfChanged(const std::string& output, const std::string& text, std::ostr
     return kOk;
 }
 
+// True when two paths are the same file, also when one of them is not there yet (the paths are compared after
+// the folders in them have been resolved).
+bool SameFile(const std::string& a, const std::string& b) {
+    std::error_code error;
+    if (std::filesystem::exists(a, error) && std::filesystem::exists(b, error)) {
+        return std::filesystem::equivalent(a, b, error);
+    }
+    const std::filesystem::path first = std::filesystem::weakly_canonical(a, error);
+    const std::filesystem::path second = std::filesystem::weakly_canonical(b, error);
+    return !error && first == second;
+}
+
 int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostream& err) {
-    std::string output;
+    std::string cpp_output;
+    std::string gdscript_output;
     std::string input;
-    CppOptions options;
-    bool has_output = false;
+    CppOptions cpp_options;
+    GdScriptOptions gdscript_options;
+    bool has_cpp = false;
+    bool has_gdscript = false;
+    bool has_namespace = false;
+    bool has_class = false;
     for (size_t i = 1; i < args.size(); ++i) {
         const std::string& arg = args[i];
-        if (arg == "--cpp" || arg == "--namespace") {
+        if (arg == "--cpp" || arg == "--namespace" || arg == "--gdscript" || arg == "--gdscript-class") {
             if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
                 return UsageError(err, arg + " needs a value");
             }
-            (arg == "--cpp" ? output : options.ns) = args[++i];
-            has_output = has_output || arg == "--cpp";
+            const std::string& value = args[++i];
+            if (arg == "--cpp") {
+                cpp_output = value;
+                has_cpp = true;
+            } else if (arg == "--namespace") {
+                cpp_options.ns = value;
+                has_namespace = true;
+            } else if (arg == "--gdscript") {
+                gdscript_output = value;
+                has_gdscript = true;
+            } else {
+                gdscript_options.class_name = value;
+                has_class = true;
+            }
         } else if (arg.rfind("--", 0) == 0) {
             return UsageError(err, "unknown option " + arg);
         } else if (input.empty()) {
@@ -238,28 +276,61 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
             return UsageError(err, "too many arguments");
         }
     }
-    if (!has_output) {
-        return UsageError(err, "generate needs --cpp <output.hpp>");
+    if (!has_cpp && !has_gdscript) {
+        return UsageError(err, "generate needs --cpp <output.hpp>, --gdscript <output.gd>, or both");
     }
     if (input.empty()) {
         return UsageError(err, "generate needs the schema file");
     }
+    if (has_namespace && !has_cpp) {
+        return UsageError(err, "--namespace needs --cpp: it is the namespace of the C++ header");
+    }
+    if (has_class && !has_gdscript) {
+        return UsageError(err, "--gdscript-class needs --gdscript: it is the class of the script");
+    }
     std::string why;
-    if (!IsValidNamespace(options.ns, &why)) {
+    if (has_cpp && !IsValidNamespace(cpp_options.ns, &why)) {
         return UsageError(err, "bad --namespace: " + why);
     }
-    std::error_code error;
-    if (std::filesystem::exists(input, error) && std::filesystem::equivalent(input, output, error)) {
-        return UsageError(err, "the output is the schema file itself, and generate would overwrite it");
+    if (has_gdscript) {
+        std::string fix;
+        why = CheckGdScriptClassName(gdscript_options.class_name, &fix);
+        if (!why.empty()) {
+            return UsageError(err, "bad --gdscript-class: " + why + (fix.empty() ? "" : "\n  fix: " + fix));
+        }
+    }
+    // No output may be the schema file, and the two outputs may not be one file.
+    for (const std::string* output : {&cpp_output, &gdscript_output}) {
+        if ((output == &cpp_output ? has_cpp : has_gdscript) && SameFile(input, *output)) {
+            return UsageError(err, "the output is the schema file itself, and generate would overwrite it");
+        }
+    }
+    if (has_cpp && has_gdscript && SameFile(cpp_output, gdscript_output)) {
+        return UsageError(err, "--cpp and --gdscript are the same file (" + cpp_output +
+                                   "), and one would overwrite the other");
     }
     std::optional<Loaded> loaded;
     const int code = Load(input, loaded, err);
     if (code != kOk) {
         return code; // nothing is written, and a file that was there before stays as it was
     }
-    options.source_name = std::filesystem::path(input).filename().string();
-    const std::string text = GenerateCpp(loaded->file, loaded->check.hash, options);
-    return WriteIfChanged(output, text, out, err);
+    // Both texts are made before any file is touched.
+    const std::string source_name = std::filesystem::path(input).filename().string();
+    cpp_options.source_name = source_name;
+    gdscript_options.source_name = source_name;
+    const std::string cpp_text = has_cpp ? GenerateCpp(loaded->file, loaded->check.hash, cpp_options) : "";
+    const std::string gdscript_text =
+        has_gdscript ? GenerateGdScript(loaded->file, loaded->check.hash, gdscript_options) : "";
+    if (has_cpp) {
+        const int written = WriteIfChanged(cpp_output, cpp_text, out, err);
+        if (written != kOk) {
+            return written;
+        }
+    }
+    if (has_gdscript) {
+        return WriteIfChanged(gdscript_output, gdscript_text, out, err);
+    }
+    return kOk;
 }
 
 } // namespace
