@@ -136,14 +136,14 @@ TESSERA_TEST(cpp_integer_column_types_are_the_smallest_that_fit) {
     TESSERA_CHECK(ColumnFor(Integer(0, 4294967296ll, false)).bytes == 8);
     // And the generated columns are these.
     const Generated g = GenerateFixture("all_kinds.json");
-    TESSERA_CHECK(Has(g.text, "    uint8_t u8[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint16_t u16[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint32_t u32[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint64_t u64[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    int8_t s8[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    int16_t s16[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    int32_t s32[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    int64_t s64[tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint8_t u8[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint16_t u16[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint32_t u32[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint64_t u64[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    int8_t s8[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    int16_t s16[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    int32_t s32[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    int64_t s64[::tessera::net::kPageSlots];"));
 }
 
 TESSERA_TEST(cpp_mask_and_choice_column_types) {
@@ -167,19 +167,19 @@ TESSERA_TEST(cpp_mask_and_choice_column_types) {
                   "uint8_t");
     TESSERA_CHECK(ColumnFor(WithBits(Kind::Angle, 12)).cpp_type == "float");
     const Generated g = GenerateFixture("all_kinds.json");
-    TESSERA_CHECK(Has(g.text, "    uint8_t alive[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint8_t mask8[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint64_t mask40[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint8_t team[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    uint16_t species[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    float yaw[tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint8_t alive[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint8_t mask8[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint64_t mask40[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint8_t team[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    uint16_t species[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    float yaw[::tessera::net::kPageSlots];"));
 }
 
 TESSERA_TEST(cpp_position_uses_three_float_columns_named_after_the_property) {
     const Generated g = GenerateFixture("all_kinds.json");
-    TESSERA_CHECK(Has(g.text, "    float position_x[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    float position_y[tessera::net::kPageSlots];"));
-    TESSERA_CHECK(Has(g.text, "    float position_z[tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    float position_x[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    float position_y[::tessera::net::kPageSlots];"));
+    TESSERA_CHECK(Has(g.text, "    float position_z[::tessera::net::kPageSlots];"));
     TESSERA_CHECK(!Has(g.text, "float position["));
     TESSERA_CHECK(Has(g.text, "inline constexpr float kAllKindsPositionStep = 0.01f;"));
     TESSERA_CHECK(Has(g.text, "inline constexpr float kAllKindsPositionRange = 2048.0f;"));
@@ -276,11 +276,13 @@ TESSERA_TEST(cpp_notes_become_comments) {
 TESSERA_TEST(cpp_namespace_option_nested_and_validated) {
     std::string why;
     for (const char* good :
-         {"a", "a::b", "game_schema", "_x", "A1::b2", "tessera::server::example::schema"}) {
+         {"a", "a::b", "game_schema", "_x", "A1::b2", "tessera::server::example::schema", "game::tessera", "x_y",
+          "_x1::y_"}) {
         TESSERA_CHECK(IsValidNamespace(good));
     }
     for (const char* bad :
-         {"", "::a", "a::", "a::::b", "class", "a::class", "1a", "a b", "a-b", "a:b", ":", "a::1b"}) {
+         {"", "::a", "a::", "a::::b", "class", "a::class", "1a", "a b", "a-b", "a:b", ":", "a::1b", "__x", "x__y", "_X",
+          "a::__b", "a::_C", "std", "a::std", "linux", "unix", "a::linux", "min", "errno", "stdin", "far"}) {
         why.clear();
         TESSERA_CHECK(!IsValidNamespace(bad, &why));
         TESSERA_CHECK(!why.empty());

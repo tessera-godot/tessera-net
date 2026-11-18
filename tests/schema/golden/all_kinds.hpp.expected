@@ -45,29 +45,29 @@ inline constexpr uint32_t kAllKindsSpeciesCount = 300;
 
 struct AllKindsColumns {
     // In meters.
-    float position_x[tessera::net::kPageSlots];
-    float position_y[tessera::net::kPageSlots];
-    float position_z[tessera::net::kPageSlots];
-    float yaw[tessera::net::kPageSlots];
-    uint8_t u8[tessera::net::kPageSlots];
-    uint16_t u16[tessera::net::kPageSlots];
-    uint32_t u32[tessera::net::kPageSlots];
-    uint64_t u64[tessera::net::kPageSlots];
-    int8_t s8[tessera::net::kPageSlots];
-    int16_t s16[tessera::net::kPageSlots];
-    int32_t s32[tessera::net::kPageSlots];
-    int64_t s64[tessera::net::kPageSlots];
-    int64_t extreme[tessera::net::kPageSlots];
-    uint8_t alive[tessera::net::kPageSlots];
-    uint8_t mask8[tessera::net::kPageSlots];
+    float position_x[::tessera::net::kPageSlots];
+    float position_y[::tessera::net::kPageSlots];
+    float position_z[::tessera::net::kPageSlots];
+    float yaw[::tessera::net::kPageSlots];
+    uint8_t u8[::tessera::net::kPageSlots];
+    uint16_t u16[::tessera::net::kPageSlots];
+    uint32_t u32[::tessera::net::kPageSlots];
+    uint64_t u64[::tessera::net::kPageSlots];
+    int8_t s8[::tessera::net::kPageSlots];
+    int16_t s16[::tessera::net::kPageSlots];
+    int32_t s32[::tessera::net::kPageSlots];
+    int64_t s64[::tessera::net::kPageSlots];
+    int64_t extreme[::tessera::net::kPageSlots];
+    uint8_t alive[::tessera::net::kPageSlots];
+    uint8_t mask8[::tessera::net::kPageSlots];
     // Forty flags.
-    uint64_t mask40[tessera::net::kPageSlots];
-    uint8_t team[tessera::net::kPageSlots];
-    uint16_t species[tessera::net::kPageSlots];
+    uint64_t mask40[::tessera::net::kPageSlots];
+    uint8_t team[::tessera::net::kPageSlots];
+    uint16_t species[::tessera::net::kPageSlots];
 };
 
-inline bool AddAllKindsType(tessera::net::ReplicationSchema& schema, std::string* error = nullptr) {
-    using tessera::net::PropertyDescriptor;
+inline bool AddAllKindsType(::tessera::net::ReplicationSchema& schema, ::std::string* error = nullptr) {
+    using ::tessera::net::PropertyDescriptor;
     return schema.AddType(
         kAllKindsType,
         {
@@ -101,20 +101,20 @@ inline bool AddAllKindsType(tessera::net::ReplicationSchema& schema, std::string
 }
 
 /// Throws std::invalid_argument when `shard` does not fit in an entity id (it is at most 4095).
-inline std::unique_ptr<tessera::net::EntityTable<AllKindsColumns>> MakeAllKindsTable(uint32_t shard) {
-    return std::make_unique<tessera::net::EntityTable<AllKindsColumns>>(
-        tessera::net::TableConfig{shard, kAllKindsType});
+inline ::std::unique_ptr<::tessera::net::EntityTable<AllKindsColumns>> MakeAllKindsTable(uint32_t shard) {
+    return ::std::make_unique<::tessera::net::EntityTable<AllKindsColumns>>(
+        ::tessera::net::TableConfig{shard, kAllKindsType});
 }
 
 // The highest type number.
 inline constexpr uint32_t kLastType = 255;
 
 struct LastColumns {
-    uint8_t ready[tessera::net::kPageSlots];
+    uint8_t ready[::tessera::net::kPageSlots];
 };
 
-inline bool AddLastType(tessera::net::ReplicationSchema& schema, std::string* error = nullptr) {
-    using tessera::net::PropertyDescriptor;
+inline bool AddLastType(::tessera::net::ReplicationSchema& schema, ::std::string* error = nullptr) {
+    using ::tessera::net::PropertyDescriptor;
     return schema.AddType(
         kLastType,
         {
@@ -124,13 +124,13 @@ inline bool AddLastType(tessera::net::ReplicationSchema& schema, std::string* er
 }
 
 /// Throws std::invalid_argument when `shard` does not fit in an entity id (it is at most 4095).
-inline std::unique_ptr<tessera::net::EntityTable<LastColumns>> MakeLastTable(uint32_t shard) {
-    return std::make_unique<tessera::net::EntityTable<LastColumns>>(
-        tessera::net::TableConfig{shard, kLastType});
+inline ::std::unique_ptr<::tessera::net::EntityTable<LastColumns>> MakeLastTable(uint32_t shard) {
+    return ::std::make_unique<::tessera::net::EntityTable<LastColumns>>(
+        ::tessera::net::TableConfig{shard, kLastType});
 }
 
 /// Adds every type of the file, in the order of their numbers, and stops at the first one that fails.
-inline bool AddGeneratedTypes(tessera::net::ReplicationSchema& schema, std::string* error = nullptr) {
+inline bool AddGeneratedTypes(::tessera::net::ReplicationSchema& schema, ::std::string* error = nullptr) {
     return AddAllKindsType(schema, error) &&
            AddLastType(schema, error);
 }

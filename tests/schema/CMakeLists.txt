@@ -14,7 +14,7 @@ tessera_schema_generate_cpp(tessera_all_kinds_schema
 tessera_schema_generate_cpp(tessera_risky_names_schema
                             SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/risky_names.json
                             OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/risky_names.hpp
-                            NAMESPACE risky)
+                            NAMESPACE risky::tessera)
 
 target_link_libraries(tessera_schema_tests PRIVATE tessera_schema_tool tessera_all_kinds_schema tessera_risky_names_schema)
 target_include_directories(tessera_schema_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)

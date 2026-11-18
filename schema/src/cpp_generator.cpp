@@ -86,7 +86,7 @@ void WriteColumns(Writer& w, const TypeDecl& type) {
             w.Line("    // " + p.note);
         }
         for (const std::string& member : GeneratedNames::ColumnMembers(p)) {
-            w.Line("    " + ColumnType(p) + " " + member + "[tessera::net::kPageSlots];");
+            w.Line("    " + ColumnType(p) + " " + member + "[::tessera::net::kPageSlots];");
         }
     }
     w.Line("};");
@@ -141,8 +141,8 @@ std::string Descriptor(const std::string& indent, const TypeDecl& type, const Pr
 
 void WriteAddFunction(Writer& w, const TypeDecl& type) {
     w.Line("inline bool " + GeneratedNames::AddFunction(type.name) +
-           "(tessera::net::ReplicationSchema& schema, std::string* error = nullptr) {");
-    w.Line("    using tessera::net::PropertyDescriptor;");
+           "(::tessera::net::ReplicationSchema& schema, ::std::string* error = nullptr) {");
+    w.Line("    using ::tessera::net::PropertyDescriptor;");
     w.Line("    return schema.AddType(");
     w.Line("        " + GeneratedNames::TypeConstant(type.name) + ",");
     w.Line("        {");
@@ -158,10 +158,10 @@ void WriteMakeFunction(Writer& w, const TypeDecl& type) {
     const std::string columns = GeneratedNames::ColumnsStruct(type.name);
     w.Line(
         "/// Throws std::invalid_argument when `shard` does not fit in an entity id (it is at most 4095).");
-    w.Line("inline std::unique_ptr<tessera::net::EntityTable<" + columns + ">> " +
+    w.Line("inline ::std::unique_ptr<::tessera::net::EntityTable<" + columns + ">> " +
            GeneratedNames::MakeFunction(type.name) + "(uint32_t shard) {");
-    w.Line("    return std::make_unique<tessera::net::EntityTable<" + columns + ">>(");
-    w.Line("        tessera::net::TableConfig{shard, " + GeneratedNames::TypeConstant(type.name) + "});");
+    w.Line("    return ::std::make_unique<::tessera::net::EntityTable<" + columns + ">>(");
+    w.Line("        ::tessera::net::TableConfig{shard, " + GeneratedNames::TypeConstant(type.name) + "});");
     w.Line("}");
 }
 
@@ -197,6 +197,19 @@ bool IsValidNamespace(std::string_view name, std::string* why) {
         const auto& keywords = CppReservedWords();
         if (std::find(keywords.begin(), keywords.end(), part) != keywords.end()) {
             return refuse("\"" + std::string(part) + "\" is a C++ keyword and cannot be a namespace");
+        }
+        const std::string quoted = "\"" + std::string(part) + "\"";
+        if (part.find("__") != std::string_view::npos || (part[0] == '_' && part.size() > 1 && part[1] >= 'A' && part[1] <= 'Z')) {
+            return refuse(quoted + " is a name that C++ keeps for the compiler and the library (two underscores in a row, or an "
+                                   "underscore and a capital letter at the start)");
+        }
+        const auto& macros = MacroNames();
+        if (std::find(macros.begin(), macros.end(), part) != macros.end()) {
+            return refuse(quoted + " is a macro in some C++ headers and cannot be a namespace");
+        }
+        if (part == "std") {
+            return refuse(quoted + " would hide the standard library from the code of the core library that is generated into "
+                                   "it");
         }
         if (end == std::string_view::npos) {
             break;
@@ -260,7 +273,7 @@ std::string GenerateCpp(const SchemaFile& file, uint64_t hash, const CppOptions&
     w.Line();
     w.Line("/// Adds every type of the file, in the order of their numbers, and stops at the first one that "
            "fails.");
-    w.Line("inline bool AddGeneratedTypes(tessera::net::ReplicationSchema& schema, std::string* error = "
+    w.Line("inline bool AddGeneratedTypes(::tessera::net::ReplicationSchema& schema, ::std::string* error = "
            "nullptr) {");
     std::string chain;
     for (size_t i = 0; i < types.size(); ++i) {
