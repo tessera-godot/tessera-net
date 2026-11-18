@@ -7,6 +7,7 @@ add_library(tessera_schema_tool STATIC
     src/json_reader.cpp
     src/schema_file.cpp
     src/names.cpp
+    src/godot_names.cpp
     src/columns.cpp
     src/schema_check.cpp
     src/generator_text.cpp

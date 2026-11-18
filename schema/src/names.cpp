@@ -152,6 +152,49 @@ std::string CheckName(std::string_view name, std::string* fix) {
     return {};
 }
 
+std::string CheckGdScriptClassName(std::string_view name, std::string* fix) {
+    const auto set_fix = [fix](std::string text) {
+        if (fix != nullptr) {
+            *fix = std::move(text);
+        }
+    };
+    const std::string shape_fix =
+        "use letters and digits, start with a capital letter, and have at least one lowercase letter, for "
+        "example \"GameSchema\"";
+    set_fix({});
+    if (name.empty()) {
+        set_fix(shape_fix);
+        return "the name is empty";
+    }
+    if (name.size() > kMaxNameLength) {
+        set_fix("use at most " + std::to_string(kMaxNameLength) + " characters");
+        return "the name " + Quoted(name) + " has " + std::to_string(name.size()) +
+               " characters, and the limit is " + std::to_string(kMaxNameLength);
+    }
+    const auto is_upper = [](char c) { return c >= 'A' && c <= 'Z'; };
+    const bool shape = is_upper(name.front()) &&
+                       std::all_of(name.begin(), name.end(),
+                                   [&](char c) { return is_upper(c) || IsLower(c) || IsDigit(c); }) &&
+                       std::any_of(name.begin(), name.end(), IsLower);
+    if (!shape) {
+        set_fix(shape_fix);
+        return Quoted(name) + " is not a valid class name";
+    }
+    if (Contains(kGdScriptReserved, name)) {
+        set_fix(shape_fix);
+        return Quoted(name) + " is a keyword in GDScript";
+    }
+    const std::span<const std::string_view> godot = GodotNames();
+    if (std::binary_search(godot.begin(), godot.end(), name)) {
+        // The name with "Schema" after it, when that is a good name itself; otherwise the usual one.
+        const std::string suggestion = std::string(name) + "Schema";
+        set_fix("use another name, for example " +
+                (CheckGdScriptClassName(suggestion).empty() ? Quoted(suggestion) : "\"GameSchema\""));
+        return Quoted(name) + " is the name of a class in Godot, and a script cannot take it";
+    }
+    return {};
+}
+
 std::string GeneratedNames::PascalCase(std::string_view name) {
     std::string result;
     bool start = true;
