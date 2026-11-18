@@ -7,12 +7,14 @@ namespace tessera::schema {
 
 namespace {
 
-// The names of the classes, the built-in types and the singletons in the extension API of Godot 4.7.2, and
-// the classes of this extension (TesseraClient and TesseraSchema), that have the shape of a class name: a
-// capital letter, then letters and digits. A script cannot take any of them as its class name. In order of
-// bytes, each one once. Godot adds classes with each version, so this list ages: Godot has the last word when
-// it loads a script.
-constexpr std::array<std::string_view, 1073> kGodotNames = {
+// The names of the classes, the built-in types and the singletons in the extension API of Godot 4.7.2, with
+// `Variant` and `GDScriptFunctionState` (the one class that Godot registers for itself and leaves out of that
+// API), and the classes of this extension (TesseraClient and TesseraSchema), that have the shape of a class
+// name: a capital letter, then letters and digits. `Nil` is in the list too: Godot may accept it, but it is
+// the name of a built-in type, and the tool refuses it on purpose. A script cannot take any of these as its
+// class name. In order of bytes, each one once. Godot adds classes with each version, so this list ages:
+// Godot has the last word when it loads a script.
+constexpr std::array<std::string_view, 1075> kGodotNames = {
     "AABB",
     "AESContext",
     "AStar2D",
@@ -312,6 +314,7 @@ constexpr std::array<std::string_view, 1073> kGodotNames = {
     "GDExtension",
     "GDExtensionManager",
     "GDScript",
+    "GDScriptFunctionState",
     "GDScriptLanguageProtocol",
     "GDScriptSyntaxHighlighter",
     "GDScriptTextDocument",
@@ -913,6 +916,7 @@ constexpr std::array<std::string_view, 1073> kGodotNames = {
     "VSeparator",
     "VSlider",
     "VSplitContainer",
+    "Variant",
     "Vector2",
     "Vector2i",
     "Vector3",

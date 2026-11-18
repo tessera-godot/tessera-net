@@ -106,9 +106,27 @@ TESSERA_TEST(gd_class_names_reject_keywords_and_constants) {
 }
 
 TESSERA_TEST(gd_class_names_reject_the_names_godot_uses) {
-    for (const char* name : {"Node", "Node3D", "Resource", "RefCounted", "Object", "Engine", "OS", "Time",
-                             "Vector3", "String", "Array", "Dictionary", "Callable", "EditorPlugin",
-                             "AStar2D", "JSON", "TesseraSchema", "TesseraClient"}) {
+    for (const char* name : {"Node",
+                             "Node3D",
+                             "Resource",
+                             "RefCounted",
+                             "Object",
+                             "Engine",
+                             "OS",
+                             "Time",
+                             "Vector3",
+                             "String",
+                             "Array",
+                             "Dictionary",
+                             "Callable",
+                             "EditorPlugin",
+                             "AStar2D",
+                             "JSON",
+                             "TesseraSchema",
+                             "TesseraClient",
+                             "Variant",
+                             "GDScriptFunctionState",
+                             "Nil"}) {
         TESSERA_CHECK(Refused(name));
         if (!Refused(name)) {
             std::printf("    for \"%s\" ...\n", name);
@@ -126,8 +144,7 @@ TESSERA_TEST(gd_class_names_reject_the_names_godot_uses) {
 
 TESSERA_TEST(gd_class_names_cover_the_whole_godot_list) {
     const std::span<const std::string_view> names = GodotNames();
-    TESSERA_CHECK(names.size() ==
-                  1073); // 1071 in the extension API of Godot 4.7.2, and the 2 of this extension
+    TESSERA_CHECK(names.size() == 1075); // 1071 in the extension API of Godot 4.7.2, and 4 more
     for (size_t i = 0; i < names.size(); ++i) {
         const std::string name(names[i]);
         TESSERA_CHECK(Refused(name));

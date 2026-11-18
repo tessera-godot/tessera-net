@@ -180,10 +180,7 @@ std::string CheckGdScriptClassName(std::string_view name, std::string* fix) {
         set_fix(shape_fix);
         return Quoted(name) + " is not a valid class name";
     }
-    if (Contains(kGdScriptReserved, name)) {
-        set_fix(shape_fix);
-        return Quoted(name) + " is a keyword in GDScript";
-    }
+    // The keywords of GDScript are all lowercase, so the shape above has refused them already.
     const std::span<const std::string_view> godot = GodotNames();
     if (std::binary_search(godot.begin(), godot.end(), name)) {
         // The name with "Schema" after it, when that is a good name itself; otherwise the usual one.
