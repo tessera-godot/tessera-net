@@ -4,7 +4,7 @@ file(GLOB EXTENSION_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/t
 # console instead of a dialog on MSVC.
 add_executable(tessera_extension_tests ${EXTENSION_TEST_SOURCES}
                ${PROJECT_SOURCE_DIR}/tests/server/server_test_guard.cpp ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
-target_link_libraries(tessera_extension_tests PRIVATE tessera_extension_logic tessera_server)
+target_link_libraries(tessera_extension_tests PRIVATE tessera_extension_logic tessera_server tessera_example_schema)
 target_include_directories(tessera_extension_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests
                                                            ${PROJECT_SOURCE_DIR}/server/example)
 

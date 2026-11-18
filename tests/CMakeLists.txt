@@ -22,3 +22,8 @@ endif()
 if(TESSERA_BUILD_SERVER)
     add_subdirectory(server)
 endif()
+
+# The schema tool has its own test executable for the same reason.
+if(TESSERA_WITH_SCHEMA_TOOL)
+    add_subdirectory(schema)
+endif()

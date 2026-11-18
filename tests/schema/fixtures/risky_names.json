@@ -1,0 +1,118 @@
+{
+  "format_version": 1,
+  "types": [
+    {
+      "type": 3,
+      "name": "risky",
+      "note": "Names of standard things, which must not break the generated code.",
+      "properties": [
+        {
+          "name": "size_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "ptrdiff_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "nullptr_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "max_align_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "intptr_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "uintptr_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "intmax_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "uintmax_t",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "declval",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "tessera",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "net",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "std",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "byte",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "string",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "move",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "forward",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "pair",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "unique_ptr",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "offsetof",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "alloca",
+          "kind": "choice",
+          "count": 2
+        },
+        {
+          "name": "position",
+          "kind": "position",
+          "step": 0.5,
+          "range": 100.0
+        }
+      ]
+    }
+  ]
+}

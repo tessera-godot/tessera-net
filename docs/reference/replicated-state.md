@@ -32,6 +32,9 @@ schema.AddType(1, {PropertyDescriptor::Position(TESSERA_COLUMN(MobColumns, x), T
                    PropertyDescriptor::Angle(TESSERA_COLUMN(MobColumns, yaw), 10)});
 ```
 
+Instead of writing the calls and the column structs by hand, you can describe the types in a JSON file and have this
+code generated: see the [schema file reference](schema-file.md).
+
 `TESSERA_COLUMN(Columns, member)` names a column of the struct of arrays that an `EntityTable` keeps. A type has
 between 1 and 64 properties and at most 32 words (128 bytes) of quantized state; `AddType` returns false and
 says why if a property cannot work, if the type is out of range, or if it already has a schema.

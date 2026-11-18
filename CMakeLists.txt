@@ -15,6 +15,7 @@ option(TESSERA_PROFILE "Time the stages of the network phase (measurement builds
 option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
 option(TESSERA_BUILD_ENET "Build the ENet transport, its tests and the head-to-head programs (downloads ENet)" OFF)
 option(TESSERA_BUILD_SERVER "Build the server library, its example and its tests" OFF)
+option(TESSERA_BUILD_SCHEMA_TOOL "Build tessera_schema, the tool that checks a schema file and generates code from it" OFF)
 option(TESSERA_BUILD_EXTENSION "Build the Godot extension (downloads godot-cpp; needs ENet and the server)" OFF)
 set(TESSERA_SANITIZE "" CACHE STRING "Sanitizers to build everything with, for example address,undefined (GCC and Clang only)")
 
@@ -49,8 +50,23 @@ if(TESSERA_SANITIZE)
     add_link_options(-fsanitize=${TESSERA_SANITIZE})
 endif()
 
+# The example server gets its entity columns from a schema file, turned into C++ while it is built, so building the
+# server always builds the schema tool too. It can also be built alone.
+set(TESSERA_WITH_SCHEMA_TOOL OFF)
+if(TESSERA_BUILD_SCHEMA_TOOL OR TESSERA_BUILD_SERVER)
+    set(TESSERA_WITH_SCHEMA_TOOL ON)
+    if(NOT TESSERA_BUILD_SCHEMA_TOOL)
+        message(STATUS "TESSERA_BUILD_SERVER=ON: the schema tool is built too (the example server is generated from a schema file)")
+    endif()
+endif()
+
 # The core library has no dependency on Godot (see docs/adr/0001-engine-independent-core.md).
 add_subdirectory(core)
+
+# The schema tool comes before the tests and the server, which both use what it makes.
+if(TESSERA_WITH_SCHEMA_TOOL)
+    add_subdirectory(schema)
+endif()
 
 if(TESSERA_BUILD_TESTS)
     enable_testing()

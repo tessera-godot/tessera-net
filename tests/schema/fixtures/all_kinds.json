@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "types": [
+    {
+      "type": 1,
+      "name": "all_kinds",
+      "note": "One property of every kind, and an integer of every size.",
+      "properties": [
+        {"name": "position", "kind": "position", "step": 0.01, "range": 2048.0, "note": "In meters."},
+        {"name": "yaw", "kind": "angle", "bits": 12},
+        {"name": "u8", "kind": "integer", "min": 0, "max": 255},
+        {"name": "u16", "kind": "integer", "min": 0, "max": 65535, "signed": false},
+        {"name": "u32", "kind": "integer", "min": 0, "max": 4294967295},
+        {"name": "u64", "kind": "integer", "min": 0, "max": 4294967296},
+        {"name": "s8", "kind": "integer", "min": -128, "max": 127, "signed": true},
+        {"name": "s16", "kind": "integer", "min": -32768, "max": 32767, "signed": true},
+        {"name": "s32", "kind": "integer", "min": -2147483648, "max": 2147483647, "signed": true},
+        {"name": "s64", "kind": "integer", "min": -2147483649, "max": 0, "signed": true},
+        {"name": "extreme", "kind": "integer", "min": -9223372036854775808, "max": 9223372036854775807, "signed": true},
+        {"name": "alive", "kind": "flag"},
+        {"name": "mask8", "kind": "mask", "bits": 8},
+        {"name": "mask40", "kind": "mask", "bits": 40, "note": "Forty flags."},
+        {"name": "team", "kind": "choice", "count": 5},
+        {"name": "species", "kind": "choice", "count": 300}
+      ]
+    },
+    {
+      "type": 255,
+      "name": "last",
+      "note": "The highest type number.",
+      "properties": [
+        {"name": "ready", "kind": "flag"}
+      ]
+    }
+  ]
+}
