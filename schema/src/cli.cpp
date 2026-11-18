@@ -233,8 +233,16 @@ bool SameFile(const std::string& a, const std::string& b) {
     if (std::filesystem::exists(a, error) && std::filesystem::exists(b, error)) {
         return std::filesystem::equivalent(a, b, error);
     }
-    const std::filesystem::path first = std::filesystem::weakly_canonical(a, error);
-    const std::filesystem::path second = std::filesystem::weakly_canonical(b, error);
+    std::string first = std::filesystem::weakly_canonical(a, error).generic_string();
+    std::string second = std::filesystem::weakly_canonical(b, error).generic_string();
+#ifdef _WIN32
+    // Windows does not tell capitals from small letters in a path (for the letters of ASCII, at least).
+    for (std::string* path : {&first, &second}) {
+        for (char& c : *path) {
+            c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        }
+    }
+#endif
     return !error && first == second;
 }
 
@@ -253,6 +261,13 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
         if (arg == "--cpp" || arg == "--namespace" || arg == "--gdscript" || arg == "--gdscript-class") {
             if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
                 return UsageError(err, arg + " needs a value");
+            }
+            const bool given = arg == "--cpp"         ? has_cpp
+                               : arg == "--namespace" ? has_namespace
+                               : arg == "--gdscript"  ? has_gdscript
+                                                      : has_class;
+            if (given) {
+                return UsageError(err, arg + " given twice");
             }
             const std::string& value = args[++i];
             if (arg == "--cpp") {
@@ -328,6 +343,12 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
         }
     }
     if (has_gdscript) {
+        // The first file is there now, so two paths for one file that were not told apart before are told
+        // apart here (a link, for example). The header stays; the script is not written over it.
+        if (has_cpp && SameFile(cpp_output, gdscript_output)) {
+            return UsageError(err, "--cpp and --gdscript are the same file (" + cpp_output +
+                                       "), and the script would overwrite the header");
+        }
         return WriteIfChanged(gdscript_output, gdscript_text, out, err);
     }
     return kOk;

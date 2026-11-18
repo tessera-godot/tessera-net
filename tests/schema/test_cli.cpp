@@ -471,6 +471,13 @@ TESSERA_TEST(generate_refuses_outputs_that_are_the_same_file) {
     TESSERA_CHECK(twice_indirect.code == 2 && Has(twice_indirect.err, "the same file"));
     TESSERA_CHECK(Has(twice.err, "shared.out"));
     TESSERA_CHECK(!fs::exists(dir.Path() / "a" / "shared.out"));
+#ifdef _WIN32
+    // Windows does not tell Out.gd from out.gd: they are one file.
+    const Outcome by_case =
+        Call({"generate", "--cpp", dir.File("a/Case.out"), "--gdscript", dir.File("a/case.out"), in});
+    TESSERA_CHECK(by_case.code == 2 && Has(by_case.err, "the same file"));
+    TESSERA_CHECK(!fs::exists(dir.Path() / "a" / "Case.out"));
+#endif
     TESSERA_CHECK(ReadAll(in) == original);
 }
 
@@ -540,4 +547,21 @@ TESSERA_TEST(gdscript_hash_is_the_hash_the_tool_prints) {
     // The hash of the example is positive as an int64, and the one of the file with every kind is negative.
     TESSERA_CHECK(Has(ReadAll(dir.File("example.json.gd")), "const HASH: int = 339718250426401488\n"));
     TESSERA_CHECK(Has(ReadAll(dir.File("all_kinds.json.gd")), "const HASH: int = -"));
+}
+
+TESSERA_TEST(generate_refuses_an_option_given_twice) {
+    TempDir dir;
+    const std::vector<std::vector<std::string>> twice = {
+        {"generate", "--gdscript", dir.File("a.gd"), "--gdscript", dir.File("b.gd"), ExampleFile()},
+        {"generate", "--cpp", dir.File("a.hpp"), "--cpp", dir.File("b.hpp"), ExampleFile()},
+        {"generate", "--cpp", dir.File("a.hpp"), "--namespace", "a", "--namespace", "b", ExampleFile()},
+        {"generate", "--gdscript", dir.File("a.gd"), "--gdscript-class", "A", "--gdscript-class", "B",
+         ExampleFile()},
+    };
+    for (const std::vector<std::string>& args : twice) {
+        const Outcome result = Call(args);
+        TESSERA_CHECK(result.code == 2 && result.out.empty());
+        TESSERA_CHECK(Has(result.err, "given twice"));
+    }
+    TESSERA_CHECK(!fs::exists(dir.Path() / "a.gd") && !fs::exists(dir.Path() / "a.hpp"));
 }
