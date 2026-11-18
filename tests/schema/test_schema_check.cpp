@@ -213,6 +213,26 @@ TESSERA_TEST(check_points_at_the_first_property_the_core_refuses) {
     }
 }
 
+TESSERA_TEST(check_points_at_a_property_that_is_bad_by_itself_before_the_word_limit) {
+    // 20 flags are too many (2 words each, the limit is 32), and the 19th is also a mask of 65 bits. The property that is
+    // wrong on its own is the one to show: the limit of words only matters once the properties are right.
+    std::vector<PropertyDecl> properties;
+    for (int i = 0; i < 20; ++i) {
+        properties.push_back(i == 18 ? Mask("wide", 65) : Prop("f" + std::to_string(i), Kind::Flag));
+    }
+    const CheckResult result = Check(OneTypeFile(properties));
+    TESSERA_CHECK(result.schema == nullptr && result.diagnostics.size() == 1);
+    if (!result.diagnostics.empty()) {
+        TESSERA_CHECK(result.diagnostics[0].position.line == 10 + 18);
+        TESSERA_CHECK(Has(result.diagnostics[0].fix, "from 1 to 64"));
+    }
+    // Without the bad one, the word limit is the problem, and it is the 17th that passes it.
+    properties[18] = Prop("f18", Kind::Flag);
+    const CheckResult limit = Check(OneTypeFile(properties));
+    TESSERA_CHECK(limit.diagnostics.size() == 1 && limit.diagnostics[0].position.line == 10 + 16);
+    TESSERA_CHECK(!limit.diagnostics.empty() && Has(limit.diagnostics[0].fix, "at most 32 words"));
+}
+
 TESSERA_TEST(check_refuses_what_add_type_refuses_boundaries) {
     // Each limit is accepted on one side and refused on the other, and the text of the correction names the
     // limit that was just seen.

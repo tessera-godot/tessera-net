@@ -62,36 +62,41 @@ std::vector<net::PropertyDescriptor> Descriptors(const TypeDecl& type, size_t co
     return descriptors;
 }
 
-// The place and the correction for a type the replication code refused. It is found without reading the
-// message: the first number of properties that is refused points at the property that made it so.
+// The place and the correction for a type the replication code refused, found without reading the message. A property that
+// the replication code refuses on its own comes first (the first of them). Only when every property is fine by itself is the
+// problem how they add up (too many words, too many properties), and then the first number of properties that is refused
+// points at the property that makes it so.
 Diagnostic Explain(const TypeDecl& type, const std::string& core_message) {
     const std::string prefix = "type " + Quoted(type.name) + " (" + std::to_string(type.type) + "): ";
     Diagnostic diagnostic{type.where.position, prefix + core_message, {}};
+    if (type.properties.empty()) {
+        diagnostic.fix = "add at least one property to the type";
+        return diagnostic;
+    }
+    for (const PropertyDecl& property : type.properties) {
+        net::ReplicationSchema alone;
+        if (!alone.AddType(type.type, {MakeDescriptor(property)})) {
+            diagnostic.position = property.where.position;
+            diagnostic.fix = FixForProperty(property);
+            return diagnostic;
+        }
+    }
     for (size_t k = 1; k <= type.properties.size(); ++k) {
         net::ReplicationSchema probe;
         if (probe.AddType(type.type, Descriptors(type, k))) {
             continue;
         }
-        const PropertyDecl& culprit = type.properties[k - 1];
-        diagnostic.position = culprit.where.position;
-        net::ReplicationSchema alone;
-        if (!alone.AddType(type.type, {MakeDescriptor(culprit)})) {
-            diagnostic.fix = FixForProperty(culprit);
-        } else if (k > net::ReplicationSchema::kMaxPropertiesPerType) {
-            diagnostic.fix = "a type has at most " +
-                             std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
+        diagnostic.position = type.properties[k - 1].where.position;
+        if (k > net::ReplicationSchema::kMaxPropertiesPerType) {
+            diagnostic.fix = "a type has at most " + std::to_string(net::ReplicationSchema::kMaxPropertiesPerType) +
                              " properties; remove this one";
         } else {
-            diagnostic.fix =
-                "the replicated state of a type takes at most " +
-                std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
-                " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
-                "or shrink a property";
+            diagnostic.fix = "the replicated state of a type takes at most " +
+                             std::to_string(net::ReplicationSchema::kMaxWordsPerEntity) +
+                             " words (a position takes 3, an integer or a mask 2, an angle or a choice 1); remove "
+                             "or shrink a property";
         }
         break;
-    }
-    if (type.properties.empty()) {
-        diagnostic.fix = "add at least one property to the type";
     }
     return diagnostic;
 }
