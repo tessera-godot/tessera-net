@@ -7,7 +7,6 @@
 #include "tessera/schema/schema_check.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <span>
 #include <sstream>
 #include <string>
@@ -93,10 +92,7 @@ TESSERA_TEST(output_has_no_date_path_or_user_name) {
     TESSERA_CHECK(!Has(text, "tessera_schema_test_"));
     // No date or time, and not the year it was made in.
     TESSERA_CHECK(!Has(text, "__DATE__") && !Has(text, "__TIME__"));
-    const auto year = static_cast<int>(
-        std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())}
-            .year());
-    TESSERA_CHECK(!Has(text, std::to_string(year)));
+    TESSERA_CHECK(!schema_test::HasDateOrTime(text));
     TESSERA_CHECK(!Has(text, "UTC") && !Has(text, "Generated on") && !Has(text, "Generated at"));
 }
 

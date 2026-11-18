@@ -6,7 +6,6 @@
 #include "tessera/schema/schema_check.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -383,11 +382,12 @@ TESSERA_TEST(gd_output_has_no_date_path_or_user_name) {
     TESSERA_CHECK(!Has(text, "schemas/"));
     TESSERA_CHECK(!Has(text, "tessera_schema_test_"));
     TESSERA_CHECK(!Has(text, "__DATE__") && !Has(text, "__TIME__"));
-    const auto year = static_cast<int>(
-        std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())}
-            .year());
-    TESSERA_CHECK(!Has(text, std::to_string(year)));
+    TESSERA_CHECK(!schema_test::HasDateOrTime(text));
     TESSERA_CHECK(!Has(text, "UTC") && !Has(text, "Generated on") && !Has(text, "Generated at"));
+    // The check itself: it sees a date and a time, and not the digits of a big number.
+    TESSERA_CHECK(schema_test::HasDateOrTime("made 2036-11-18") && schema_test::HasDateOrTime("at 12:34:56"));
+    TESSERA_CHECK(!schema_test::HasDateOrTime(
+        "const HASH: int = 9223372036854775807 and 2036 and -3382204074482803244"));
 }
 
 TESSERA_TEST(gd_output_is_the_same_for_an_input_with_crlf_and_a_bom) {

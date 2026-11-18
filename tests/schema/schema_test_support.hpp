@@ -101,6 +101,35 @@ inline std::string ReadAll(const std::string& path) {
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
+/// True when `text` has something that looks like a date or a time of day (`2026-11-18`, `12:34:56`), or says
+/// so
+/// (`__DATE__`, `__TIME__`, `UTC`). The year alone is not looked for: a number such as 9223372036854775807
+/// has four digits that are a year, and the test would fail by itself in the year they make.
+inline bool HasDateOrTime(const std::string& text) {
+    const auto digits = [&](size_t at, size_t count) {
+        if (at + count > text.size()) {
+            return false;
+        }
+        for (size_t i = at; i < at + count; ++i) {
+            if (text[i] < '0' || text[i] > '9') {
+                return false;
+            }
+        }
+        return true;
+    };
+    for (size_t i = 0; i < text.size(); ++i) {
+        const bool date = digits(i, 4) && i + 10 <= text.size() && text[i + 4] == '-' && digits(i + 5, 2) &&
+                          text[i + 7] == '-' && digits(i + 8, 2);
+        const bool time = digits(i, 2) && i + 8 <= text.size() && text[i + 2] == ':' && digits(i + 3, 2) &&
+                          text[i + 5] == ':' && digits(i + 6, 2);
+        if (date || time) {
+            return true;
+        }
+    }
+    return text.find("__DATE__") != std::string::npos || text.find("__TIME__") != std::string::npos ||
+           text.find("UTC") != std::string::npos;
+}
+
 inline bool Has(const std::string& text, const std::string& part) {
     return text.find(part) != std::string::npos;
 }
