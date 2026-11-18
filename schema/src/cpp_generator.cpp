@@ -297,7 +297,13 @@ std::string GenerateCpp(const SchemaFile& file, uint64_t hash, const CppOptions&
         chain += (i == 0 ? "    return " : " &&\n           ") + GeneratedNames::AddFunction(types[i]->name) +
                  "(schema, error)";
     }
-    w.Line(chain + ";");
+    if (types.empty()) {
+        w.Line("    (void)schema;");
+        w.Line("    (void)error;");
+        w.Line("    return true;");
+    } else {
+        w.Line(chain + ";");
+    }
     w.Line("}");
     w.Line();
     w.Line("} // namespace " + options.ns);
