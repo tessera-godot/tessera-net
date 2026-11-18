@@ -155,7 +155,7 @@ TESSERA_TEST(check_says_how_many_problems_it_does_not_show) {
     for (const char c : result.err) {
         lines += c == '\n' ? 1 : 0;
     }
-    TESSERA_CHECK(lines == 22); // 20 problems, the correction of the first, and the last line
+    TESSERA_CHECK(lines == 21); // 20 problems (none has a correction), and the last line
 }
 
 TESSERA_TEST(check_returns_1_and_prints_nothing_on_stdout_for_a_bad_schema) {
