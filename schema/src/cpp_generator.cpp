@@ -5,6 +5,7 @@
 #include "tessera/schema/names.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -206,14 +207,10 @@ bool IsValidNamespace(std::string_view name, std::string* why) {
 }
 
 std::string FormatFloat(float value) {
+    // std::to_chars gives the shortest text that reads back as the same float, and it never looks at the locale.
     char buffer[64];
-    for (int digits = 1; digits <= 9; ++digits) {
-        std::snprintf(buffer, sizeof buffer, "%.*g", digits, static_cast<double>(value));
-        if (std::strtof(buffer, nullptr) == value) {
-            break;
-        }
-    }
-    std::string text = buffer;
+    const auto result = std::to_chars(buffer, buffer + sizeof buffer, value);
+    std::string text(buffer, result.ptr);
     if (text.find_first_of(".eEn") == std::string::npos) { // no point, exponent, or inf and nan
         text += ".0";
     }

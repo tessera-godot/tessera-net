@@ -5,6 +5,7 @@
 #include "tessera/schema/schema_check.hpp"
 
 #include <cfloat>
+#include <clocale>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -225,6 +226,31 @@ TESSERA_TEST(cpp_float_literals_round_trip) {
     for (const float value : {1.0f, 100.0f, 1e10f, 0.0f}) {
         const std::string text = FormatFloat(value);
         TESSERA_CHECK(text.find_first_of(".e") != std::string::npos);
+    }
+}
+
+TESSERA_TEST(cpp_float_literals_do_not_depend_on_the_locale) {
+    // A locale whose decimal separator is a comma, if the system has one; the text must still have a point.
+    const std::string before = std::setlocale(LC_ALL, nullptr);
+    bool tried_one = false;
+    for (const char* name : {"de_DE.UTF-8", "de_DE.utf8", "de_DE", "German_Germany.1252", "de-DE", "fr_FR.UTF-8", "pt_BR.UTF-8"}) {
+        if (std::setlocale(LC_ALL, name) == nullptr) {
+            continue;
+        }
+        if (std::string(std::localeconv()->decimal_point) != ".") {
+            tried_one = true;
+            TESSERA_CHECK(FormatFloat(0.01f) == "0.01f");
+            TESSERA_CHECK(FormatFloat(2048.5f) == "2048.5f");
+            TESSERA_CHECK(FormatFloat(1e-30f) == "1e-30f");
+            const Generated g = GenerateFixture("all_kinds.json");
+            TESSERA_CHECK(Has(g.text, "kAllKindsPositionStep = 0.01f;"));
+            break;
+        }
+    }
+    std::setlocale(LC_ALL, before.c_str());
+    if (!tried_one) {
+        std::printf("    (no locale with a decimal comma on this system: the test only checked the default one)\n");
+        TESSERA_CHECK(FormatFloat(0.01f) == "0.01f");
     }
 }
 
