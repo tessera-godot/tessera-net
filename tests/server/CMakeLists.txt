@@ -2,7 +2,7 @@
 file(GLOB SERVER_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_server_*.cpp)
 add_executable(tessera_server_tests ${SERVER_TEST_SOURCES} server_test_guard.cpp
                ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
-target_link_libraries(tessera_server_tests PRIVATE tessera_server)
+target_link_libraries(tessera_server_tests PRIVATE tessera_server tessera_example_schema)
 target_include_directories(tessera_server_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests
                                                        ${PROJECT_SOURCE_DIR}/server/example)
 
@@ -20,7 +20,7 @@ if(TESSERA_BUILD_ENET)
                    test_enet_reconnection.cpp
                    ${PROJECT_SOURCE_DIR}/server/example/stop_signals.cpp server_test_guard.cpp
                    ${PROJECT_SOURCE_DIR}/tests/test_main.cpp)
-    target_link_libraries(tessera_server_enet_tests PRIVATE tessera_server tessera_net_enet)
+    target_link_libraries(tessera_server_enet_tests PRIVATE tessera_server tessera_net_enet tessera_example_schema)
     target_include_directories(tessera_server_enet_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests
                                                                  ${PROJECT_SOURCE_DIR}/server/example)
     if(MSVC)

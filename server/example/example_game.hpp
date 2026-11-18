@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // A small game for the example server: entities that walk around a square and bounce off its edges. Copy it
 // as the starting point for your own game. What it shows:
-//   - `DescribeWorld`: which properties are replicated, and who can see what;
+//   - the schema: which properties each entity type replicates is written once, in example_schema.json, and the
+//     columns and the functions that register the types are generated from it while the project is built;
+//   - `DescribeWorld`: who can see what;
 //   - `OnStart`: making the tables and the first entities, with the shard id in every id;
 //   - `OnTick`: moving the entities, telling the grid, and handing the changes to the replication layer;
 //   - with `players` on, `OnPlayerConnected` and `OnPlayerDisconnected`: one entity for each player, and an
@@ -10,6 +12,7 @@
 //     they are checked and cut to the range the game allows before they move anything.
 #pragma once
 
+#include "example_schema.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/replication/property_schema.hpp"
 #include "tessera/net/spatial_grid.hpp"
@@ -22,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,9 +39,9 @@ public:
     /// Meters per second along each ground axis.
     static constexpr float kMaxSpeed = 5.0f;
     /// Positions are sent in steps of a centimeter...
-    static constexpr float kPositionStep = 0.01f;
+    static constexpr float kPositionStep = schema::kEntityPositionStep;
     /// ...within this distance of the origin.
-    static constexpr float kPositionRange = 2048.0f;
+    static constexpr float kPositionRange = schema::kEntityPositionRange;
 
     /// Meters per second a player moves at full input.
     static constexpr float kPlayerSpeed = 8.0f;
@@ -46,23 +50,15 @@ public:
     /// A player that has sent no input for this long stands still.
     static constexpr float kPlayerInputTimeoutSeconds = 0.5f;
     /// The entity type of the players.
-    static constexpr uint32_t kPlayerType = 2;
+    static constexpr uint32_t kPlayerType = schema::kPlayerType;
 
     /// `walking` false keeps the entities where they start, which makes the state easy to check. `players`
     /// true makes one more entity for each connected player and moves it with the input the player sends.
     explicit ExampleGame(uint32_t entity_count = 100, bool walking = true, bool players = false)
         : entity_count_(entity_count), walking_(walking), players_(players) {
-        schema_.AddType(kEntityType, {net::PropertyDescriptor::Position(
-                                         TESSERA_COLUMN(Columns, x), TESSERA_COLUMN(Columns, y),
-                                         TESSERA_COLUMN(Columns, z), kPositionStep, kPositionRange)});
-        if (players_) {
-            // The player's position, and which connection it belongs to (a connection id fits 16 bits).
-            schema_.AddType(
-                kPlayerType,
-                {net::PropertyDescriptor::Position(
-                     TESSERA_COLUMN(PlayerColumns, x), TESSERA_COLUMN(PlayerColumns, y),
-                     TESSERA_COLUMN(PlayerColumns, z), kPositionStep, kPositionRange),
-                 net::PropertyDescriptor::Integer(TESSERA_COLUMN(PlayerColumns, owner), false, 0, 65535)});
+        std::string error;
+        if (!schema::AddEntityType(schema_, &error) || (players_ && !schema::AddPlayerType(schema_, &error))) {
+            throw std::logic_error("example game: the schema does not build: " + error);
         }
     }
 
@@ -91,7 +87,7 @@ public:
     void OnStart(ServerContext& context) override {
         context_ = &context;
         // The shard id of the server goes into the id of every entity this table makes.
-        table_ = std::make_unique<net::EntityTable<Columns>>(net::TableConfig{context.shard_id, kEntityType});
+        table_ = schema::MakeEntityTable(context.shard_id);
         ids_.reserve(entity_count_);
         where_.reserve(entity_count_);
         for (uint32_t i = 0; i < entity_count_; ++i) {
@@ -99,9 +95,9 @@ public:
             const auto found = table_->Find(id);
             Columns& columns = table_->Columns(found->page);
             const auto [x, z] = InitialPosition(i);
-            columns.x[found->slot] = x;
-            columns.y[found->slot] = 0.0f;
-            columns.z[found->slot] = z;
+            columns.position_x[found->slot] = x;
+            columns.position_y[found->slot] = 0.0f;
+            columns.position_z[found->slot] = z;
             table_->MarkDirty(id);
             context.grid.Insert(id, x, 0.0f, z);
             context.replication.Relevancy().OnEntityCreated(id);
@@ -111,8 +107,7 @@ public:
             speed_z_.push_back((Unit(i, 3) * 2.0f - 1.0f) * kMaxSpeed);
         }
         if (players_) {
-            player_table_ = std::make_unique<net::EntityTable<PlayerColumns>>(
-                net::TableConfig{context.shard_id, kPlayerType});
+            player_table_ = schema::MakePlayerTable(context.shard_id);
             // An input that stops arriving stops the player after this many ticks.
             idle_limit_ticks_ = static_cast<uint32_t>(
                 std::ceil(static_cast<double>(kPlayerInputTimeoutSeconds) * context.tick_rate_hz));
@@ -147,9 +142,9 @@ public:
         const auto found = player_table_->Find(id);
         const auto [x, z] = PlayerSpawn(player);
         PlayerColumns& columns = player_table_->Columns(found->page);
-        columns.x[found->slot] = x;
-        columns.y[found->slot] = 0.0f;
-        columns.z[found->slot] = z;
+        columns.position_x[found->slot] = x;
+        columns.position_y[found->slot] = 0.0f;
+        columns.position_z[found->slot] = z;
         columns.owner[found->slot] = static_cast<uint16_t>(player);
         player_table_->MarkDirty(id);
         context_->grid.Insert(id, x, 0.0f, z);
@@ -212,20 +207,10 @@ public:
     }
 
 private:
-    static constexpr uint32_t kEntityType = 1;
+    static constexpr uint32_t kEntityType = schema::kEntityType;
 
-    struct Columns {
-        float x[net::kPageSlots];
-        float y[net::kPageSlots];
-        float z[net::kPageSlots];
-    };
-
-    struct PlayerColumns {
-        float x[net::kPageSlots];
-        float y[net::kPageSlots];
-        float z[net::kPageSlots];
-        uint16_t owner[net::kPageSlots];
-    };
+    using Columns = schema::EntityColumns;
+    using PlayerColumns = schema::PlayerColumns;
 
     struct Player {
         net::EntityId entity;
@@ -275,8 +260,8 @@ private:
             player.x = std::clamp(player.x + dx * kPlayerSpeed * dt, 0.0f, kWorldSide);
             player.z = std::clamp(player.z + dz * kPlayerSpeed * dt, 0.0f, kWorldSide);
             PlayerColumns& columns = player_table_->Columns(player.where.page);
-            columns.x[player.where.slot] = player.x;
-            columns.z[player.where.slot] = player.z;
+            columns.position_x[player.where.slot] = player.x;
+            columns.position_z[player.where.slot] = player.z;
             player_table_->MarkDirty(player.entity);
             player_moves_.push_back(net::PendingMove{player.entity, player.x, 0.0f, player.z});
             moved_players_.push_back(id);
@@ -293,8 +278,8 @@ private:
         moves_.clear();
         for (size_t i = 0; i < ids_.size(); ++i) {
             Columns& columns = table_->Columns(where_[i].page);
-            float x = columns.x[where_[i].slot] + speed_x_[i] * dt;
-            float z = columns.z[where_[i].slot] + speed_z_[i] * dt;
+            float x = columns.position_x[where_[i].slot] + speed_x_[i] * dt;
+            float z = columns.position_z[where_[i].slot] + speed_z_[i] * dt;
             if (x < 0.0f || x > kWorldSide) {
                 speed_x_[i] = -speed_x_[i];
                 x = std::clamp(x, 0.0f, kWorldSide);
@@ -303,8 +288,8 @@ private:
                 speed_z_[i] = -speed_z_[i];
                 z = std::clamp(z, 0.0f, kWorldSide);
             }
-            columns.x[where_[i].slot] = x;
-            columns.z[where_[i].slot] = z;
+            columns.position_x[where_[i].slot] = x;
+            columns.position_z[where_[i].slot] = z;
             table_->MarkDirty(ids_[i]);
             moves_.push_back(net::PendingMove{ids_[i], x, 0.0f, z});
         }

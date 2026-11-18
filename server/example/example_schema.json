@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "types": [
+    {
+      "type": 1,
+      "name": "entity",
+      "note": "The entities that walk around the world.",
+      "properties": [
+        {"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}
+      ]
+    },
+    {
+      "type": 2,
+      "name": "player",
+      "note": "One for each connected player, with the connection that owns it.",
+      "properties": [
+        {"name": "position", "kind": "position", "step": 0.01, "range": 2048.0},
+        {"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false}
+      ]
+    }
+  ]
+}

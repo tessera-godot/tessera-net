@@ -2,6 +2,7 @@
 // The schema of the example game: its fingerprint is pinned, and a copy of how it used to be written by hand is
 // kept here to compare the real one with.
 #include "example_game.hpp"
+#include "example_schema.hpp"
 #include "tessera/net/entity_table.hpp"
 #include "tessera/net/replication/property_schema.hpp"
 #include "test_support.hpp"
@@ -12,6 +13,7 @@
 
 using namespace tessera::net;
 using tessera::server::example::ExampleGame;
+namespace generated = tessera::server::example::schema;
 
 namespace {
 
@@ -66,6 +68,12 @@ bool SameType(const TypeSchema* a, const TypeSchema* b) {
     return true;
 }
 
+// Compares two values in a way that is not a constant expression, so that a check of two constants does not draw a
+// warning.
+template <class A, class B> bool Same(const A& a, const B& b) {
+    return a == b;
+}
+
 } // namespace
 
 TESSERA_TEST(example_schema_hash_without_players_is_pinned) {
@@ -89,4 +97,35 @@ TESSERA_TEST(example_schema_matches_the_hand_written_one) {
         TESSERA_CHECK(SameType(actual->Find(2), expected.Find(2)));
         TESSERA_CHECK((actual->Find(2) != nullptr) == players);
     }
+}
+
+// What the example now gets from its schema file (server/example/example_schema.json).
+TESSERA_TEST(generated_example_schema_hash_is_the_file_hash) {
+    TESSERA_CHECK(Same(generated::kSchemaHash, 339718250426401488ull));
+    TESSERA_CHECK(Same(generated::kSchemaHash, HandWrittenSchema(true).Hash()));
+    TESSERA_CHECK(!Same(generated::kSchemaHash, HandWrittenSchema(false).Hash()));
+    // Only the entity type has the hash the example had before it had players.
+    ReplicationSchema only_entity;
+    TESSERA_CHECK(generated::AddEntityType(only_entity));
+    TESSERA_CHECK(only_entity.Hash() == 1615724867110258213ull);
+}
+
+TESSERA_TEST(generated_type_numbers_are_the_ones_the_example_uses) {
+    TESSERA_CHECK(Same(generated::kEntityType, 1u));
+    TESSERA_CHECK(Same(generated::kPlayerType, 2u));
+    TESSERA_CHECK(Same(generated::kPlayerType, ExampleGame::kPlayerType));
+    TESSERA_CHECK(Same(generated::kPlayerOwnerMin, int64_t{0}));
+    TESSERA_CHECK(Same(generated::kPlayerOwnerMax, int64_t{65535}));
+    TESSERA_CHECK(Same(generated::kEntityPositionStep, ExampleGame::kPositionStep));
+    TESSERA_CHECK(Same(generated::kEntityPositionRange, ExampleGame::kPositionRange));
+    TESSERA_CHECK(Same(generated::kPlayerPositionStep, ExampleGame::kPositionStep));
+}
+
+TESSERA_TEST(generated_tables_carry_shard_and_type) {
+    const auto players = generated::MakePlayerTable(3);
+    const EntityId player = players->Create();
+    TESSERA_CHECK(!player.IsNull() && player.shard() == 3 && player.type() == 2);
+    const auto entities = generated::MakeEntityTable(9);
+    const EntityId entity = entities->Create();
+    TESSERA_CHECK(!entity.IsNull() && entity.shard() == 9 && entity.type() == 1);
 }
