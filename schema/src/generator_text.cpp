@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 
 namespace tessera::schema {
@@ -43,15 +44,40 @@ std::vector<const TypeDecl*> TypesInOrder(const SchemaFile& file) {
 }
 
 std::string FloatText(float value) {
-    // std::to_chars gives the shortest text that reads back as the same float, and it never looks at the
+    // The digits come from std::to_chars in its scientific form: the shortest digits that read back as the
+    // same float, the same ones in every standard library. (The plain form would not do: for a whole number
+    // some libraries write every digit of its exact value, and others write the short digits and then zeros.)
+    // The layout is made here, so that the text is the same on every system, and it does not look at the
     // locale.
     char buffer[64];
-    const auto result = std::to_chars(buffer, buffer + sizeof buffer, value);
-    std::string text(buffer, result.ptr);
-    if (text.find_first_of(".eEn") == std::string::npos) { // no point, exponent, or inf and nan
-        text += ".0";
+    const auto result = std::to_chars(buffer, buffer + sizeof buffer, value, std::chars_format::scientific);
+    std::string scientific(buffer, result.ptr);
+    if (scientific.find_first_of("in") != std::string::npos) { // inf and nan
+        return scientific;
     }
-    return text;
+    const bool negative = scientific.front() == '-';
+    const size_t e = scientific.find('e');
+    std::string digits;
+    for (size_t i = negative ? 1 : 0; i < e; ++i) {
+        if (scientific[i] != '.') {
+            digits += scientific[i];
+        }
+    }
+    const int exponent = std::atoi(scientific.c_str() + e + 1);
+    // Close to one, the number is written out; very big and very small numbers keep the exponent.
+    if (exponent < -4 || exponent >= 15) {
+        return scientific;
+    }
+    std::string text;
+    if (exponent < 0) {
+        text = "0." + std::string(static_cast<size_t>(-exponent - 1), '0') + digits;
+    } else if (digits.size() <= static_cast<size_t>(exponent) + 1) {
+        text = digits + std::string(static_cast<size_t>(exponent) + 1 - digits.size(), '0') + ".0";
+    } else {
+        text = digits.substr(0, static_cast<size_t>(exponent) + 1) + "." +
+               digits.substr(static_cast<size_t>(exponent) + 1);
+    }
+    return negative ? "-" + text : text;
 }
 
 } // namespace tessera::schema
