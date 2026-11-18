@@ -139,6 +139,25 @@ TESSERA_TEST(check_prints_every_diagnostic_with_file_line_column_and_fix) {
     }
 }
 
+TESSERA_TEST(check_says_how_many_problems_it_does_not_show) {
+    TempDir dir;
+    std::string property = R"({"name": "p", "kind": "flag")";
+    for (int i = 0; i < 24; ++i) {
+        property += ", \"extra" + std::to_string(i) + "_key\": 1";
+    }
+    const std::string text =
+        R"({"format_version": 1, "types": [{"type": 1, "name": "t", "properties": [)" + property + "}]}]}";
+    const std::string path = dir.Write("many.json", text);
+    const Outcome result = Call({"check", path});
+    TESSERA_CHECK(result.code == 1);
+    TESSERA_CHECK(Has(result.err, path + ": and 4 more problems are not shown\n"));
+    size_t lines = 0;
+    for (const char c : result.err) {
+        lines += c == '\n' ? 1 : 0;
+    }
+    TESSERA_CHECK(lines == 22); // 20 problems, the correction of the first, and the last line
+}
+
 TESSERA_TEST(check_returns_1_and_prints_nothing_on_stdout_for_a_bad_schema) {
     TempDir dir;
     const Outcome broken = Call({"check", dir.Write("broken.json", "{\"format_version\": 1,}")});

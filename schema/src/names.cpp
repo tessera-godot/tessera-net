@@ -86,7 +86,7 @@ bool HasValidShape(std::string_view name) {
 }
 
 std::string Quoted(std::string_view text) {
-    return "\"" + std::string(text) + "\"";
+    return "\"" + EchoText(text) + "\"";
 }
 
 } // namespace

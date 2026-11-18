@@ -108,7 +108,7 @@ bool IsNumberKey(unsigned bit) {
 }
 
 std::string Quoted(std::string_view text) {
-    return "\"" + std::string(text) + "\"";
+    return "\"" + EchoText(text) + "\"";
 }
 
 class Reader {
@@ -156,9 +156,7 @@ public:
 
 private:
     void Add(json::Position position, std::string message, std::string fix = {}) {
-        if (diagnostics_.size() < kMaxDiagnostics) {
-            diagnostics_.push_back(Diagnostic{position, std::move(message), std::move(fix)});
-        }
+        diagnostics_.push_back(Diagnostic{position, std::move(message), std::move(fix)});
     }
 
     void ReadFormatVersion(const json::Value& value, SchemaFile& file) {
@@ -526,6 +524,26 @@ private:
 
 } // namespace
 
+std::string EchoText(std::string_view text) {
+    constexpr size_t kShown = 40;
+    std::string shown;
+    for (size_t i = 0; i < text.size() && i < kShown; ++i) {
+        const auto byte = static_cast<unsigned char>(text[i]);
+        if (byte >= 0x20 && byte < 0x7F) {
+            shown += text[i];
+        } else {
+            static const char kDigits[] = "0123456789ABCDEF";
+            shown += "\\x";
+            shown += kDigits[byte >> 4];
+            shown += kDigits[byte & 15];
+        }
+    }
+    if (text.size() > kShown) {
+        shown += "...";
+    }
+    return shown;
+}
+
 std::string_view KindName(Kind kind) {
     for (const KindKeys& known : kKindKeys) {
         if (known.kind == kind) {
@@ -551,6 +569,14 @@ ReadResult ReadSchema(std::string_view text) {
     if (result.diagnostics.empty()) {
         // Names that are good one by one can still make the same C++ name together.
         result.diagnostics = FindCollisions(file);
+    }
+    // The problems are put in the order of the file first, and only then cut, so that the ones kept are the first ones.
+    std::stable_sort(result.diagnostics.begin(), result.diagnostics.end(), [](const Diagnostic& a, const Diagnostic& b) {
+        return a.position.line != b.position.line ? a.position.line < b.position.line : a.position.column < b.position.column;
+    });
+    if (result.diagnostics.size() > kMaxDiagnostics) {
+        result.omitted = result.diagnostics.size() - kMaxDiagnostics;
+        result.diagnostics.resize(kMaxDiagnostics);
     }
     if (result.diagnostics.empty()) {
         result.file = std::move(file);

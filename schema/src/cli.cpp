@@ -99,6 +99,10 @@ int Load(const std::string& path, std::optional<Loaded>& loaded, std::ostream& e
         for (const Diagnostic& diagnostic : read.diagnostics) {
             err << Format(path, diagnostic) << "\n";
         }
+        if (read.omitted > 0) {
+            err << path << ": and " << read.omitted << " more problem" << (read.omitted == 1 ? " is" : "s are")
+                << " not shown\n";
+        }
         return kBadFile;
     }
     CheckResult check = Check(*read.file);

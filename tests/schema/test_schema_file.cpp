@@ -7,6 +7,7 @@
 using namespace tessera::schema;
 using schema_test::At;
 using schema_test::ExpectDiagnostic;
+using schema_test::Has;
 using schema_test::OneType;
 
 namespace {
@@ -315,4 +316,43 @@ TESSERA_TEST(file_collects_several_problems_in_one_pass) {
     }
     many += "]}]}";
     TESSERA_CHECK(ReadSchema(many).diagnostics.size() == kMaxDiagnostics);
+}
+
+TESSERA_TEST(file_orders_problems_before_it_cuts_the_list_and_says_how_many_were_left_out) {
+    // The property is wrong in many places after the missing key, which is reported at the start of the property: that one
+    // comes first in the file, so it is one of the 20 shown, whatever order the reading found them in.
+    std::string property = "{\"name\": \"p\", \"kind\": \"position\", \"step\": 1";
+    for (int i = 0; i < 30; ++i) {
+        property += ", \"extra" + std::to_string(i) + "_key\": 1";
+    }
+    property += "}";
+    const std::string text = OneType(property);
+    const ReadResult r = ReadSchema(text);
+    TESSERA_CHECK(!r.file && r.diagnostics.size() == kMaxDiagnostics);
+    TESSERA_CHECK(r.omitted == 11); // 1 missing key + 30 unknown ones = 31, of which 20 are shown
+    ExpectDiagnostic(r.diagnostics, 0, At(text, "{\"name\": \"p\""), "needs the key \"range\"", "");
+    // The counts are in the text the tool prints.
+    TESSERA_CHECK(ReadSchema("{\"format_version\": 1, \"types\": []}").omitted == 0);
+}
+
+TESSERA_TEST(file_messages_that_repeat_the_file_are_short_and_have_no_control_bytes) {
+    const std::string long_key(500, 'k');
+    const std::string text = OneType("{\"name\": \"p\", \"kind\": \"flag\", \"" + long_key + "\": 1, \"a\\u0001b\\u00e9\": 2}");
+    const ReadResult r = ReadSchema(text);
+    TESSERA_CHECK(r.diagnostics.size() == 2);
+    for (const Diagnostic& d : r.diagnostics) {
+        TESSERA_CHECK(d.message.size() < 120);
+        for (const char c : d.message + d.fix) {
+            TESSERA_CHECK(static_cast<unsigned char>(c) >= 0x20 && static_cast<unsigned char>(c) < 0x7F);
+        }
+    }
+    TESSERA_CHECK(r.diagnostics.size() == 2 && Has(r.diagnostics[0].message, "kkkk...") && !Has(r.diagnostics[0].message, std::string(100, 'k')));
+    TESSERA_CHECK(r.diagnostics.size() == 2 && Has(r.diagnostics[1].message, "\\x01"));
+    // A name with a control byte in it, from the check of names.
+    const std::string name_text = OneType("{\"name\": \"bad\\u0002name\", \"kind\": \"flag\"}");
+    const ReadResult n = ReadSchema(name_text);
+    TESSERA_CHECK(n.diagnostics.size() == 1);
+    for (const char c : n.diagnostics[0].message) {
+        TESSERA_CHECK(static_cast<unsigned char>(c) >= 0x20 && static_cast<unsigned char>(c) < 0x7F);
+    }
 }
