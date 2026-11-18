@@ -305,6 +305,13 @@ private:
         const std::string& text = value.AsString();
         for (const char c : text) {
             const auto byte = static_cast<unsigned char>(c);
+            if (c == '\\') {
+                Add(value.position,
+                    "a note cannot hold a backslash: at the end of a line it would join the next line of the generated code "
+                    "to the comment",
+                    "remove the backslash");
+                return;
+            }
             if (byte < 0x20 || byte > 0x7E) {
                 Add(value.position,
                     "a note can only hold plain ASCII text on one line (letters, digits, punctuation and "

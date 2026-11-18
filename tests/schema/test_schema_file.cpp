@@ -276,6 +276,11 @@ TESSERA_TEST(file_notes_are_plain_ascii_and_bounded) {
     ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"caf"), "plain ASCII", "");
     text = with_note("two\\nlines");
     ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"two"), "plain ASCII", "");
+    // A backslash at the end of a comment joins the next line to it in C++, so it is refused wherever it is.
+    text = with_note("ends with a backslash\\\\");
+    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"ends"), "backslash", "remove");
+    text = with_note("in the \\\\middle");
+    ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"in the"), "backslash", "remove");
     text = with_note(std::string(201, 'x'));
     ExpectDiagnostic(ReadSchema(text).diagnostics, 0, At(text, "\"xxx"),
                      "at most 200 characters, and this one has 201", "shorter");

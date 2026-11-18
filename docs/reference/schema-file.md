@@ -58,7 +58,7 @@ This is the file of the example server (`server/example/example_schema.json`):
 
 A field that is not in the table, a key that belongs to another kind (`bits` on a `flag`), a key a kind needs and does not
 have, and a value of the wrong sort (text where a number goes, `1.0` where a whole number goes) are all errors. Notes are
-plain ASCII, on one line, up to 200 characters. These are the same keys and the same kind names that `add_type` takes in
+plain ASCII, on one line, up to 200 characters, with no backslash (it would join the next line of the generated code to the comment). These are the same keys and the same kind names that `add_type` takes in
 GDScript.
 
 The six kinds and the C++ column each one gets:
