@@ -1,6 +1,6 @@
 # Godot client demo
 
-A small Godot project that connects to the example server, describes its entities with a `TesseraSchema`, and draws one
+A small Godot project that connects to the example server, describes its entities with the script `example_schema.gd` (made from the server's schema file by `tessera_schema`), and draws one
 sphere for each entity it is told about. When the server has players, it also sends the keys you press, so that you move
 your own sphere, and shows the other spheres a little in the past, smoothed. Its script is [`main.gd`](main.gd), and the guide
 [Using the client in Godot](../../docs/guides/using-the-client-in-godot.md) explains each part.
@@ -27,7 +27,7 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    ./build/windows-msvc-extension-debug/server/Debug/tessera_example_server.exe --players
    ```
 
-   Without `--players` the server does not describe the player entities, so it does not match the schema in `main.gd`:
+   Without `--players` the server does not describe the player entities, so it does not match the schema in `example_schema.gd`:
    the demo is refused and the label in the corner says why.
 
 3. Let Godot read the project once. Godot only loads an extension that an import has listed, so on a folder the
@@ -37,7 +37,8 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
    godot --headless --path build/windows-msvc-extension-debug/extension/stage/demo --import
    ```
 
-   (Opening the folder in the Godot editor does the same.) With Godot 4.7.2 the very first import of a folder with a
+   (Opening the folder in the Godot editor does the same.) The import also registers the class `ExampleSchema`, the
+   name `main.gd` uses for the schema script. With Godot 4.7.2 the very first import of a folder with a
    new extension ends in a crash (exit code 134 on Linux, 139 on Windows) after the import has finished, and the second
    one finishes cleanly. It is not caused by this extension: an extension that only registers one empty class does the
    same, and one that registers no class does not. If the first import crashes, run the same command again.
@@ -54,6 +55,17 @@ Linux use the `linux-*` presets (the extension has been loaded into Godot on Win
 
 The label in the corner shows the state of the connection and how many entities the client has. If the server's
 description of the entities and the one in `main.gd` differ, the label says the connection was rejected and why.
+
+## The schema script
+
+`example_schema.gd` is generated, not written by hand: `tessera_schema` makes it from `server/example/example_schema.json`,
+the file the example server is made from too. It is kept in this folder so that the project opens in the editor as it
+is. A test of the build (`tessera_schema_demo_check`) makes it again and fails when what is kept differs, which is what
+happens after a change in the schema file. To make it again, from the root of the repository:
+
+```text
+tessera_schema generate --gdscript examples/godot-client-demo/example_schema.gd --gdscript-class ExampleSchema server/example/example_schema.json
+```
 
 ## Controls
 
@@ -105,7 +117,8 @@ To see it, start the server with `--players`, open the demo, stop the server wit
 
 ## What has been checked
 
-Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
+The script `example_schema.gd` was loaded by a headless Godot 4.7.2 on Windows and on Linux, and the hash of the schema
+it builds was the one written in it and the one the example server expects. Run in a headless Godot (no window), the demo project loads, connects to the example server and runs without a script
 error, with the connect and disconnect lines in its output. In that kind of run no key is pressed, so the correction
 shown in the label stays at zero, and the sphere has not been moved with the keys. A client in a headless Godot, with
 the same rule, moves its predicted value before the server answers and ends where the server puts the entity, and a
