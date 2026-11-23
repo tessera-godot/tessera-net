@@ -19,7 +19,7 @@
 #   - <target>_generate, which writes the header when the schema file changes.
 #   - <target>_gdscript, which writes the script every time the project is built (the tool does not write a file
 #     again when its bytes would be the same). It is not a custom command with an output, because CMake deletes such
-#     an output from the source folder on `clean` (seen with the Visual Studio generator; check the one you use).
+#     an output from the source folder on `clean` (seen with the Visual Studio and the Ninja generators).
 
 # The words that the functions take, and the one for each that has a value.
 set(_TESSERA_SCHEMA_OPTIONS SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
