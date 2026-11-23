@@ -19,7 +19,8 @@ tessera_schema_generate(tessera_risky_names_schema
 target_link_libraries(tessera_schema_tests PRIVATE tessera_schema_tool tessera_all_kinds_schema tessera_risky_names_schema)
 target_include_directories(tessera_schema_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_compile_definitions(tessera_schema_tests PRIVATE TESSERA_SCHEMA_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-                           TESSERA_EXAMPLE_SCHEMA_FILE="${PROJECT_SOURCE_DIR}/server/example/example_schema.json")
+                           TESSERA_EXAMPLE_SCHEMA_FILE="${PROJECT_SOURCE_DIR}/server/example/example_schema.json"
+                           TESSERA_REPOSITORY_DIR="${PROJECT_SOURCE_DIR}")
 
 if(MSVC)
     target_compile_options(tessera_schema_tests PRIVATE /W4 /permissive-)
