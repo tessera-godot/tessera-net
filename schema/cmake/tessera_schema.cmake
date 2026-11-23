@@ -20,6 +20,15 @@
 #   - <target>_gdscript, which writes the script every time the project is built (the tool does not write a file
 #     again when its bytes would be the same). It is not a custom command with an output, because CMake deletes such
 #     an output from the source folder on `clean` (seen with the Visual Studio and the Ninja generators).
+#
+#   tessera_schema_check_test(<test name> SCHEMA <schema.json>
+#                             [CPP <header.hpp> [NAMESPACE <a::b>]]
+#                             [GDSCRIPT <script.gd> [CLASS <Name>]])
+#
+# Registers a test for ctest that says whether files you keep in the repository (a script, a header) are what the
+# tool makes from the schema file now, and fails with the command that makes them again when they are not. Every
+# relative path is read from the folder of the CMakeLists.txt that makes the call (the files are yours, so none of
+# them is in the build folder).
 
 # The words that the functions take, and the one for each that has a value.
 set(_TESSERA_SCHEMA_OPTIONS SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
@@ -129,4 +138,26 @@ function(tessera_schema_generate)
         add_dependencies(${target}_gdscript tessera_schema)
         add_dependencies(${target} ${target}_gdscript)
     endif()
+endfunction()
+
+function(tessera_schema_check_test)
+    set(options ${ARGV})
+    list(POP_FRONT options name)
+    _tessera_schema_read_arguments(tessera_schema_check_test "${name}" test check "${CMAKE_CURRENT_SOURCE_DIR}"
+        "tessera_schema_check_test(game_schema_is_current SCHEMA schema.json GDSCRIPT godot/game_schema.gd)" ${options})
+
+    set(command tessera_schema generate --check)
+    if(_TS_CPP)
+        list(APPEND command --cpp "${_TS_CPP}")
+        if(_TS_NAMESPACE)
+            list(APPEND command --namespace "${_TS_NAMESPACE}")
+        endif()
+    endif()
+    if(_TS_GDSCRIPT)
+        list(APPEND command --gdscript "${_TS_GDSCRIPT}")
+        if(_TS_CLASS)
+            list(APPEND command --gdscript-class "${_TS_CLASS}")
+        endif()
+    endif()
+    add_test(NAME "${name}" COMMAND ${command} "${_TS_SCHEMA}")
 endfunction()
