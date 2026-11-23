@@ -29,8 +29,8 @@ cmake --build --preset windows-msvc-enet-release --target tessera_example_server
 
 On Linux the presets are `linux-server-release`, `linux-server-debug`, `linux-enet-release` and `linux-enet-debug`
 (CMake 3.21+, Ninja, GCC 11+ or Clang 14+ with libstdc++). It was built and tested locally on Windows with MSVC and in
-an Ubuntu 24.04 container with GCC 13 and Clang 18. A CI workflow for Ubuntu and Windows is in the repository but has
-not run yet; Linux is claimed once it shows it.
+an Ubuntu 24.04 container with GCC 13 and Clang 18. The CI workflow builds and tests on Ubuntu and on Windows; the badge
+in the [README](../README.md) shows how its latest run went.
 
 ## Running the example
 

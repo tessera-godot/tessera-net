@@ -27,9 +27,8 @@ If everything works you will see `Build and tests succeeded.`
 A first client for Godot exists as a GDExtension. It connects to a Tessera Net server and lets a script read the entities
 it sends. You build it from source, together with the example server, and open the demo project. The steps are in
 [Using the client in Godot](guides/using-the-client-in-godot.md) and the
-[demo](../examples/godot-client-demo/README.md). It has been loaded into Godot 4.7.2 on Windows; on Linux it has not been
-
-loaded into Godot.
+[demo](../examples/godot-client-demo/README.md). It has been loaded into Godot 4.7.2 on Windows, and on Linux in a
+container.
 
 ## Today: describe your entities once
 

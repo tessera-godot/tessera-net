@@ -8,7 +8,7 @@ your own sphere, and shows the other spheres a little in the past, smoothed. Its
 ## Run it
 
 You need the extension built, the example server built, and Godot 4.5 or newer. The commands below are for Windows; on
-Linux use the `linux-*` presets (the extension has been loaded into Godot on Windows only).
+Linux use the `linux-*` presets (the extension has been loaded into Godot on Windows, and on Linux in a container).
 
 1. Build the extension, the demo project and the example server (the server is built with the `-extension` preset too):
 
