@@ -87,16 +87,9 @@ static func wants_reconnect(state: int, left_on_purpose: bool) -> bool:
 
 
 func _ready() -> void:
-	# The schema has to describe the entities exactly as the server does: the same types, the same properties in
-	# the same order, and the same kind and numbers for each one.
-	var schema := TesseraSchema.new()
-	schema.add_type(1, [{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}])
-	# The players of a server started with --players: a position and the connection that owns the entity.
-	schema.add_type(2, [
-		{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0},
-		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
-	])
-	client.schema = schema
+	# example_schema.gd is made from server/example/example_schema.json by tessera_schema, the file the example
+	# server is made from too, so both describe the entities in the same way (the hash tells when they do not).
+	client.schema = ExampleSchema.create()
 
 	# Before connecting is fine: the setting stays through a reconnection.
 	if client.set_interpolation(INTERPOLATION_DELAY_TICKS, INTERPOLATION_SNAP_DISTANCE) != OK:

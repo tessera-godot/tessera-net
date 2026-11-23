@@ -7,9 +7,12 @@ add_library(tessera_schema_tool STATIC
     src/json_reader.cpp
     src/schema_file.cpp
     src/names.cpp
+    src/godot_names.cpp
     src/columns.cpp
     src/schema_check.cpp
-    src/cpp_generator.cpp)
+    src/generator_text.cpp
+    src/cpp_generator.cpp
+    src/gdscript_generator.cpp)
 
 target_include_directories(tessera_schema_tool PUBLIC include)
 target_link_libraries(tessera_schema_tool PUBLIC tessera_net_core)

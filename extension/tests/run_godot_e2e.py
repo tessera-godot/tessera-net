@@ -25,7 +25,7 @@ RUN_LIMIT = 90.0
 SERVER_START_LIMIT = 10.0
 SERVER_STOP_LIMIT = 10.0
 # A run with fewer `OK` lines than this has skipped checks, whatever it printed at the end. Raise it when checks are added.
-MIN_OK_CHECKS = 46
+MIN_OK_CHECKS = 49
 # The warnings the run is expected to print, which only the log of Godot shows. Three prediction rules fail on purpose
 # (a rule that returns nothing, one that returns a number, and one that gives a float where a Vector3 is needed); each
 # failure turns the prediction off with one warning. Any other line with "TesseraClient:" is a surprise and fails the run.

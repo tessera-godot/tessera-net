@@ -5,6 +5,7 @@
 
 #include "tessera/schema/schema_file.hpp"
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +18,17 @@ inline constexpr size_t kMaxNameLength = 48;
 /// Empty when `name` is a good name for a type or a property. Otherwise what is wrong with it, and in `fix`
 /// (when given) how to correct it.
 std::string CheckName(std::string_view name, std::string* fix = nullptr);
+
+/// Empty when `name` is a good name for the class of the GDScript output: a capital letter, then letters and
+/// digits, with at least one lowercase letter, at most `kMaxNameLength` characters, and not a name that Godot
+/// already uses (a class, a built-in type, a keyword). Otherwise what is wrong, and in `fix` (when given) how
+/// to correct it. A class of the project of the user that has the same name is for Godot to report when it
+/// loads.
+std::string CheckGdScriptClassName(std::string_view name, std::string* fix = nullptr);
+
+/// The names of the classes, the built-in types and the singletons in the extension API of Godot 4.7.2, and
+/// the classes of this extension, that have the shape of a class name. In order of bytes, each one once.
+std::span<const std::string_view> GodotNames();
 
 /// The words that cannot be a name, for the tests. C++ keywords, GDScript keywords, and names that headers
 /// of Windows or of GCC in its GNU mode turn into macros.

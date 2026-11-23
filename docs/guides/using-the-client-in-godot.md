@@ -22,7 +22,9 @@ real sockets. It was also loaded on Linux, in a container, into a Godot 4.7.2 bu
 test passed there against the example server (with the Debug library built by GCC 13 and by Clang 18). Both checks were
 done locally. The continuous-integration workflow builds the extension and runs the tests that need no Godot on both
 systems; on Linux, in the debug configuration, it also downloads the official Godot 4.7.2 (its SHA-512 sum is checked)
-and runs the same headless test. Nothing else has been tried.
+and runs the same headless test. The script that `tessera_schema` generates from a schema file was also loaded by Godot
+4.7.2, headless, on Windows and on Linux, and the hash it gives was the one of the schema file. Nothing else has been
+tried.
 
 ## Build the extension
 
@@ -60,6 +62,35 @@ order**, with the same kind and the same numbers for each one (step and range, b
 does not, the server refuses the connection and the client says so (see "When something goes wrong"). The names you
 give the properties are only yours: they are not part of what is compared, so two descriptions that differ only in
 names connect, and a typo in a name shows up as `null` when you read the value.
+
+### Generate it from the server's schema file
+
+If the server's entities are described in a [schema file](../reference/schema-file.md), you do not have to write the
+client's description at all. From the root of this repository, with the tool built (`tessera_schema` is part of the
+server build):
+
+```text
+tessera_schema generate --gdscript example_schema.gd --gdscript-class ExampleSchema server/example/example_schema.json
+```
+
+The script it writes has the type numbers as constants, the hash of the schema, and a function that builds the
+`TesseraSchema`. Put it in your project and use it:
+
+```gdscript
+client.schema = ExampleSchema.create()
+# ExampleSchema.TYPE_PLAYER is the number of the type "player"; ExampleSchema.HASH is the hash of the schema.
+```
+
+Two things to know. The script needs the extension loaded, and the class name exists for your other scripts only after
+Godot has read the project: open it in the editor once, or run `godot --headless --path <folder> --import`, which is
+also what loads the extension. `HASH` is a signed 64-bit integer, so it can be negative; it is the number
+`get_hash()` gives for the schema that `create()` makes. The
+[schema file reference](../reference/schema-file.md#the-generated-gdscript) has the whole script, and the rules for the name
+of the class.
+
+### Writing it by hand
+
+This is what the generated script does underneath, and it is still supported:
 
 ```gdscript
 var schema := TesseraSchema.new()
@@ -175,16 +206,9 @@ static func wants_reconnect(state: int, left_on_purpose: bool) -> bool:
 
 
 func _ready() -> void:
-	# The schema has to describe the entities exactly as the server does: the same types, the same properties in
-	# the same order, and the same kind and numbers for each one.
-	var schema := TesseraSchema.new()
-	schema.add_type(1, [{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0}])
-	# The players of a server started with --players: a position and the connection that owns the entity.
-	schema.add_type(2, [
-		{"name": "position", "kind": "position", "step": 0.01, "range": 2048.0},
-		{"name": "owner", "kind": "integer", "min": 0, "max": 65535, "signed": false},
-	])
-	client.schema = schema
+	# example_schema.gd is made from server/example/example_schema.json by tessera_schema, the file the example
+	# server is made from too, so both describe the entities in the same way (the hash tells when they do not).
+	client.schema = ExampleSchema.create()
 
 	# Before connecting is fine: the setting stays through a reconnection.
 	if client.set_interpolation(INTERPOLATION_DELAY_TICKS, INTERPOLATION_SNAP_DISTANCE) != OK:
@@ -568,9 +592,9 @@ of a connection that ended. A client that comes back is a new player, always.
 The client sends input (see [Send input](#send-input)), can predict the player's own entity (see
 [Predict your player](#predict-your-player)) and can show the other entities smoothed, a little in the past (see
 [Smooth the other entities](#smooth-the-other-entities)). It does not extrapolate, does not compensate for the delay of
-the other entities when you aim at them, has no code generation and no shared schema file with the server (you write the
-description twice), and the server is not a Godot node. It does not reconnect by itself, and a client that comes back is
-a new player: coming back as the same player does not exist yet (see [Reconnecting](#reconnecting)). There is no editor plugin yet.
+the other entities when you aim at them, and the server is not a Godot node. There is no editor plugin. The description
+of the entities can be generated from the server's schema file (writing it by hand with `add_type` still works). It does
+not reconnect by itself, and a client that comes back is a new player: coming back as the same player does not exist yet (see [Reconnecting](#reconnecting)).
 
 ## Limits to know about
 

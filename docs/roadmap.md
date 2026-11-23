@@ -7,7 +7,7 @@ before speed.
 |---|---|---|
 | 0 | Development environment, project skeleton, baseline measurements and targets | Done |
 | 1 | Data core: entities, handles, fixed tick, spatial grid, jobs | Done |
-| 2 | Schema and code generation (C++ server side, GDScript client side) | In progress: the schema file, the checker and the C++ output exist; the GDScript output is still to come |
+| 2 | Schema and code generation (C++ server side, GDScript client side) | In progress: the schema file, the checker and the C++ and GDScript output exist; generating in your own game's build and a guide that starts from the file are still to come |
 | 3 | Replication: relevancy, dormancy, priority, bandwidth budget, delta, quantization, transport | In progress |
 | 4 | Input, prediction and reconciliation; movement and proxies | First version done: the player's input reaches the server ([record 0017](adr/0017-player-input.md)), the player's own entity is predicted and reconciled ([record 0018](adr/0018-prediction-and-reconciliation.md), accepted) and the other entities are shown smoothed, a little in the past ([record 0019](adr/0019-interpolation-of-the-other-entities.md), accepted); what is left of the phase is compensation of lag and rewinding on the server, which are future work |
 | 5 | Standalone server, a first Godot client, export from the editor, network profiler | In progress |
