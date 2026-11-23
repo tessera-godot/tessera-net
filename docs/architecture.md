@@ -52,7 +52,7 @@ order, in the structure phase, so every other phase can run on many threads with
 ## One schema, two sides
 
 The entities and their replicated properties can be described once, in a JSON file
-([schema file reference](reference/schema-file.md)). The tool `tessera_schema` checks it with the code the server uses
+([schema file reference](reference/schema-file.md), and a [guide](guides/describe-your-entities-once.md) that starts from it). The tool `tessera_schema` checks it with the code the server uses
 and generates C++ for the server and GDScript for the client, and the hash in the hello message makes a server refuse a
 client that differs ([record 0016](adr/0016-the-godot-extension-client-first.md)). Describing them in the editor, and
 generating the serialization code too, is the goal that is not reached yet.

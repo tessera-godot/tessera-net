@@ -13,7 +13,7 @@ Godot's built-in multiplayer sends every visible node to every client, and that 
 
 > **It is alpha, and I'd rather be clear about where it stands.**
 >
-> What works today: a C++ core, the server as a library with a small example program, replication over real sockets (ENet), and a first Godot client (a GDExtension plus a demo project). The client has been loaded into Godot 4.7.2 and run end to end on Windows and, in a container, on Linux. CI builds and tests all of it on Ubuntu and Windows.
+> What works today: a C++ core, the server as a library with a small example program, replication over real sockets (ENet), and a first Godot client (a GDExtension plus a demo project). The entities can be described once in a JSON file, and a CMake function makes the server's C++ and the client's GDScript from it. The client has been loaded into Godot 4.7.2 and run end to end on Windows and, in a container, on Linux. CI builds and tests all of it on Ubuntu and Windows.
 >
 > What doesn't exist yet: the editor plugin, compensation of lag on the server, and anything you should run in production. Follow the [roadmap](docs/roadmap.md) for progress.
 
@@ -204,7 +204,7 @@ cmake --build --preset windows-msvc-release --target tessera_net_bench
 - [Relevancy reference](docs/reference/relevancy.md)
 - [Replicated state reference](docs/reference/replicated-state.md)
 - [Networking reference](docs/reference/networking.md)
-- [Schema file reference](docs/reference/schema-file.md)
+- [Describe your entities once](docs/guides/describe-your-entities-once.md) (a guide) and the [schema file reference](docs/reference/schema-file.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)

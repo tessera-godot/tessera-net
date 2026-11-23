@@ -87,5 +87,6 @@ not to be trusted: check their size and their range, as the example does). Put `
 
 The example does not write its replicated properties by hand: they are in `example/example_schema.json`, and the build
 makes `example_schema.hpp` from that file (the columns, the constants, and the functions that add the types and make the
-tables) with the `tessera_schema` tool, which the server build also builds. To do the same in your game, see the
+tables) with the `tessera_schema` tool, which the server build also builds. To do the same in your game, read
+[Describe your entities once](../docs/guides/describe-your-entities-once.md) and see the
 [schema file reference](../docs/reference/schema-file.md).
