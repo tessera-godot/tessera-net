@@ -54,3 +54,17 @@ add_test(NAME tessera_schema_function_usage
                  -DSCHEMA=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/all_kinds.json
                  -DWORK=${CMAKE_CURRENT_BINARY_DIR}/function_usage/$<CONFIG>
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_function_usage.cmake)
+
+# The example project (examples/game-schema), copied and built as a project of its own that brings this repository in
+# as a folder: what a game does. It configures and builds the core library and the tool a second time, which takes
+# about a minute, so it is off unless asked for.
+option(TESSERA_TEST_SCHEMA_PROJECT "Also build the schema example as a separate project and test it (about a minute)" OFF)
+if(TESSERA_TEST_SCHEMA_PROJECT)
+    add_test(NAME tessera_schema_in_a_project
+             COMMAND ${CMAKE_COMMAND} -DREPO=${PROJECT_SOURCE_DIR} -DEXAMPLE=${PROJECT_SOURCE_DIR}/examples/game-schema
+                     -DTOOL=$<TARGET_FILE:tessera_schema> -DWORK=${CMAKE_CURRENT_BINARY_DIR}/project/$<CONFIG>
+                     -DGENERATOR=${CMAKE_GENERATOR} -DPLATFORM=${CMAKE_GENERATOR_PLATFORM}
+                     -DCXX=${CMAKE_CXX_COMPILER} -DCONFIG=$<CONFIG>
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/check_project.cmake)
+    set_tests_properties(tessera_schema_in_a_project PROPERTIES TIMEOUT 900)
+endif()
