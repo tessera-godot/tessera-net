@@ -42,12 +42,10 @@ set_tests_properties(tessera_schema_example_check PROPERTIES PASS_REGULAR_EXPRES
 
 # The script of the Godot demo is kept in the repository, and has to be what the tool makes from the schema file that
 # the example server uses (the demo and the server describe the same entities).
-add_test(NAME tessera_schema_demo_check
-         COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:tessera_schema>
-                 -DSCHEMA=${PROJECT_SOURCE_DIR}/server/example/example_schema.json -DCLASS=ExampleSchema
-                 -DCOMMITTED=${PROJECT_SOURCE_DIR}/examples/godot-client-demo/example_schema.gd
-                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/demo_check/$<CONFIG>
-                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_generated_gdscript.cmake)
+tessera_schema_check_test(tessera_schema_demo_check
+                          SCHEMA ${PROJECT_SOURCE_DIR}/server/example/example_schema.json
+                          GDSCRIPT ${PROJECT_SOURCE_DIR}/examples/godot-client-demo/example_schema.gd
+                          CLASS ExampleSchema)
 
 # The functions of the schema tool (schema/cmake/tessera_schema.cmake) stop with a message that says what is wrong
 # when they are called the wrong way.
