@@ -7,6 +7,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- `tessera_schema generate --check`, with the same arguments as `generate`: it says, for each output, whether the file is
+  what the tool makes from the schema now (`up to date`), or is different or missing, and writes nothing (not a file, not
+  a folder, not a temporary file). A file that is not up to date is reported with the command that makes it again, and
+  with a note when only the line endings differ. The exit code is 0 when every file is up to date, 1 when one is
+  different or missing, 2 for a wrong command line and 3 for a file that cannot be read.
+- Two CMake functions, in `schema/cmake/tessera_schema.cmake`, for a project that brings this repository in with
+  `add_subdirectory` and `TESSERA_BUILD_SCHEMA_TOOL=ON`: `tessera_schema_generate` makes the C++ header and the GDScript
+  of a schema file while the project is built, and `tessera_schema_check_test` registers a `ctest` test that runs
+  `generate --check` on files you keep in the repository. A call that is wrong stops the configure with a message that
+  says how to write it. See `docs/reference/schema-file.md`.
+- An example project, `examples/game-schema`: a schema file with two types, a small server program that uses the
+  generated header, and the generated script, kept in the repository.
+- A guide, `docs/guides/describe-your-entities-once.md`, that goes through the example from the schema file to the
+  server and the client. A test (`tests/schema/test_guide.cpp`) checks that every block of code in it is an excerpt of
+  the file it names, that every block of output is what the tool prints, that the text quotes no long numbers of its
+  own, and that its links point to files that exist.
+- The option `TESSERA_TEST_SCHEMA_PROJECT` (off by default) adds the test `tessera_schema_in_a_project`: it copies the
+  example, builds it as a project of its own that has this repository as a folder, checks that the script the build writes
+  is the one kept in the example, and that `--check` follows a change in the schema file. It takes about a minute
+  (54 s in Debug and 60 s in Release on a Windows machine), and the CI turns it on in a few of the jobs
+  that build the server (see `CONTRIBUTING.md`).
+- Tests: `tessera_schema_tests` has 152 tests (it had 134), and the `ctest` of the presets that build the server has one
+  more test, `tessera_schema_function_usage` (7 for the server preset, 10 for the ENet one, 13 for the extension in
+  Debug and 12 in Release), and one more with `TESSERA_TEST_SCHEMA_PROJECT=ON`.
 - `tessera_schema generate --gdscript <output.gd> [--gdscript-class Name]` writes the GDScript of the client from the same
   schema file as the C++: a script with a `class_name` (`GameSchema` unless you choose another), a constant
   `TYPE_<NAME>` for each type, `const HASH: int` (the hash of the file as a signed 64-bit integer, so it can be
@@ -132,6 +156,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Architecture decision record 0017, "Player input" (Accepted).
 
 ### Changed
+- `tessera_schema_generate_cpp`, the function that was used inside this repository only, is gone: `tessera_schema_generate`
+  replaces it (`OUTPUT` is `CPP` now) and every use here was changed. The test of the demo script,
+  `tessera_schema_demo_check`, has the same name and now comes from `tessera_schema_check_test`; the test project of the
+  extension has its `all_kinds_schema.gd` written by `tessera_schema_generate`.
+- When this repository is added to another project as a folder, its own tests are not built there unless
+  `TESSERA_BUILD_TESTS` is switched on (`TESSERA_BUILD_TESTS` is still `ON` when it is the top-level project).
+- Not changed: no message, no protocol version (still 3), no hash, and nothing in the extension library or the server
+  library. The generated files are the same bytes as before.
 - The Godot demo takes its description of the entities from the generated script `example_schema.gd` instead of two
   `add_type` calls in `main.gd`. `add_type` by hand is unchanged.
 - Numbers in the generated C++ (`step` and `range`) are written by the same function as the ones in the GDScript, which
