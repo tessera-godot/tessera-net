@@ -48,3 +48,11 @@ add_test(NAME tessera_schema_demo_check
                  -DCOMMITTED=${PROJECT_SOURCE_DIR}/examples/godot-client-demo/example_schema.gd
                  -DWORK=${CMAKE_CURRENT_BINARY_DIR}/demo_check/$<CONFIG>
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/check_generated_gdscript.cmake)
+
+# The functions of the schema tool (schema/cmake/tessera_schema.cmake) stop with a message that says what is wrong
+# when they are called the wrong way.
+add_test(NAME tessera_schema_function_usage
+         COMMAND ${CMAKE_COMMAND} -DFUNCTIONS=${PROJECT_SOURCE_DIR}/schema/cmake/tessera_schema.cmake
+                 -DSCHEMA=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/all_kinds.json
+                 -DWORK=${CMAKE_CURRENT_BINARY_DIR}/function_usage/$<CONFIG>
+                 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_function_usage.cmake)

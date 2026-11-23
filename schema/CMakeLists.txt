@@ -28,6 +28,9 @@ else()
     target_compile_options(tessera_schema PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# The functions that make the code of a schema file while a project is built.
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/tessera_schema.cmake)
+
 # Makes a header from a schema file while the project is built, and an INTERFACE library that carries its folder, so
 # that a target which links the library can include the header, and is built after it. Used inside this repository
 # for now: the example server and the tests.
