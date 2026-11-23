@@ -9,7 +9,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(TESSERA_BUILD_TESTS "Build the unit tests" ON)
+# The tests of this repository are for building it. A project that brings it in as a subfolder wants the tool and the
+# library, not the tests of them, so they are off there unless asked for.
+if(PROJECT_IS_TOP_LEVEL)
+    set(TESSERA_BUILD_TESTS_DEFAULT ON)
+else()
+    set(TESSERA_BUILD_TESTS_DEFAULT OFF)
+endif()
+option(TESSERA_BUILD_TESTS "Build the unit tests" ${TESSERA_BUILD_TESTS_DEFAULT})
 option(TESSERA_BUILD_BENCH "Build the acceptance benchmark" OFF)
 option(TESSERA_PROFILE "Time the stages of the network phase (measurement builds only)" OFF)
 option(TESSERA_BUILD_ECS_COMPARISON "Build the comparison with a general-purpose ECS (downloads EnTT)" OFF)
