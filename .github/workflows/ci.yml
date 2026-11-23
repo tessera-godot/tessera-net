@@ -67,8 +67,10 @@ jobs:
       - name: Install Ninja if it is missing
         run: command -v ninja || { sudo apt-get update && sudo apt-get install -y ninja-build; }
 
+      # The test that builds the schema example as a project of its own takes about a minute, and what it shows does
+      # not change with the compiler options: it runs in the release jobs that build the server, with both compilers.
       - name: Configure
-        run: cmake --preset linux-${{ matrix.mode }}-${{ matrix.config }}
+        run: cmake --preset linux-${{ matrix.mode }}-${{ matrix.config }} ${{ matrix.mode == 'server' && matrix.config == 'release' && '-DTESSERA_TEST_SCHEMA_PROJECT=ON' || '' }}
 
       - name: Build
         run: cmake --build --preset linux-${{ matrix.mode }}-${{ matrix.config }}
@@ -93,8 +95,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # The schema example as a project of its own is tested in the server jobs, in both configurations (one configure
+      # serves both).
       - name: Configure
-        run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF
+        run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF ${{ matrix.mode == 'server' && '-DTESSERA_TEST_SCHEMA_PROJECT=ON' || '' }}
 
       - name: Build
         run: cmake --build --preset windows-msvc-${{ matrix.mode }}-${{ matrix.config }}
