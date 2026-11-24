@@ -66,6 +66,9 @@ if(TESSERA_TEST_SCHEMA_PROJECT)
                      -DTOOL=$<TARGET_FILE:tessera_schema> -DWORK=${CMAKE_CURRENT_BINARY_DIR}/project/$<CONFIG>
                      -DGENERATOR=${CMAKE_GENERATOR} -DPLATFORM=${CMAKE_GENERATOR_PLATFORM}
                      -DCXX=${CMAKE_CXX_COMPILER} -DCONFIG=$<CONFIG>
+                     -DCMAKE_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+                     -DCMAKE_GENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}
+                     -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/check_project.cmake)
     set_tests_properties(tessera_schema_in_a_project PROPERTIES TIMEOUT 900)
 endif()

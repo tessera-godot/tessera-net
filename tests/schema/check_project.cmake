@@ -11,6 +11,7 @@
 # Run with:
 #   cmake -DREPO=<this repository> -DEXAMPLE=<examples/game-schema> -DTOOL=<tessera_schema> -DWORK=<folder to use>
 #         -DGENERATOR=<generator of this build> [-DPLATFORM=<platform>] [-DCXX=<compiler>] -DCONFIG=<Debug|Release>
+#         [-DCMAKE_GENERATOR_TOOLSET=<toolset>] [-DCMAKE_GENERATOR_INSTANCE=<instance>] [-DCMAKE_MAKE_PROGRAM=<program>]
 #         -P check_project.cmake
 foreach(variable REPO EXAMPLE TOOL WORK GENERATOR CONFIG)
     if(NOT DEFINED ${variable})
@@ -49,6 +50,12 @@ set(configure -S "${project}" -B "${build}" -G "${GENERATOR}" -DTESSERA_NET_DIR=
 if(NOT "${PLATFORM}" STREQUAL "")
     list(APPEND configure -A "${PLATFORM}")
 endif()
+# What picks the toolset and the program that builds is passed on too, when it was given.
+foreach(setting CMAKE_GENERATOR_TOOLSET CMAKE_GENERATOR_INSTANCE CMAKE_MAKE_PROGRAM)
+    if(NOT "${${setting}}" STREQUAL "")
+        list(APPEND configure -D${setting}=${${setting}})
+    endif()
+endforeach()
 if(NOT GENERATOR MATCHES "^Visual Studio")
     list(APPEND configure -DCMAKE_BUILD_TYPE=${CONFIG})
     if(NOT "${CXX}" STREQUAL "")
@@ -63,7 +70,7 @@ endif()
 run_step("build the example" 0 "${CMAKE_COMMAND}" --build "${build}" --config ${CONFIG} --parallel)
 run_step("run the tests of the example" 0 "${CMAKE_CTEST_COMMAND}" --test-dir "${build}" -C ${CONFIG} --output-on-failure)
 run_step("list the tests of the example" 0 "${CMAKE_CTEST_COMMAND}" --test-dir "${build}" -C ${CONFIG} -N)
-if(NOT STEP_OUTPUT MATCHES "Total Tests: 1")
+if(NOT STEP_OUTPUT MATCHES "Total Tests: 1([^0-9]|$)")
     message(FATAL_ERROR "Step \"the project has only its own test\": the tests of this repository must be off when it is "
                         "a folder of another project, and ctest -N said:\n${STEP_OUTPUT}")
 endif()
