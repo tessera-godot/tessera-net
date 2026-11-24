@@ -175,3 +175,31 @@ TESSERA_TEST(guide_check_finds_a_number_in_the_prose_and_a_broken_link) {
     TESSERA_CHECK(Has(problems[0], "line 1") && Has(problems[1], "line 3"));
     TESSERA_CHECK(Has(problems[2], "line 4") && Has(problems[2], "missing.md"));
 }
+
+TESSERA_TEST(guide_check_refuses_an_output_that_would_write_a_file) {
+    TempDir dir;
+    MakeRepository(dir);
+    const std::string target = dir.File("out.hpp");
+    const std::vector<std::string> writes = Check(
+        dir, "<!-- output: generate --cpp " + target + " schema.json -->\n```text\nanything\n```\n");
+    TESSERA_CHECK(writes.size() == 1 && Has(writes[0], "[output] line 2") && Has(writes[0], "--check"));
+    // The command was not run: nothing was written.
+    TESSERA_CHECK(!std::filesystem::exists(target));
+    // With --check it is run, and says that the file is not there.
+    const std::vector<std::string> checks = Check(
+        dir, "<!-- output: generate --check --cpp " + target + " schema.json -->\n```text\nanything\n```\n");
+    TESSERA_CHECK(checks.size() == 1 && Has(checks[0], "exits with 1"));
+    TESSERA_CHECK(!std::filesystem::exists(target));
+}
+
+TESSERA_TEST(guide_check_finds_code_blocks_that_are_made_in_other_ways) {
+    TempDir dir;
+    MakeRepository(dir);
+    // A fence made of tildes, and a block indented by four spaces, need a marker like any other.
+    TESSERA_CHECK(Count(Check(dir, "Text.\n\n~~~cpp\nint x;\n~~~\n"), "[marker]") == 1);
+    TESSERA_CHECK(Count(Check(dir, "Text.\n\n    int x;\n    int y;\n"), "[marker]") == 1);
+    TESSERA_CHECK(Count(Check(dir, "Text.\n\n\tint x;\n"), "[marker]") == 1);
+    // With a marker the tilde fence is fine, and a nested item of a list is not a block of code.
+    TESSERA_CHECK(Check(dir, "<!-- shell -->\n~~~bash\nls\n~~~\n").empty());
+    TESSERA_CHECK(Check(dir, "- one\n\n    - nested\n\n    1. numbered\n").empty());
+}

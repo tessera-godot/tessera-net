@@ -14,6 +14,7 @@
 
 #include "tessera/schema/cli.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -109,6 +110,32 @@ inline std::optional<Marker> ParseMarker(const std::string& line, size_t number)
     return std::nullopt;
 }
 
+// "```" or "~~~" when the line opens (or closes) a fenced block of code, else an empty text.
+inline std::string IsFence(const std::string& line) {
+    const std::string text = Trim(line);
+    for (const char* mark : {"```", "~~~"}) {
+        if (text.rfind(mark, 0) == 0) {
+            return mark;
+        }
+    }
+    return {};
+}
+
+inline bool IsIndentedCode(const std::string& line) {
+    if (line.rfind("    ", 0) != 0 && line.rfind("\t", 0) != 0) {
+        return false;
+    }
+    const std::string text = Trim(line);
+    const bool bullet = text.rfind("- ", 0) == 0 || text.rfind("* ", 0) == 0 || text.rfind("+ ", 0) == 0;
+    size_t digits = 0;
+    while (digits < text.size() && text[digits] >= '0' && text[digits] <= '9') {
+        ++digits;
+    }
+    const bool numbered =
+        digits > 0 && digits + 1 < text.size() && text[digits] == '.' && text[digits + 1] == ' ';
+    return !bullet && !numbered;
+}
+
 inline bool IsHtmlComment(const std::string& line) {
     const std::string text = Trim(line);
     return text.rfind("<!--", 0) == 0 && text.size() >= 7 && text.compare(text.size() - 3, 3, "-->") == 0;
@@ -188,6 +215,15 @@ inline void CheckOutput(const Marker& marker, const std::vector<std::string>& bl
         }
         args.push_back(word);
     }
+    // A command that writes files is not run: the guide cannot make the files of the repository.
+    const bool writes = !args.empty() && args[0] == "generate" &&
+                        std::find(args.begin(), args.end(), "--check") == args.end();
+    if (writes) {
+        problems.push_back("[output] " + where + ": `tessera_schema " + marker.argument +
+                           "` would write files; an output block may only show a command that writes nothing "
+                           "(use --check)");
+        return;
+    }
     std::ostringstream out;
     std::ostringstream err;
     const int code = tessera::schema::Run(args, out, err);
@@ -265,10 +301,11 @@ inline std::vector<std::string> CheckGuide(const std::string& markdown, const st
     for (size_t i = 0; i < lines.size(); ++i) {
         const std::string& line = lines[i];
         const size_t number = i + 1;
-        if (Trim(line).rfind("```", 0) == 0) {
+        const std::string fence = IsFence(line);
+        if (!fence.empty()) {
             std::vector<std::string> block;
             size_t end = i + 1;
-            while (end < lines.size() && Trim(lines[end]).rfind("```", 0) != 0) {
+            while (end < lines.size() && Trim(lines[end]).rfind(fence, 0) != 0) {
                 block.push_back(lines[end]);
                 ++end;
             }
@@ -307,6 +344,13 @@ inline std::vector<std::string> CheckGuide(const std::string& markdown, const st
             continue;
         }
         pending.reset();
+        // A block of code made by indenting four spaces or a tab, after a blank line, has no marker to carry.
+        // A nested item of a list is indented too, and is not one.
+        if (i > 0 && Trim(lines[i - 1]).empty() && IsIndentedCode(line)) {
+            problems.push_back("[marker] line " + std::to_string(number) +
+                               ": a block of code made by indenting is not allowed, since it cannot carry a "
+                               "marker; use a fence with <!-- source: path --> (or output, or shell) before it");
+        }
         if (HasLongNumber(line) || HasHexNumber(line)) {
             problems.push_back(
                 "[prose] line " + std::to_string(number) +
