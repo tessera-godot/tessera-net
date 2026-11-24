@@ -5,8 +5,10 @@ loot a crate holds. If you write that twice, once in C++ and once in GDScript, t
 sign is a client that reads wrong values. Here you write it once, in a JSON file, and your build makes the C++ for the
 server and the GDScript for the client from it. When the file changes, both change together.
 
-This page goes through the small project in [`examples/game-schema`](../../examples/game-schema/README.md), which is built
-and tested with the rest of the repository, so what you read here is what runs.
+This page goes through the small project in [`examples/game-schema`](../../examples/game-schema/README.md), which is
+there to be copied. A test of this repository builds it as a project of its own (it takes about a minute, so it is off
+unless you configure with `-DTESSERA_TEST_SCHEMA_PROJECT=ON`), and another test checks every block of code and output in
+this page against the files of the example, so what you read here is what those files hold.
 
 ## What you need
 
@@ -74,10 +76,13 @@ examples/game-schema/schema.json: OK, 2 types, hash 0x3b095e13c24c1234
 
 ## 3. Generate in your build
 
-Two lines of your `CMakeLists.txt` bring in this repository and switch the tool on, and one call asks for the files:
+Three lines of your `CMakeLists.txt` say where this repository is, bring it in and switch the tool on, and one call asks
+for the files:
 
 <!-- source: examples/game-schema/CMakeLists.txt -->
 ```cmake
+set(TESSERA_NET_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "The folder of the tessera-net repository")
+...
 set(TESSERA_BUILD_SCHEMA_TOOL ON CACHE BOOL "" FORCE)
 add_subdirectory("${TESSERA_NET_DIR}" tessera-net)
 ...
@@ -92,8 +97,10 @@ tessera_schema_generate(game_schema
 The function needs the tool, so the first line has to come before the call. `SCHEMA` is your file. `CPP` is the header
 for the server, and `NAMESPACE` is the C++ namespace of what is in it. `GDSCRIPT` is the script for the client, and
 `CLASS` is its `class_name`. Give `CPP`, `GDSCRIPT` or both; `NAMESPACE` goes with `CPP` and `CLASS` with `GDSCRIPT`, and
-each can be left out to take the tool's default. A call that is wrong stops the configure with a message that says
-what to change.
+each can be left out to take the tool's default. A call that is put together wrong (an option missing, given twice or
+unknown, or a schema file that is not there) stops the configure with a message that says what to change. The values
+are checked by the tool when it runs, which is in the build: a `NAMESPACE` such as `std` or a `CLASS` such as `Node`
+passes the configure, and the build stops with the message of the tool.
 
 A relative path means a different folder for each option, because the files are different:
 
@@ -132,6 +139,10 @@ int main() {
     const auto monsters = game::MakeMonsterTable(1);
     const tessera::net::EntityId id = monsters->Create();
     const auto where = monsters->Find(id);
+    if (!where) {
+        std::fprintf(stderr, "the monster was not found in its table\n");
+        return 1;
+    }
     auto& columns = monsters->Columns(where->page);
     columns.health[where->slot] = 100;
     monsters->MarkDirty(id);
@@ -143,7 +154,8 @@ all of them.
 
 ## 5. Use it in Godot
 
-The script is written into the folder of your Godot project (`godot/` in the example). Open the project once in the
+The script is written into the folder of your Godot project. The `godot/` folder of the example stands for it: there is
+no `project.godot` in it, so copy the script to your project, or point `GDSCRIPT` at a folder that has one. Open the project once in the
 editor, or run `godot --headless --path <folder> --import`: Godot reads the `class_name` and loads the extension then,
 and until it has, a script that writes `GameSchema` fails with `Identifier "GameSchema" not declared in the current
 scope`. After that the client takes its description from the class (the demo of this repository does the same with
@@ -230,7 +242,8 @@ examples/game-schema/godot/game_schema.gd: up to date
 ```
 
 The exit code is 0 when every file is what the schema makes, 1 when one is different or missing (the message says which,
-and prints the command that makes them again), 2 for a wrong command line, and 3 for a file that cannot be read.
+and prints the command that makes them again) or when the schema file is wrong, 2 for a wrong command line, and 3 for a
+file that cannot be read, the schema file included. When two of these happen together, 3 is the one you get.
 
 One more thing for the files you keep: the tool always writes lines that end in LF, so tell git not to turn them into
 CRLF on Windows. This is the line of the example in `.gitattributes`:

@@ -311,8 +311,10 @@ links it can include the header; `<target>_generate`, which writes the header wh
 `<target>_gdscript`, which is part of every build and writes the script each time (the tool does not write a file again
 when its bytes would be the same). The script is not the output of a build rule because `clean` deletes the outputs of
 build rules, also those in the source folder (seen with the Visual Studio and Ninja generators), and the script is a
-file you keep. An option that is wrong, missing or given twice stops the configure with a message that starts with the
-name of the call and says how to write it.
+file you keep. An option that is wrong, missing or given twice, or a schema file that is not there, stops the configure
+with a message that starts with the name of the call and says how to write it. The values are checked by the tool, which
+runs in the build: a `NAMESPACE` such as `std` or a `CLASS` such as `Node` passes the configure and is refused by the
+tool when the project is built.
 
 `tessera_schema_check_test` registers a test for `ctest` that runs `generate --check` on files you keep in the
 repository, and fails with the command that makes them again when they are old. This repository uses it for the script of

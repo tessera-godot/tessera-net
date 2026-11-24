@@ -7,3 +7,5 @@ Build it where it is:
 
     cmake -S examples/game-schema -B build/game-schema
     cmake --build build/game-schema
+
+The guide [Describe your entities once](../../docs/guides/describe-your-entities-once.md) goes through it step by step.

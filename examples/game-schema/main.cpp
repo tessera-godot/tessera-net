@@ -18,6 +18,10 @@ int main() {
     const auto monsters = game::MakeMonsterTable(1);
     const tessera::net::EntityId id = monsters->Create();
     const auto where = monsters->Find(id);
+    if (!where) {
+        std::fprintf(stderr, "the monster was not found in its table\n");
+        return 1;
+    }
     auto& columns = monsters->Columns(where->page);
     columns.health[where->slot] = 100;
     monsters->MarkDirty(id);
