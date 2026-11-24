@@ -30,9 +30,6 @@
 # relative path is read from the folder of the CMakeLists.txt that makes the call (the files are yours, so none of
 # them is in the build folder).
 
-# The words that the functions take, and the one for each that has a value.
-set(_TESSERA_SCHEMA_OPTIONS SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
-
 # Reads and checks the arguments that both functions take. `fn` is the name of the function that was called,
 # `first` its first argument (the name of the target or of the test), `kind` says what that name is for ("target"
 # or "test"), `verb` what the function does ("generate" or "check"), `cpp_base` the folder that a relative CPP is
@@ -41,8 +38,11 @@ set(_TESSERA_SCHEMA_OPTIONS SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
 # absolute paths, and an empty text for what was not given.
 function(_tessera_schema_read_arguments fn first kind verb cpp_base example)
     set(who "${fn}(${first}):")
+    # The words that the functions take. The list is here and not in a variable of the file: a variable set by an
+    # included file belongs to the folder that included it, and the functions are called from other folders.
+    set(keywords SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
     # list(FIND) and not IN_LIST: a script run with `cmake -P` does not set the policy that makes IN_LIST an operator.
-    list(FIND _TESSERA_SCHEMA_OPTIONS "${first}" first_is_option)
+    list(FIND keywords "${first}" first_is_option)
     if(first STREQUAL "" OR NOT first_is_option EQUAL -1)
         message(FATAL_ERROR "${who} give the name of the ${kind} first, for example ${example}")
     endif()
@@ -57,7 +57,7 @@ function(_tessera_schema_read_arguments fn first kind verb cpp_base example)
         list(GET ARG_KEYWORDS_MISSING_VALUES 0 word)
         message(FATAL_ERROR "${who} ${word} needs a value, for example ${example}")
     endif()
-    foreach(keyword IN LISTS _TESSERA_SCHEMA_OPTIONS)
+    foreach(keyword IN LISTS keywords)
         set(times 0)
         foreach(word IN LISTS options)
             if(word STREQUAL keyword)

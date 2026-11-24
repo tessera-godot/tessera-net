@@ -12,6 +12,9 @@ endforeach()
 
 file(REMOVE_RECURSE "${WORK}")
 set(case_count 0)
+# The functions are loaded from inside a function, the way a project loads them from another folder: what the file
+# sets as a variable is gone when the call is made, and only the functions it defines are left.
+set(LOAD "function(load_functions)\n    include(\"${FUNCTIONS}\")\nendfunction()\nload_functions()\n")
 set(failures "")
 
 # Runs `call` in a script of its own, and checks that the script fails with a message that starts like `prefix`
@@ -19,7 +22,7 @@ set(failures "")
 # before the text is searched.
 macro(expect_error call prefix fragment)
     math(EXPR case_count "${case_count} + 1")
-    file(WRITE "${WORK}/case_${case_count}.cmake" "include(\"${FUNCTIONS}\")\n${call}\n")
+    file(WRITE "${WORK}/case_${case_count}.cmake" "${LOAD}${call}\n")
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -P "${WORK}/case_${case_count}.cmake"
         RESULT_VARIABLE case_result
@@ -49,7 +52,7 @@ macro(expect_test_command name call expected not_expected)
          "cmake_minimum_required(VERSION 3.21)\nproject(case LANGUAGES NONE)\nenable_testing()\n"
          "add_executable(tessera_schema IMPORTED)\n"
          "set_target_properties(tessera_schema PROPERTIES IMPORTED_LOCATION \"${CMAKE_COMMAND}\")\n"
-         "include(\"${FUNCTIONS}\")\n${call}\n")
+         "${LOAD}${call}\n")
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -S "${case_dir}" -B "${case_dir}/build"
         RESULT_VARIABLE case_result
@@ -101,10 +104,18 @@ expect_error("tessera_schema_generate(one SCHEMA \"${SCHEMA}\" CPP)"
              "tessera_schema_generate(one):" "CPP needs a value")
 expect_error("tessera_schema_generate(one SCHEMA \"${SCHEMA}\" CPP a.hpp CPP b.hpp)"
              "tessera_schema_generate(one):" "CPP is given twice")
+expect_error("tessera_schema_generate(one SCHEMA \"${SCHEMA}\" SCHEMA \"${SCHEMA}\" CPP a.hpp)"
+             "tessera_schema_generate(one):" "SCHEMA is given twice")
+expect_error("tessera_schema_generate(SCHEMA \"${SCHEMA}\" GDSCRIPT out.gd)"
+             "tessera_schema_generate(SCHEMA):" "give the name of the target first")
 
 # tessera_schema_check_test
 expect_error("tessera_schema_check_test()"
              "tessera_schema_check_test():" "give the name of the test first")
+expect_error("tessera_schema_check_test(SCHEMA \"${SCHEMA}\" GDSCRIPT out.gd)"
+             "tessera_schema_check_test(SCHEMA):" "give the name of the test first")
+expect_error("tessera_schema_check_test(kept SCHEMA \"${SCHEMA}\" SCHEMA \"${SCHEMA}\" GDSCRIPT out.gd)"
+             "tessera_schema_check_test(kept):" "SCHEMA is given twice")
 expect_error("tessera_schema_check_test(kept GDSCRIPT out.gd)"
              "tessera_schema_check_test(kept):" "SCHEMA is missing")
 expect_error("tessera_schema_check_test(kept SCHEMA \"${SCHEMA}\")"
