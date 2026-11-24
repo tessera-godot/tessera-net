@@ -41,7 +41,9 @@ set(_TESSERA_SCHEMA_OPTIONS SCHEMA CPP NAMESPACE GDSCRIPT CLASS)
 # absolute paths, and an empty text for what was not given.
 function(_tessera_schema_read_arguments fn first kind verb cpp_base example)
     set(who "${fn}(${first}):")
-    if(first STREQUAL "" OR first IN_LIST _TESSERA_SCHEMA_OPTIONS)
+    # list(FIND) and not IN_LIST: a script run with `cmake -P` does not set the policy that makes IN_LIST an operator.
+    list(FIND _TESSERA_SCHEMA_OPTIONS "${first}" first_is_option)
+    if(first STREQUAL "" OR NOT first_is_option EQUAL -1)
         message(FATAL_ERROR "${who} give the name of the ${kind} first, for example ${example}")
     endif()
     set(options ${ARGN})
