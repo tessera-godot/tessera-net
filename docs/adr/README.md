@@ -25,4 +25,4 @@ Short documents that capture important decisions and the reasoning behind them. 
 | [0017](0017-player-input.md) | Player input | Accepted |
 | [0018](0018-prediction-and-reconciliation.md) | Prediction and reconciliation | Accepted |
 | [0019](0019-interpolation-of-the-other-entities.md) | Interpolation of the other entities | Accepted |
-| [0020](0020-one-schema-file-and-generated-cpp.md) | One schema file, with the server's C++ generated from it | Proposed |
+| [0020](0020-one-schema-file-and-generated-cpp.md) | One schema file, with the C++ and the GDScript generated from it | Accepted |
