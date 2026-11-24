@@ -347,9 +347,10 @@ inline std::vector<std::string> CheckGuide(const std::string& markdown, const st
         // A block of code made by indenting four spaces or a tab, after a blank line, has no marker to carry.
         // A nested item of a list is indented too, and is not one.
         if (i > 0 && Trim(lines[i - 1]).empty() && IsIndentedCode(line)) {
-            problems.push_back("[marker] line " + std::to_string(number) +
-                               ": a block of code made by indenting is not allowed, since it cannot carry a "
-                               "marker; use a fence with <!-- source: path --> (or output, or shell) before it");
+            problems.push_back(
+                "[marker] line " + std::to_string(number) +
+                ": a block of code made by indenting is not allowed, since it cannot carry a "
+                "marker; use a fence with <!-- source: path --> (or output, or shell) before it");
         }
         if (HasLongNumber(line) || HasHexNumber(line)) {
             problems.push_back(

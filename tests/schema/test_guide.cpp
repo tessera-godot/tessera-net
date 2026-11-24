@@ -180,14 +180,14 @@ TESSERA_TEST(guide_check_refuses_an_output_that_would_write_a_file) {
     TempDir dir;
     MakeRepository(dir);
     const std::string target = dir.File("out.hpp");
-    const std::vector<std::string> writes = Check(
-        dir, "<!-- output: generate --cpp " + target + " schema.json -->\n```text\nanything\n```\n");
+    const std::vector<std::string> writes =
+        Check(dir, "<!-- output: generate --cpp " + target + " schema.json -->\n```text\nanything\n```\n");
     TESSERA_CHECK(writes.size() == 1 && Has(writes[0], "[output] line 2") && Has(writes[0], "--check"));
     // The command was not run: nothing was written.
     TESSERA_CHECK(!std::filesystem::exists(target));
     // With --check it is run, and says that the file is not there.
-    const std::vector<std::string> checks = Check(
-        dir, "<!-- output: generate --check --cpp " + target + " schema.json -->\n```text\nanything\n```\n");
+    const std::vector<std::string> checks = Check(dir, "<!-- output: generate --check --cpp " + target +
+                                                           " schema.json -->\n```text\nanything\n```\n");
     TESSERA_CHECK(checks.size() == 1 && Has(checks[0], "exits with 1"));
     TESSERA_CHECK(!std::filesystem::exists(target));
 }
