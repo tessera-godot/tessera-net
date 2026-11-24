@@ -245,11 +245,12 @@ say so, with a note that only the line endings differ.
 
 ## What has been tried
 
-The example was built as a project of its own, with the repository added as a folder, on Windows with Visual Studio 2022.
-The script it writes was the same as the one in the repository, and the check said the files were what the schema
-makes, before and after a change in the schema file. The script of the demo was loaded by a headless Godot 4.7.2, as
-described in [Using the client in Godot](using-the-client-in-godot.md). This was tried on the machine where it was
-written, nothing more.
+The example was built as a project of its own, with the repository added as a folder, on Windows with Visual Studio 2022,
+and in an Ubuntu 24.04 container with GCC 13 and with Clang 18, using Ninja. In each of them the script it writes was the
+same as the one in the repository, and the check said the files were what the schema makes, before and after a change
+in the schema file. The script of the demo was loaded by a headless Godot 4.7.2, as described in
+[Using the client in Godot](using-the-client-in-godot.md). All of it was tried on one machine; other generators and
+compilers have not been tried.
 
 ## What does not exist yet
 
