@@ -99,3 +99,5 @@ setup (a different Godot build, another distribution) is still possible, and the
 how to run the Godot test on a Linux runner, and the shared schema.
 
 **Later (November 2026):** the Linux debug jobs of the CI workflow now download the official Godot 4.7.2, check it against a pinned SHA-512 sum and run the headless test, so the question of how to run the Godot test on a Linux runner is answered. The text above is left as it was written.
+
+**Later (November 2026):** the shared schema is answered by [0020](0020-one-schema-file-and-generated-cpp.md): one JSON file, with the C++ for the server and the GDScript for the client generated from it, and a CMake function to do it in a game's own build. The text above is left as it was written.

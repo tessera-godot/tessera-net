@@ -1,6 +1,6 @@
-# 0020. One schema file, with the server's C++ generated from it
+# 0020. One schema file, with the C++ and the GDScript generated from it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 
 ## Context
