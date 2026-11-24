@@ -63,6 +63,7 @@ TESSERA_TEST(run_without_arguments_prints_usage_and_returns_2) {
     TESSERA_CHECK(result.err.find("generate") != std::string::npos);
     TESSERA_CHECK(result.err.find("--gdscript ") != std::string::npos);
     TESSERA_CHECK(result.err.find("--gdscript-class") != std::string::npos);
+    TESSERA_CHECK(result.err.find("--check") != std::string::npos);
     TESSERA_CHECK(result.out.empty());
     // --help is not a mistake: the usage goes to the standard output and the code is 0.
     const Outcome help = Call({"--help"});
@@ -564,4 +565,240 @@ TESSERA_TEST(generate_refuses_an_option_given_twice) {
         TESSERA_CHECK(Has(result.err, "given twice"));
     }
     TESSERA_CHECK(!fs::exists(dir.Path() / "a.gd") && !fs::exists(dir.Path() / "a.hpp"));
+}
+
+namespace {
+
+// What a folder holds: every path, and for a file its size and the time it was last written.
+std::vector<std::string> Snapshot(const fs::path& folder) {
+    std::vector<std::string> entries;
+    for (const auto& entry : fs::recursive_directory_iterator(folder)) {
+        std::string line = entry.path().generic_string();
+        if (entry.is_regular_file()) {
+            line += " " + std::to_string(entry.file_size()) + " " +
+                    std::to_string(entry.last_write_time().time_since_epoch().count());
+        }
+        entries.push_back(line);
+    }
+    std::sort(entries.begin(), entries.end());
+    return entries;
+}
+
+// Gives the file a date in the past, so that a rewrite would show.
+void MakeOld(const std::string& path) {
+    fs::last_write_time(path, fs::file_time_type::clock::now() - std::chrono::hours(5));
+}
+
+// The same text with a different byte in the middle.
+std::string WithOneByteChanged(std::string text) {
+    char& middle = text[text.size() / 2];
+    middle = middle == 'x' ? 'y' : 'x';
+    return text;
+}
+
+std::string WithCrLf(const std::string& text) {
+    std::string result;
+    for (const char c : text) {
+        if (c == '\n') {
+            result += '\r';
+        }
+        result += c;
+    }
+    return result;
+}
+
+// Gives the folder back its permission to be written, also when a check of the test fails.
+struct RestoreWriting {
+    fs::path folder;
+    ~RestoreWriting() {
+        std::error_code ignored;
+        fs::permissions(folder, fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write,
+                        fs::perm_options::add, ignored);
+    }
+};
+
+} // namespace
+
+TESSERA_TEST(check_option_says_up_to_date_and_writes_nothing) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string cpp = dir.File("out/example.hpp");
+    const std::string gd = dir.File("out/example.gd");
+    TESSERA_CHECK(Call({"generate", "--cpp", cpp, "--gdscript", gd, in}).code == 0);
+    MakeOld(cpp);
+    MakeOld(gd);
+    const std::vector<std::string> before = Snapshot(dir.Path());
+    const Outcome result = Call({"generate", "--check", "--cpp", cpp, "--gdscript", gd, in});
+    TESSERA_CHECK(result.code == 0);
+    TESSERA_CHECK(result.out == cpp + ": up to date\n" + gd + ": up to date\n");
+    TESSERA_CHECK(result.err.empty());
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
+}
+
+TESSERA_TEST(check_option_reports_a_different_file_with_the_command_to_make_it_again) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string cpp = dir.File("out/example.hpp");
+    const std::string gd = dir.File("out/example.gd");
+    TESSERA_CHECK(Call({"generate", "--cpp", cpp, "--gdscript", gd, in}).code == 0);
+    const std::string changed = WithOneByteChanged(ReadAll(gd));
+    dir.Write("out/example.gd", changed);
+    const Outcome result = Call({"generate", "--check", "--cpp", cpp, "--gdscript", gd, in});
+    TESSERA_CHECK(result.code == 1);
+    TESSERA_CHECK(result.out == cpp + ": up to date\n");
+    TESSERA_CHECK(Has(result.err, gd + ": error: this file is not what tessera_schema makes from " + in));
+    TESSERA_CHECK(Has(result.err, "\n  fix: make the files again with this command:\n"));
+    TESSERA_CHECK(Has(result.err,
+                      "\n    tessera_schema generate --cpp " + cpp + " --gdscript " + gd + " " + in + "\n"));
+    TESSERA_CHECK(!Has(result.err, "--check"));
+    TESSERA_CHECK(!Has(result.err, "line endings"));
+    TESSERA_CHECK(ReadAll(gd) == changed);
+}
+
+TESSERA_TEST(check_option_reports_a_missing_file_and_makes_nothing) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string cpp = dir.File("nowhere/out.hpp");
+    const std::vector<std::string> before = Snapshot(dir.Path());
+    const Outcome result = Call({"generate", "--check", "--cpp", cpp, in});
+    TESSERA_CHECK(result.code == 1);
+    TESSERA_CHECK(result.out.empty());
+    TESSERA_CHECK(Has(result.err, cpp + ": error: this file does not exist\n"));
+    TESSERA_CHECK(Has(result.err, "\n    tessera_schema generate --cpp " + cpp + " " + in + "\n"));
+    TESSERA_CHECK(!fs::exists(cpp) && !fs::exists(dir.Path() / "nowhere"));
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
+}
+
+TESSERA_TEST(check_option_works_with_one_output_or_both) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string cpp = dir.File("example.hpp");
+    const std::string gd = dir.File("example.gd");
+    TESSERA_CHECK(Call({"generate", "--cpp", cpp, "--gdscript", gd, in}).code == 0);
+    TESSERA_CHECK(Call({"generate", "--check", "--cpp", cpp, in}).code == 0);
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", gd, in}).code == 0);
+    // One output that is wrong does not matter for a check of the other.
+    dir.Write("example.hpp", WithOneByteChanged(ReadAll(cpp)));
+    TESSERA_CHECK(Call({"generate", "--check", "--cpp", cpp, in}).code == 1);
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", gd, in}).code == 0);
+    TESSERA_CHECK(Call({"generate", "--check", "--cpp", cpp, "--gdscript", gd, in}).code == 1);
+    // The output that is not asked for does not even have to exist.
+    fs::remove(cpp);
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", gd, in}).code == 0);
+    dir.Write("example.gd", WithOneByteChanged(ReadAll(gd)));
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", gd, in}).code == 1);
+}
+
+TESSERA_TEST(check_option_tells_when_only_the_line_endings_differ) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string gd = dir.File("example.gd");
+    TESSERA_CHECK(Call({"generate", "--gdscript", gd, in}).code == 0);
+    const std::string good = ReadAll(gd);
+    dir.Write("example.gd", WithCrLf(good));
+    const Outcome crlf = Call({"generate", "--check", "--gdscript", gd, in});
+    TESSERA_CHECK(crlf.code == 1);
+    TESSERA_CHECK(Has(crlf.err, "this file is not what tessera_schema makes from"));
+    TESSERA_CHECK(
+        Has(crlf.err, "  note: only the line endings differ; the tool writes LF (see .gitattributes)\n"));
+    // A file that differs in more than that does not get the note.
+    dir.Write("example.gd", WithCrLf(WithOneByteChanged(good)));
+    const Outcome other = Call({"generate", "--check", "--gdscript", gd, in});
+    TESSERA_CHECK(other.code == 1);
+    TESSERA_CHECK(Has(other.err, "this file is not what tessera_schema makes from"));
+    TESSERA_CHECK(!Has(other.err, "line endings"));
+    // And a file that is right says nothing about line endings.
+    dir.Write("example.gd", good);
+    TESSERA_CHECK(!Has(Call({"generate", "--check", "--gdscript", gd, in}).err, "line endings"));
+}
+
+TESSERA_TEST(check_option_follows_the_usage_rules_of_generate) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string cpp = dir.File("out.hpp");
+    const std::string gd = dir.File("out.gd");
+    struct Case {
+        std::vector<std::string> args;
+        std::string message;
+    };
+    const std::vector<Case> usage = {
+        {{"generate", "--check", in}, "generate needs --cpp <output.hpp>, --gdscript <output.gd>, or both"},
+        {{"generate", "--check", "--check", "--cpp", cpp, in}, "--check given twice"},
+        {{"generate", "--check", "--namespace", "x", "--gdscript", gd, in}, "--namespace needs --cpp"},
+        {{"generate", "--check", "--gdscript", gd, "--gdscript-class", "Node", in}, "bad --gdscript-class"},
+        {{"generate", "--check", "--cpp", in, in}, "would overwrite it"},
+        {{"generate", "--check", "--cpp", cpp}, "generate needs the schema file"},
+    };
+    for (const Case& test : usage) {
+        const Outcome result = Call(test.args);
+        TESSERA_CHECK(result.code == 2);
+        TESSERA_CHECK(result.out.empty());
+        TESSERA_CHECK(Has(result.err, test.message));
+        if (result.code != 2 || !Has(result.err, test.message)) {
+            std::printf("    for \"%s\" ...\n", test.message.c_str());
+        }
+    }
+    // A schema that is wrong gives the same messages as always, and nothing is written.
+    const std::string bad = dir.Write("bad.json", kBadSchema);
+    const std::vector<std::string> before = Snapshot(dir.Path());
+    const Outcome refused = Call({"generate", "--check", "--cpp", cpp, "--gdscript", gd, bad});
+    TESSERA_CHECK(refused.code == 1 && refused.out.empty());
+    TESSERA_CHECK(Has(refused.err, bad + ":2:"));
+    TESSERA_CHECK(!Has(refused.err, "make the files again"));
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
+    // A schema file that is not there is a file that could not be read.
+    const Outcome missing = Call({"generate", "--check", "--cpp", cpp, dir.File("nothing.json")});
+    TESSERA_CHECK(missing.code == 3 && missing.out.empty());
+    TESSERA_CHECK(Has(missing.err, "this file does not exist"));
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
+}
+
+TESSERA_TEST(check_option_returns_3_when_an_output_cannot_be_read) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string gd = dir.File("example.gd");
+    TESSERA_CHECK(Call({"generate", "--gdscript", gd, in}).code == 0);
+    dir.Write("example.gd", WithOneByteChanged(ReadAll(gd)));
+    fs::create_directories(dir.Path() / "a_folder");
+    const std::vector<std::string> before = Snapshot(dir.Path());
+    const Outcome folder = Call({"generate", "--check", "--cpp", dir.File("a_folder"), in});
+    TESSERA_CHECK(folder.code == 3);
+    TESSERA_CHECK(Has(folder.err, dir.File("a_folder") + ": error: this is a folder, not a file"));
+    TESSERA_CHECK(!Has(folder.err, "make the files again"));
+    // When one output cannot be read and another is different, the code is 3 and the different one is still
+    // reported.
+    const Outcome both = Call({"generate", "--check", "--cpp", dir.File("a_folder"), "--gdscript", gd, in});
+    TESSERA_CHECK(both.code == 3);
+    TESSERA_CHECK(Has(both.err, "this is a folder, not a file"));
+    TESSERA_CHECK(Has(both.err, gd + ": error: this file is not what tessera_schema makes from"));
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
+}
+
+TESSERA_TEST(check_option_writes_nothing_in_a_folder_without_write_permission) {
+    TempDir dir;
+    const std::string in = dir.Write("schema.json", ReadTestFile("fixtures/example.json"));
+    const std::string good = dir.File("locked/good.gd");
+    const std::string old = dir.File("locked/old.gd");
+    TESSERA_CHECK(Call({"generate", "--gdscript", good, in}).code == 0);
+    dir.Write("locked/old.gd", WithOneByteChanged(ReadAll(good)));
+    const fs::path locked = dir.Path() / "locked";
+    std::error_code error;
+    fs::permissions(locked, fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write,
+                    fs::perm_options::remove, error);
+    const RestoreWriting restore{locked};
+    // Not every system keeps a file out of a folder like this (a program that runs as the administrator, and
+    // Windows, can still write there): then there is nothing to prove, and the test says so.
+    {
+        std::ofstream probe(locked / "probe", std::ios::binary);
+        if (probe) {
+            probe.close();
+            fs::remove(locked / "probe", error);
+            std::printf("  skipped: this system lets the folder be written\n");
+            return;
+        }
+    }
+    const std::vector<std::string> before = Snapshot(dir.Path());
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", good, in}).code == 0);
+    TESSERA_CHECK(Call({"generate", "--check", "--gdscript", old, in}).code == 1);
+    TESSERA_CHECK(Snapshot(dir.Path()) == before);
 }

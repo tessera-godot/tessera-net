@@ -4,3 +4,4 @@
 *.py text eol=lf
 tests/schema/golden/** text eol=lf
 examples/godot-client-demo/example_schema.gd text eol=lf
+examples/game-schema/godot/game_schema.gd text eol=lf

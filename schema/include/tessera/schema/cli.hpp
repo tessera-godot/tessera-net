@@ -10,7 +10,9 @@ namespace tessera::schema {
 
 /// Runs one command. `args` are the arguments without the program name. Messages for the user go to `out`
 /// (results) and `err` (usage and errors). Returns the exit code: 0 for success, 1 when the file or the
-/// schema is wrong, 2 for a wrong command line, 3 when a file cannot be read or written.
+/// schema is wrong, 2 for a wrong command line, 3 when a file cannot be read or written. With
+/// `generate --check` nothing is written: 0 means that every output is what the schema makes, 1 that one is
+/// different or missing (3 wins over 1 when an output exists and cannot be read).
 int Run(std::span<const std::string> args, std::ostream& out, std::ostream& err);
 
 } // namespace tessera::schema

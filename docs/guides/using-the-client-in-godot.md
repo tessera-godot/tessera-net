@@ -65,6 +65,9 @@ names connect, and a typo in a name shows up as `null` when you read the value.
 
 ### Generate it from the server's schema file
 
+To have this done by the build of your own game, and to see the whole way from the schema file to the client, read
+[Describe your entities once](describe-your-entities-once.md). What follows is the tool by hand.
+
 If the server's entities are described in a [schema file](../reference/schema-file.md), you do not have to write the
 client's description at all. From the root of this repository, with the tool built (`tessera_schema` is part of the
 server build):

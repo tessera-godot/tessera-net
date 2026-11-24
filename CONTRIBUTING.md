@@ -57,6 +57,13 @@ Short, in the imperative mood, in English (for example: `Add entity handle type`
 
 See the build section of the [README](README.md). All tests must pass before you open a pull request.
 
+### The schema example as a project of its own
+
+`-DTESSERA_TEST_SCHEMA_PROJECT=ON` (off by default) also tests the schema tool from outside: it builds
+`examples/game-schema` as a separate project that has this repository as a folder, the way a game would. That builds the
+core library and the tool a second time, which took about a minute here (54 s in Debug and 60 s in Release, on Windows),
+so the CI turns it on in a few of the jobs that build the server, and you can leave it off.
+
 ### Running the CI checks locally
 
 The workflow in `.github/workflows/ci.yml` builds and tests with these presets, in Release and Debug, with and without

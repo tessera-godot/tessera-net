@@ -1,0 +1,24 @@
+{
+  "format_version": 1,
+  "types": [
+    {
+      "type": 1,
+      "name": "monster",
+      "note": "Walks around and attacks players.",
+      "properties": [
+        {"name": "position", "kind": "position", "step": 0.01, "range": 1000.0, "note": "In meters."},
+        {"name": "health", "kind": "integer", "min": 0, "max": 100, "signed": false},
+        {"name": "enraged", "kind": "flag"}
+      ]
+    },
+    {
+      "type": 2,
+      "name": "crate",
+      "note": "Stays where it is, and holds one kind of loot.",
+      "properties": [
+        {"name": "position", "kind": "position", "step": 0.01, "range": 1000.0},
+        {"name": "loot", "kind": "choice", "count": 4, "note": "Which of four kinds of loot."}
+      ]
+    }
+  ]
+}

@@ -17,10 +17,10 @@ endif()
 
 # The entity columns and the schema of the example come from a schema file, turned into C++ while the project is
 # built (in the build folder, not in the source tree). Everything that includes example_game.hpp links this.
-tessera_schema_generate_cpp(tessera_example_schema
-                            SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/example/example_schema.json
-                            OUTPUT ${PROJECT_BINARY_DIR}/generated/server_example/example_schema.hpp
-                            NAMESPACE tessera::server::example::schema)
+tessera_schema_generate(tessera_example_schema
+                        SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/example/example_schema.json
+                        CPP ${PROJECT_BINARY_DIR}/generated/server_example/example_schema.hpp
+                        NAMESPACE tessera::server::example::schema)
 
 # The example server: a small game over the ENet transport, and the model for writing your own.
 if(TESSERA_BUILD_ENET)

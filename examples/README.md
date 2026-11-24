@@ -6,3 +6,4 @@ larger worlds. Added as features are released.
 | Example | What it shows |
 |---|---|
 | [`godot-client-demo`](godot-client-demo/README.md) | A Godot project that connects to the example server, draws one sphere for each entity, and moves your own sphere with WASD, at once, with a prediction that the server corrects. The other spheres are shown about 66 ms in the past, smoothed between two states of the server. If the connection drops, it tries again on its own, as a new player. |
+| [`game-schema`](game-schema/README.md) | A small server project whose entities are described once, in a schema file. The build makes the C++ for the server and the GDScript for a Godot client from that file. |

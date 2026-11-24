@@ -99,7 +99,7 @@ presets, `build/windows-msvc-server/schema/Debug/tessera_schema.exe`).
 ```text
 tessera_schema check <schema.json>
 tessera_schema hash <schema.json>
-tessera_schema generate [--cpp <output.hpp> [--namespace a::b]]
+tessera_schema generate [--check] [--cpp <output.hpp> [--namespace a::b]]
                         [--gdscript <output.gd> [--gdscript-class Name]] <schema.json>
 ```
 
@@ -116,9 +116,30 @@ tessera_schema generate [--cpp <output.hpp> [--namespace a::b]]
   It refuses to write over the schema file itself, and to write the header and the script to one path, and an option
   given twice. The header is written first and then the script: if the script cannot be written, the header already
   has been.
+- `generate --check` takes the same arguments and writes nothing, not a file and not a folder. For each output it asks
+  for, it says whether the file is what the tool makes from the schema now. Use it to find out that a file you keep in
+  the repository has gone out of date (see [In your build](#in-your-build-cmake)).
 
 The exit code is 0 when all went well, 1 when the file or the schema is wrong, 2 when the command line is wrong, and 3 when
-a file could not be read or written.
+a file could not be read or written. With `--check`, 0 means that every output is what the schema makes, and 1 that one
+is different or missing (3 wins when an output exists and cannot be read, a folder for example). This is what it says
+about a file that is up to date:
+
+```text
+examples/godot-client-demo/example_schema.gd: up to date
+```
+
+and about one that is not (the path of the file you gave is first, and the command is the one you ran, without
+`--check`):
+
+```text
+example_schema.gd: error: this file is not what tessera_schema makes from server/example/example_schema.json now
+  fix: make the files again with this command:
+    tessera_schema generate --gdscript example_schema.gd --gdscript-class ExampleSchema server/example/example_schema.json
+```
+
+A file that is only a line ending away (CRLF where the tool writes LF) is reported the same way, with the extra line
+`note: only the line endings differ; the tool writes LF (see .gitattributes)`.
 
 Errors go to the error output, one for each problem, with the file, the line and the column, and a correction when there is
 an obvious one. This is the output for a file with a few mistakes:
@@ -261,9 +282,47 @@ refuses it, though Godot may not. When you choose `Node`, it says so and suggest
 The list is the one of Godot 4.7.2: a newer Godot may add classes, and a class or an autoload of your own project with
 the same name is not known to the tool. Godot has the last word, and it reports the clash when it loads the script.
 
+## In your build (CMake)
+
+`schema/cmake/tessera_schema.cmake` has two functions for a project that brings this repository in as a folder
+(`add_subdirectory`) with `TESSERA_BUILD_SCHEMA_TOOL` set to `ON` before it; they only exist when the tool is built. The
+[guide](../guides/describe-your-entities-once.md) goes through an example project step by step.
+
+```cmake
+tessera_schema_generate(<target> SCHEMA <schema.json>
+                        [CPP <header.hpp> [NAMESPACE <a::b>]]
+                        [GDSCRIPT <script.gd> [CLASS <Name>]])
+
+tessera_schema_check_test(<test name> SCHEMA <schema.json>
+                          [CPP <header.hpp> [NAMESPACE <a::b>]]
+                          [GDSCRIPT <script.gd> [CLASS <Name>]])
+```
+
+`tessera_schema_generate` makes the files while your project is built; give `CPP`, `GDSCRIPT` or both. A relative path
+is read from a different folder for each option:
+
+| Option | In `tessera_schema_generate` | In `tessera_schema_check_test` |
+|---|---|---|
+| `SCHEMA`, `GDSCRIPT` | the folder of the `CMakeLists.txt` that makes the call | the same |
+| `CPP` | the build folder | the folder of the `CMakeLists.txt` |
+
+It makes `<target>`, a library with no code that carries the folder of the header and the core library, so that what
+links it can include the header; `<target>_generate`, which writes the header when the schema file changes; and
+`<target>_gdscript`, which is part of every build and writes the script each time (the tool does not write a file again
+when its bytes would be the same). The script is not the output of a build rule because `clean` deletes the outputs of
+build rules, also those in the source folder (seen with the Visual Studio and Ninja generators), and the script is a
+file you keep. An option that is wrong, missing or given twice, or a schema file that is not there, stops the configure
+with a message that starts with the name of the call and says how to write it. The values are checked by the tool, which
+runs in the build: a `NAMESPACE` such as `std` or a `CLASS` such as `Node` passes the configure and is refused by the
+tool when the project is built.
+
+`tessera_schema_check_test` registers a test for `ctest` that runs `generate --check` on files you keep in the
+repository, and fails with the command that makes them again when they are old. This repository uses it for the script of
+the demo (`tessera_schema_demo_check`).
+
 ## How the example server uses it
 
-`server/example/example_game.hpp` has no `AddType` of its own. `server/CMakeLists.txt` makes
+`server/example/example_game.hpp` has no `AddType` of its own. `server/CMakeLists.txt` calls `tessera_schema_generate` to make
 `example_schema.hpp` from `server/example/example_schema.json` while the project is built, in
 `build/<preset>/generated/server_example/` and not in the source tree, and the example includes it. The hash of the
 schema that comes out is the same as the one the example had when it was written by hand: `0x04b6ebf2e86202d0` with
@@ -280,7 +339,6 @@ tessera_schema generate --gdscript examples/godot-client-demo/example_schema.gd 
 
 ## What does not exist yet
 
-- A CMake function that makes the files in the build of your own game. Today the tool is run by hand, or from a build
-  step you write, as this repository does for the example server and the tests.
+- An installed package: there is no `find_package`. You add this repository as a folder of your project.
 - A way to move from one version of a schema to another: the hash only tells that two schemas differ.
 - Kinds of property beyond the six above.

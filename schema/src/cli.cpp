@@ -10,6 +10,7 @@
 #include "tessera/schema/schema_file.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +19,7 @@
 #include <ostream>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace tessera::schema {
@@ -34,7 +36,7 @@ void PrintUsage(std::ostream& stream) {
         << "Usage:\n"
         << "  tessera_schema check <schema.json>\n"
         << "  tessera_schema hash <schema.json>\n"
-        << "  tessera_schema generate [--cpp <output.hpp> [--namespace a::b]]\n"
+        << "  tessera_schema generate [--check] [--cpp <output.hpp> [--namespace a::b]]\n"
         << "                          [--gdscript <output.gd> [--gdscript-class Name]] <schema.json>\n"
         << "\n"
         << "check     reads the file, checks it as the server does, and says how many types it has and "
@@ -44,11 +46,14 @@ void PrintUsage(std::ostream& stream) {
            "both.\n"
         << "          Nothing is written when the schema is wrong.\n"
         << "\n"
+        << "--check            says whether the files are what the schema makes now, and writes nothing.\n"
         << "--namespace        the namespace of the C++ header (default game_schema).\n"
         << "--gdscript-class   the class_name of the script (default GameSchema).\n"
         << "\n"
-        << "Exit codes: 0 done, 1 the file or the schema is wrong, 2 the command line is wrong, 3 a file\n"
-        << "could not be read or written.\n";
+        << "Exit codes: 0 done (with --check: every file is what the schema makes), 1 the file or the schema "
+           "is\n"
+        << "wrong (with --check: a file is not what the schema makes, or is missing), 2 the command line is\n"
+        << "wrong, 3 a file could not be read or written.\n";
 }
 
 int UsageError(std::ostream& err, const std::string& message) {
@@ -226,6 +231,126 @@ int WriteIfChanged(const std::string& output, const std::string& text, std::ostr
     return kOk;
 }
 
+enum class Match { kSame, kDifferent, kMissing, kUnreadable };
+
+struct CheckVerdict {
+    Match match = Match::kSame;
+    bool only_line_endings = false; // the file is the same text with CR LF where the tool writes LF
+    std::string problem;            // for kUnreadable: what went wrong
+};
+
+std::string WithoutCarriageReturns(const std::string& text) {
+    std::string result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n') {
+            continue;
+        }
+        result += text[i];
+    }
+    return result;
+}
+
+// Says whether `output` holds exactly `text`. It only reads: nothing is written, not even a folder.
+CheckVerdict CheckOutput(const std::string& output, const std::string& text) {
+    CheckVerdict verdict;
+    const std::filesystem::path path(output);
+    std::error_code error;
+    if (!std::filesystem::exists(path, error)) {
+        verdict.match = Match::kMissing;
+        return verdict;
+    }
+    if (std::filesystem::is_directory(path, error)) {
+        verdict.match = Match::kUnreadable;
+        verdict.problem = "this is a folder, not a file";
+        return verdict;
+    }
+    if (!std::filesystem::is_regular_file(path, error)) {
+        verdict.match = Match::kUnreadable;
+        verdict.problem = "this is not a regular file";
+        return verdict;
+    }
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) {
+        verdict.match = Match::kUnreadable;
+        verdict.problem = "cannot read this file";
+        return verdict;
+    }
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        verdict.match = Match::kUnreadable;
+        verdict.problem = "cannot open this file (maybe you are not allowed to read it)";
+        return verdict;
+    }
+    // A file that is more than twice as long as the text cannot be the text with other line endings, and is
+    // not read.
+    if (size > 2 * static_cast<std::uintmax_t>(text.size()) + 64) {
+        verdict.match = Match::kDifferent;
+        return verdict;
+    }
+    const std::string existing((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (file.bad()) {
+        verdict.match = Match::kUnreadable;
+        verdict.problem = "cannot read this file";
+        return verdict;
+    }
+    if (existing == text) {
+        return verdict;
+    }
+    verdict.match = Match::kDifferent;
+    verdict.only_line_endings = WithoutCarriageReturns(existing) == text;
+    return verdict;
+}
+
+// Writes an argument as it has to be typed in a command: in quotes when it holds a space or is empty.
+std::string AsTyped(const std::string& arg) {
+    return arg.empty() || arg.find(' ') != std::string::npos ? "\"" + arg + "\"" : arg;
+}
+
+// What `generate --check` does with the outputs: says for each one whether it is what the schema makes, and
+// writes nothing. Returns the exit code.
+int CheckOutputs(std::span<const std::string> args, const std::string& input,
+                 const std::vector<std::pair<std::string, std::string>>& outputs, std::ostream& out,
+                 std::ostream& err) {
+    int code = kOk;
+    bool needs_making = false;
+    for (const auto& [path, text] : outputs) {
+        const CheckVerdict verdict = CheckOutput(path, text);
+        switch (verdict.match) {
+        case Match::kSame:
+            out << path << ": up to date\n";
+            break;
+        case Match::kDifferent:
+            err << path << ": error: this file is not what tessera_schema makes from " << input << " now\n";
+            if (verdict.only_line_endings) {
+                err << "  note: only the line endings differ; the tool writes LF (see .gitattributes)\n";
+            }
+            needs_making = true;
+            code = code == kCannotUseFile ? code : kBadFile;
+            break;
+        case Match::kMissing:
+            err << path << ": error: this file does not exist\n";
+            needs_making = true;
+            code = code == kCannotUseFile ? code : kBadFile;
+            break;
+        case Match::kUnreadable:
+            err << path << ": error: " << verdict.problem << "\n";
+            code = kCannotUseFile;
+            break;
+        }
+    }
+    if (needs_making) {
+        err << "  fix: make the files again with this command:\n    tessera_schema generate";
+        for (size_t i = 1; i < args.size(); ++i) {
+            if (args[i] != "--check") {
+                err << " " << AsTyped(args[i]);
+            }
+        }
+        err << "\n";
+    }
+    return code;
+}
+
 // True when two paths are the same file, also when one of them is not there yet (the paths are compared after
 // the folders in them have been resolved).
 bool SameFile(const std::string& a, const std::string& b) {
@@ -256,9 +381,16 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
     bool has_gdscript = false;
     bool has_namespace = false;
     bool has_class = false;
+    bool check_only = false;
     for (size_t i = 1; i < args.size(); ++i) {
         const std::string& arg = args[i];
-        if (arg == "--cpp" || arg == "--namespace" || arg == "--gdscript" || arg == "--gdscript-class") {
+        if (arg == "--check") {
+            if (check_only) {
+                return UsageError(err, "--check given twice");
+            }
+            check_only = true;
+        } else if (arg == "--cpp" || arg == "--namespace" || arg == "--gdscript" ||
+                   arg == "--gdscript-class") {
             if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
                 return UsageError(err, arg + " needs a value");
             }
@@ -336,6 +468,16 @@ int RunGenerate(std::span<const std::string> args, std::ostream& out, std::ostre
     const std::string cpp_text = has_cpp ? GenerateCpp(loaded->file, loaded->check.hash, cpp_options) : "";
     const std::string gdscript_text =
         has_gdscript ? GenerateGdScript(loaded->file, loaded->check.hash, gdscript_options) : "";
+    if (check_only) {
+        std::vector<std::pair<std::string, std::string>> outputs;
+        if (has_cpp) {
+            outputs.emplace_back(cpp_output, cpp_text);
+        }
+        if (has_gdscript) {
+            outputs.emplace_back(gdscript_output, gdscript_text);
+        }
+        return CheckOutputs(args, input, outputs, out, err);
+    }
     if (has_cpp) {
         const int written = WriteIfChanged(cpp_output, cpp_text, out, err);
         if (written != kOk) {
