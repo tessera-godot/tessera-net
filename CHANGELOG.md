@@ -15,8 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Two CMake functions, in `schema/cmake/tessera_schema.cmake`, for a project that brings this repository in with
   `add_subdirectory` and `TESSERA_BUILD_SCHEMA_TOOL=ON`: `tessera_schema_generate` makes the C++ header and the GDScript
   of a schema file while the project is built, and `tessera_schema_check_test` registers a `ctest` test that runs
-  `generate --check` on files you keep in the repository. A call that is wrong stops the configure with a message that
-  says how to write it. See `docs/reference/schema-file.md`.
+  `generate --check` on files you keep in the repository. A call that is put together wrong stops the configure with a message that
+  says how to write it; a value that the tool refuses (a `NAMESPACE` such as `std`) stops the build instead. See `docs/reference/schema-file.md`.
 - An example project, `examples/game-schema`: a schema file with two types, a small server program that uses the
   generated header, and the generated script, kept in the repository.
 - A guide, `docs/guides/describe-your-entities-once.md`, that goes through the example from the schema file to the
@@ -28,7 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   is the one kept in the example, and that `--check` follows a change in the schema file. It takes about a minute
   (54 s in Debug and 60 s in Release on a Windows machine), and the CI turns it on in a few of the jobs
   that build the server (see `CONTRIBUTING.md`).
-- Tests: `tessera_schema_tests` has 152 tests (it had 134), and the `ctest` of the presets that build the server has one
+- Tests: `tessera_schema_tests` has 154 tests (it had 134), and the `ctest` of the presets that build the server has one
   more test, `tessera_schema_function_usage` (7 for the server preset, 10 for the ENet one, 13 for the extension in
   Debug and 12 in Release), and one more with `TESSERA_TEST_SCHEMA_PROJECT=ON`.
 - `tessera_schema generate --gdscript <output.gd> [--gdscript-class Name]` writes the GDScript of the client from the same

@@ -95,8 +95,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # The schema example as a project of its own is tested in the server jobs, in both configurations (one configure
-      # serves both).
+      # The schema example as a project of its own is tested in the server jobs, both the release and the debug one.
       - name: Configure
         run: cmake --preset windows-msvc-${{ matrix.mode }} -DTESSERA_BUILD_BENCH=OFF ${{ matrix.mode == 'server' && '-DTESSERA_TEST_SCHEMA_PROJECT=ON' || '' }}
 
